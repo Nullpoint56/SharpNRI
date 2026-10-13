@@ -1,0 +1,47 @@
+CMake: make the Apple link of the Vulkan loader an option.
+
+PR 134 added find_package(Vulkan) and a link of Vulkan_LIBRARIES into NRI_VK on Apple so that
+samples launched from an IDE without the Vulkan SDK environment could find the loader. The
+maintainer noted in review that "VK static linking is just not needed because it gets loaded
+dynamically, except your specific case" and asked for a condition; it was merged unconditional.
+The effect on a shipped library: libNRI.dylib carries the absolute install name of the build
+machine's loader (Homebrew's /opt/homebrew/opt/vulkan-loader/lib/libvulkan.1.dylib on a
+GitHub runner) and will not load at all on a machine without that file, NONE backend included,
+while DeviceVK still dlopens "libvulkan.1.dylib" at device creation as on every other platform.
+
+This patch wraps both lines in NRI_ENABLE_VULKAN_LOADER_LINKING, default ON on Apple so nothing
+changes for upstream's samples; a packager passes OFF and ships or finds the loader at runtime
+(docs/findings.md 9.1, 9.9). Applies on top of NRI v190 with patches 0001 to 0006.
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 576f86e..2921053 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -123,6 +123,9 @@ cmake_dependent_option(NRI_ENABLE_D3D11_SUPPORT "Enable D3D11 backend" ON "WIN32
+ cmake_dependent_option(NRI_ENABLE_D3D12_SUPPORT "Enable D3D12 backend" ON "WIN32" OFF)
+ cmake_dependent_option(NRI_ENABLE_NVTX_SUPPORT "Annotations for NVIDIA Nsight Systems" ON "NOT IOS" OFF)
+ cmake_dependent_option(NRI_ENABLE_VK_SUPPORT "Enable Vulkan backend" ON "NOT IOS" OFF)
++# PrismNRI patch 0007: the Apple link of the loader (PR 134) is an IDE convenience that makes the library
++# unloadable without a loader on the default dyld paths; everywhere else NRI loads the loader at runtime.
++cmake_dependent_option(NRI_ENABLE_VULKAN_LOADER_LINKING "Link the Vulkan loader into the library (otherwise it is loaded at runtime)" ON "APPLE; NRI_ENABLE_VK_SUPPORT" OFF)
+ cmake_dependent_option(NRI_ENABLE_NIS_SDK "Enable NVIDIA Image Sharpening SDK" OFF "NOT IOS" OFF)
+ cmake_dependent_option(NRI_ENABLE_WGPU_SUPPORT "Enable WebGPU backend" ${GITHUB_CI} "WGPU_BIN_ARCHITECTURE; NOT ANDROID; NOT IOS" OFF)
+ cmake_dependent_option(NRI_ENABLE_METAL_SUPPORT "Enable Metal 4 backend" ${NRI_METAL_SUPPORT_DEFAULT} "APPLE" OFF)
+@@ -796,7 +799,7 @@ endif()
+ 
+ # VK
+ if(NRI_ENABLE_VK_SUPPORT)
+-    if(APPLE)
++    if(NRI_ENABLE_VULKAN_LOADER_LINKING)
+         find_package(Vulkan REQUIRED)
+     endif()
+ 
+@@ -894,7 +897,7 @@ if(NRI_ENABLE_VK_SUPPORT)
+     target_link_libraries(NRI_VK
+         PRIVATE
+             NRI_Shared
+-            $<$<BOOL:${APPLE}>:
++            $<$<BOOL:${NRI_ENABLE_VULKAN_LOADER_LINKING}>:
+                 ${Vulkan_LIBRARIES}
+             >
+     )

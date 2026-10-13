@@ -10,6 +10,7 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0004 Vulkan minor version above the instance's | bug | to file with 0003 |
 | 0005 `MemoryHeap::alignment` uninitialised (GCC `-Werror` build) | bug | to file with 0003 |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug | to file with 0003 |
+| 0007 Apple loader link should be optional | cleanup | to file after 0003, cite PR 134 |
 | 0001 Agility SDK from a path | proposal | to file after 0003 |
 | 0002 SharedHandle extension | proposal | to file once the editor has used it |
 
@@ -83,6 +84,24 @@ Reproduces on v190, macOS 26.6, MoltenVK 1.4.2, validation layer 1.4.357: `Creat
 `imageView2DOn3DImage` from it. Fix: report 0 when the subset is enabled without
 `samplerMipLodBias`. Patch attached (`patches/0006-vulkan-portability-sampler-lod-bias.patch`), 6
 lines; with it the device reports 0 and a sampler made within the limit validates clean.
+
+## 0007 — The Apple link of the Vulkan loader makes the library unloadable without it
+
+**Title:** `NRI_ENABLE_VULKAN_LOADER_LINKING`: make PR 134's Apple loader link optional
+
+PR 134 added `find_package(Vulkan REQUIRED)` and a link of `Vulkan_LIBRARIES` into `NRI_VK` on
+Apple so that samples started from an IDE without the Vulkan SDK environment could find the
+loader; the review said the link "is just not needed because it gets loaded dynamically, except
+your specific case" and asked for a condition, and it merged unconditional. A library built on a
+machine with Homebrew's loader records `/opt/homebrew/opt/vulkan-loader/lib/libvulkan.1.dylib` as
+a load-time dependency and does not load on a Mac without that file, NONE backend included,
+while `DeviceVK` still `dlopen`s `libvulkan.1.dylib` at device creation exactly as on Linux.
+
+Proposal: an option, default ON on Apple so the sample workflow keeps working, OFF for anyone
+shipping the library. Measured on v190 on a GitHub macOS runner: with the option off the library
+links only the system, loads without a loader, and the Vulkan backend finds Homebrew's loader
+through `DYLD_FALLBACK_LIBRARY_PATH` as before. Patch attached
+(`patches/0007-cmake-vulkan-loader-link-option.patch`), 3 lines changed.
 
 ## 0001 — Load the Agility SDK from a path when the host cannot export `D3D12SDKVersion`
 

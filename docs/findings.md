@@ -648,3 +648,26 @@ import proofs (Windows path), 3 video, 3 payload contracts that do not exist for
 (Upscalers twice, Agility), and one each for ray tracing, mesh shaders, descriptor heaps, the
 shading-rate attachment, PE imports, the Windows swap-chain window, NIS (Base variant) and the
 two paravirtual-device defects (9.5, 9.6). The tests take about 4 seconds.
+
+### 9.9 Four decisions, and what was done with them
+
+- **The two device-name skips stay.** §9.5 and §9.6 are driver defects on the paravirtual Metal
+  device with no feature bit to key on. They remain keyed on the adapter name with the defect as
+  the reason, and the rule and its exception are written down in design §4.6.
+- **The loader link becomes patch 0007.** Upstream history: PR 134 (merged April 2025) added
+  the Apple link so that samples launched from an IDE without the Vulkan SDK environment could
+  find the loader; the maintainer's review said the static link "is just not needed because it
+  gets loaded dynamically, except your specific case" and asked for a condition, and the change
+  merged unconditional. No issue reports the consequence for a shipped library. The patch wraps
+  the two lines in `NRI_ENABLE_VULKAN_LOADER_LINKING`, default ON so upstream's workflow is
+  unchanged, and `build-native.ps1` passes OFF for osx-arm64. The library then links only the
+  system and the Vulkan backend finds the loader through `DYLD_FALLBACK_LIBRARY_PATH` on the
+  runner as before. NRI's `DeviceCreationDesc` has no loader-path field (only the wrapper route's
+  `DeviceCreationVKDesc::libraryPath` has one), so a consumer that ships its own loader puts it
+  on a path dyld searches; recorded in the guide.
+- **Deployment target 15.0.** NRI pins none, so the library inherited the runner's own version
+  (26.0). MoltenVK's runtime minimum is macOS 12.0; .NET 11 supports macOS 15 and newer; the
+  binding cannot run below .NET's floor, so `CMAKE_OSX_DEPLOYMENT_TARGET=15.0` is the lowest
+  version that can matter and is what the script passes.
+- **The sampler bias adaptation stays.** The test asks for `min(0.5, samplerLodBiasMax)` and
+  records both numbers (§9.4); the guide's traps table carries the consumer-facing rule.

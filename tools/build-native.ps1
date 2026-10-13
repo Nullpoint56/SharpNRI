@@ -245,6 +245,10 @@ if ($targetLinux -and -not $env:CXX -and (Get-Command clang++ -ErrorAction Silen
 # written against. The architecture is pinned so a pwsh running under Rosetta, or a universal
 # default, cannot produce anything but an arm64 library for an arm64 RID.
 if ($targetMac) { $cmakeArgs += "-DCMAKE_OSX_ARCHITECTURES=$(if ($targetArm64) { 'arm64' } else { 'x86_64' })" }
+# The loader is loaded at runtime like everywhere else (patch 0007), never linked: a library that
+# links Homebrew's loader by absolute path does not load on a Mac without it. The deployment
+# target is .NET 11's oldest macOS (15); MoltenVK asks for 12, NRI pins nothing (findings 9.9).
+if ($targetMac) { $cmakeArgs += @("-DNRI_ENABLE_VULKAN_LOADER_LINKING=OFF", "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0") }
 if (-not $targetWindows -or $Generator) { $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Configuration" }  # single-config generators
 $cmakeArgs += @(
     "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$(& $fwd $binRoot)"      # NRI defaults these to nri/_Bin
@@ -335,18 +339,17 @@ if ($targetWindows) {
         Write-Warning "dumpbin not found; NRI.dll's imports were not checked"
     }
 }
-# macOS: unlike on Windows and Linux, NRI's CMakeLists links the Vulkan loader into the library on
-# Apple (find_package(Vulkan), Vulkan_LIBRARIES), by the absolute install name of whatever loader
-# the build machine had, and still dlopens "libvulkan.1.dylib" at device creation. So a Vulkan
-# loader must be present for libNRI.dylib to load at all, NONE backend included (findings §9.1).
-# Anything else outside the system is unexpected; MoltenVK linked directly would bypass the loader
-# and with it the validation layer. The minimum macOS version stamped into the library is the
-# oldest system that will load it.
+# macOS: NRI's CMakeLists would link the Vulkan loader into the library on Apple by the absolute
+# install name of whatever loader the build machine had (findings 9.1); patch 0007 turns that off
+# and the loader is dlopened at device creation as on Linux. So the library may link nothing but
+# the system: a loader link means the option was lost, MoltenVK linked directly would bypass the
+# loader and with it the validation layer. The minimum macOS version stamped into the library is
+# the deployment target above.
 if ($targetMac) {
     $linked = @(otool -L (Join-Path $bin $libName) | Select-Object -Skip 1 | ForEach-Object { ($_.Trim() -split ' \(')[0] })
     Write-Host "==> $libName links: $($linked -join ', ')"
-    $foreign = @($linked | Where-Object { $_ -notmatch '^(/usr/lib/|/System/|@rpath/libNRI\.dylib$)' -and $_ -notmatch '/libvulkan\.1\.dylib$' })
-    if ($foreign) { throw "$libName links something other than the system and the Vulkan loader: $($foreign -join ', ')" }
+    $foreign = @($linked | Where-Object { $_ -notmatch '^(/usr/lib/|/System/|@rpath/libNRI\.dylib$)' })
+    if ($foreign) { throw "$libName links something other than the system: $($foreign -join ', ')" }
     $build_ = @(otool -l (Join-Path $bin $libName) | Select-String -Pattern '^\s*(minos|sdk)\s' | ForEach-Object { $_.Line.Trim() })
     Write-Host "    build version: $($build_ -join ', ')"
 }
