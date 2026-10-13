@@ -500,3 +500,14 @@ proof: the failing host was not caught with the diagnostics on, and the pin was 
 `vulkaninfo` ran. If the test fails again with the pin in place, the printed device line and CPU
 model are the first thing to read. This is a lavapipe matter, nothing a user of the binding sees
 on a real GPU.
+
+**Correction, later the same day.** The AVX-512 reading above was backwards. With
+`LP_NATIVE_VECTOR_WIDTH=256` in place the test failed again, on an "AMD EPYC 7763" host that has
+no `avx512f`; it passed five runs out of five on an "AMD EPYC 9V74" that has it, and the WSL host
+that never fails is a Ryzen 9700X, also AVX-512. So the hosts that hit are the AVX-512 ones and
+the host that misses is the one without, which points at LLVM 20's code generation for lavapipe's
+ray query on the AVX2 path. `GALLIUM_OVERRIDE_CPU_CAPS` cannot narrow it further: `avx` and
+`sse4.1` both make lavapipe die with an illegal instruction before any test runs. The pin is
+removed. The test now treats a software adapter as a measurement of the build-and-dispatch path:
+validation errors still fail it, a wrong hit map is recorded in the skip reason, and the hit
+assertions stay as they are on hardware. The probe step stays so that each host leaves its map.

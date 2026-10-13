@@ -64,10 +64,6 @@ jobs:
   linux-x64:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      # lavapipe picks its SIMD width from the host; the ray query test fails on runner hosts
-      # that take the 512-bit path and passes everywhere the 256-bit one runs (findings 8.8).
-      LP_NATIVE_VECTOR_WIDTH: "256"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -134,9 +130,9 @@ jobs:
       - name: Build managed
         run: dotnet build PrismNRI.slnx -c Release
 
-      # The ray query test passes on some runner hosts and fails on others with identical packages
-      # (findings 8.8). Until the host-side cause is known this runs it on its own several times and
-      # prints the hit map, so a failing host leaves a picture rather than "expected 1, got 0".
+      # lavapipe's ray query misses the triangle on runner hosts without AVX-512 and hits it on
+      # those with it (findings 8.8). The test records and skips on a software adapter; this step
+      # runs it on its own first so the host's hit map is in the log whatever it does.
       - name: Ray query probe
         continue-on-error: true
         run: |
