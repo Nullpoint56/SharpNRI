@@ -31,7 +31,9 @@ public sealed class UpscalerExtensionTests
     /// <summary>Skips when the staged native variant has no NIS, which is the Base variant.</summary>
     private static void RequireNis(NriDevice device) =>
         Assert.SkipUnless(device.TryUpscaler?.IsUpscalerSupported(UpscalerType.NIS) == true,
-            "NIS is not compiled into the staged NRI.dll (Base variant); run tools/build-native.ps1 -Variant Upscalers and copy its NRI.dll beside the tests");
+            OperatingSystem.IsMacOS()
+                ? "NIS is not compiled into the staged libNRI.dylib (Base variant, the only one built for osx-arm64)"
+                : "NIS is not compiled into the staged NRI.dll (Base variant); run tools/build-native.ps1 -Variant Upscalers and copy its NRI.dll beside the tests");
 
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]

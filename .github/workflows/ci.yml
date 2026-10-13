@@ -184,7 +184,7 @@ jobs:
           echo "ICD: $VK_DRIVER_FILES"
           cat "$(brew --prefix)/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json" | grep -E '"(api_version|implementation_version|library_path)"' || true
           vulkaninfo --summary || true
-          vulkaninfo 2>/dev/null | grep -E "maxSamplerLodBias|samplerMipLodBias|hostImageCopy|identicalMemoryTypeRequirements" || true
+          vulkaninfo 2>/dev/null | grep -E "maxSamplerLodBias|samplerMipLodBias|hostImageCopy|timestampValidBits|timestampComputeAndGraphics|timestampPeriod|VK_KHR_external_(memory|semaphore)|VK_EXT_external_memory_metal" || true
 
       - name: Read NRI pin
         id: pin
