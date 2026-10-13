@@ -64,6 +64,10 @@ jobs:
   linux-x64:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # lavapipe picks its SIMD width from the host; the ray query test fails on runner hosts
+      # that take the 512-bit path and passes everywhere the 256-bit one runs (findings 8.8).
+      LP_NATIVE_VECTOR_WIDTH: "256"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,7 +80,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
-            ninja-build clang libvulkan1 mesa-vulkan-drivers vulkan-validationlayers \
+            ninja-build clang libvulkan1 mesa-vulkan-drivers vulkan-validationlayers vulkan-tools \
             libx11-dev libwayland-dev
 
       # The Khronos validation layer that matches NRI's Vulkan headers. Ubuntu's package is 1.3.275
@@ -96,6 +100,14 @@ jobs:
 
       - name: Put the layer in front of the system one
         run: echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/_tools/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
+      # What the tests actually run on. Runner hosts differ (one host passed the ray query test,
+      # the next failed it with the same packages), and lavapipe JIT-compiles for the host CPU.
+      - name: Vulkan device and host CPU
+        run: |
+          vulkaninfo --summary 2>/dev/null | grep -E "deviceName|driverInfo|driverVersion|apiVersion" || true
+          lscpu | grep -m1 "Model name"
+          grep -o -m1 -w avx512f /proc/cpuinfo || echo "no avx512f"
 
       - name: Read NRI pin
         id: pin
