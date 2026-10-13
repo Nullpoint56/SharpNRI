@@ -150,8 +150,7 @@ jobs:
       - name: Test
         run: dotnet test --solution PrismNRI.slnx -c Release --no-build
 
-  # The checked-in L0 layer
- must be exactly what the pinned headers generate. The generator writes
+  # The checked-in L0 layer must be exactly what the pinned headers generate. The generator writes
   # LF whatever the host, so any runner compares equal; Windows is where ClangSharp is exercised
   # for releases.
   regen:
