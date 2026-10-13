@@ -1,6 +1,6 @@
 name: ci
 
-# Deliberately small: three jobs, no matrix explosion, superseded runs are cancelled, and the
+# Deliberately small: four jobs, no matrix explosion, superseded runs are cancelled, and the
 # multi-GB NRI dependency downloads are cached once per (NRI version, patches) pair.
 
 on:
@@ -145,6 +145,68 @@ jobs:
 
       - name: Test
         run: dotnet test --solution PrismNRI.slnx -c Release --no-build
+
+  osx-arm64:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # Vulkan on macOS is MoltenVK behind the Khronos loader, with the Khronos validation layer;
+      # vulkan-tools only for the vulkaninfo summary below. NRI's Metal backend is off
+      # (build-native.ps1), so Xcode's Metal toolchain is not needed.
+      - name: Install system packages
+        run: brew install ninja molten-vk vulkan-loader vulkan-validationlayers vulkan-tools
+
+      # Homebrew's prefix (/opt/homebrew) is on none of the loader's or dyld's default paths:
+      # NRI and Vortice dlopen libvulkan.1.dylib by name, so dyld must be told where it is, and the
+      # loader where MoltenVK's ICD manifest and the validation layer's manifest are.
+      - name: Point dyld and the Vulkan loader at Homebrew
+        run: |
+          prefix="$(brew --prefix)"
+          {
+            echo "DYLD_FALLBACK_LIBRARY_PATH=$prefix/lib:/usr/local/lib:/usr/lib"
+            echo "VK_DRIVER_FILES=$(brew --prefix molten-vk)/share/vulkan/icd.d/MoltenVK_icd.json"
+            echo "VK_ADD_LAYER_PATH=$(brew --prefix vulkan-validationlayers)/share/vulkan/explicit_layer.d"
+          } >> "$GITHUB_ENV"
+
+      - name: Vulkan summary
+        run: |
+          brew list --versions molten-vk vulkan-loader vulkan-validationlayers cmake || true
+          cmake --version | head -n1
+          cat "$VK_ADD_LAYER_PATH"/VkLayer_khronos_validation.json | grep -E '"(api_version|implementation_version|library_path)"' || true
+          vulkaninfo --summary || true
+
+      - name: Read NRI pin
+        id: pin
+        shell: pwsh
+        run: |
+          if ((Get-Content Directory.Build.props -Raw) -notmatch '<NriVersion>([^<]+)</NriVersion>') { throw "NriVersion not found" }
+          "nri=$($Matches[1].Trim())" >> $env:GITHUB_OUTPUT
+
+      - name: Cache NRI dependencies
+        uses: actions/cache@v4
+        with:
+          path: _build/osx-arm64-base/_deps
+          key: nri-deps-osx-arm64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Build native payload
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid osx-arm64 -Configuration Release
+
+      - name: Build managed
+        run: dotnet build PrismNRI.slnx -c Release
+
+      # Detailed: every skip and its reason in the log, which is what this leg is measured by.
+      - name: Test
+        run: dotnet test --solution PrismNRI.slnx -c Release --no-build --output Detailed
 
   # The checked-in L0 layer must be exactly what the pinned headers generate. The generator writes
   # LF whatever the host, so any runner compares equal; Windows is where ClangSharp is exercised

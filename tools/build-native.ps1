@@ -15,8 +15,8 @@
   5. On Windows, also stages the Agility package (runtimes-agility/<rid>/native/AgilitySDK/).
   6. Prints a table of what was staged.
 
-  Variants (docs/design.md §3.6). Both produce a library named NRI.dll / libNRI.so, so a consumer
-  takes exactly one of them:
+  Variants (docs/design.md §3.6). Both produce a library named NRI.dll / libNRI.so / libNRI.dylib,
+  so a consumer takes exactly one of them:
 
     Base       runtimes/<rid>/native/             no upscaler SDK compiled in. NRI, AMD AGS, licences.
     Upscalers  runtimes-upscalers/<rid>/native/   NIS, FSR and XeSS compiled in (DLSS only with -WithDlss).
@@ -37,11 +37,11 @@
   -WithDlss nothing downloads DLSS at all.
 
 .PARAMETER Rid
-  win-x64 (default on Windows), win-arm64, linux-x64 (default on Linux) or linux-arm64. Must match
-  the host OS; this script does not cross-compile.
+  win-x64 (default on Windows), win-arm64, linux-x64 (default on Linux), linux-arm64 or osx-arm64
+  (default on macOS). Must match the host OS; this script does not cross-compile.
 
 .PARAMETER Variant
-  Base (default) or Upscalers.
+  Base (default) or Upscalers. osx-arm64 builds Base only.
 
 .PARAMETER WithDlss
   Path to an NVIDIA DLSS SDK checkout (the github.com/NVIDIA/DLSS layout: include/, lib/). Builds the
@@ -59,15 +59,15 @@
   build; the staged payload and tests/PrismNRI.Tests/NativePayloadTests.cs must then be reconciled.
 
 .PARAMETER Generator
-  CMake generator override. Default: CMake's default on Windows (Visual Studio), Ninja on Linux if
-  installed, otherwise Unix Makefiles.
+  CMake generator override. Default: CMake's default on Windows (Visual Studio), Ninja on Linux and
+  macOS if installed, otherwise Unix Makefiles.
 
 .PARAMETER Clean
   Delete the variant's build directory (including downloads) before configuring.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet("win-x64", "win-arm64", "linux-x64", "linux-arm64")]
+    [ValidateSet("win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-arm64")]
     [string]$Rid,
     [ValidateSet("Base", "Upscalers")]
     [string]$Variant = "Base",
@@ -95,12 +95,16 @@ function Invoke-Native {
 if (-not $Rid) {
     $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
     $a = if ($arch -eq [System.Runtime.InteropServices.Architecture]::Arm64) { "arm64" } else { "x64" }
-    $Rid = if ($IsWindows) { "win-$a" } elseif ($IsLinux) { "linux-$a" } else { throw "Unsupported host OS" }
+    $Rid = if ($IsWindows) { "win-$a" } elseif ($IsLinux) { "linux-$a" } elseif ($IsMacOS) { "osx-$a" } else { throw "Unsupported host OS" }
 }
 $targetWindows = $Rid.StartsWith("win-")
+$targetLinux   = $Rid.StartsWith("linux-")
+$targetMac     = $Rid.StartsWith("osx-")
 $targetArm64   = $Rid.EndsWith("-arm64")
 if ($targetWindows -and -not $IsWindows) { throw "$Rid must be built on Windows" }
-if (-not $targetWindows -and -not $IsLinux) { throw "$Rid must be built on Linux" }
+if ($targetLinux -and -not $IsLinux) { throw "$Rid must be built on Linux" }
+if ($targetMac -and -not $IsMacOS) { throw "$Rid must be built on macOS" }
+$libName = if ($targetWindows) { "NRI.dll" } elseif ($targetMac) { "libNRI.dylib" } else { "libNRI.so" }
 
 # ------------------------------------------------------------------------------------------ variant
 $dlssDir = $null
@@ -113,6 +117,10 @@ if ($WithDlss) {
     if (-not (Test-Path (Join-Path $dlssDir "lib"))) { throw "-WithDlss: $dlssDir has no lib/" }
 }
 $upscalers  = $Variant -eq "Upscalers"
+# The only upscaler NRI offers on macOS is NIS, which needs ShaderMake and DXC to compile its
+# shaders on the build host; that path has never been built here, so there is no macOS Upscalers
+# package to stage.
+if ($targetMac -and $upscalers) { throw "$Rid builds the Base variant only" }
 $variantKey = if ($dlssDir) { "upscalers-dlss" } elseif ($upscalers) { "upscalers" } else { "base" }
 $stageRoot  = switch ($variantKey) { "base" { "runtimes" } "upscalers" { "runtimes-upscalers" } "upscalers-dlss" { "runtimes-upscalers-dlss" } }
 
@@ -184,8 +192,15 @@ if ($targetWindows) {
         $opt.NRI_ENABLE_XESS_SDK           = $sdk   # "D3D12; WIN32; NOT IS_ARM64"
     }
 }
-# Not passed anywhere: NRI_ENABLE_METAL_SUPPORT ("APPLE"), D3D11/D3D12/NVAPI/AGS/Agility/FFX/XeSS on
-# Linux. NRI_ENABLE_XLIB_SUPPORT / NRI_ENABLE_WAYLAND_SUPPORT are left to NRI's header detection.
+if ($targetMac) {
+    # "APPLE". On macOS this binding is Vulkan through MoltenVK. NRI's Metal 4 backend defaults ON
+    # whenever Xcode 26 and the Metal toolchain are present, so it is passed explicitly OFF: which
+    # backends the library contains must not depend on the runner's Xcode.
+    $opt.NRI_ENABLE_METAL_SUPPORT          = "OFF"
+}
+# Not passed anywhere: NRI_ENABLE_METAL_SUPPORT off Apple, D3D11/D3D12/NVAPI/AGS/Agility/FFX/XeSS
+# off Windows. NRI_ENABLE_XLIB_SUPPORT / NRI_ENABLE_WAYLAND_SUPPORT are left to NRI's header
+# detection, which only runs on Linux.
 foreach ($d in $Disable) {
     if (-not $opt.Contains($d)) { throw "-Disable ${d}: not an option this script passes for $Rid" }
     $opt[$d] = "OFF"
@@ -222,10 +237,14 @@ if ($Generator) {
 # NRI builds with -Werror and GCC 13 reports a false maybe-uninitialized in HelperInterface.h
 # (measured on Ubuntu 24.04 and on the GitHub runner); NRI's own flags are written for clang.
 # Prefer clang when it is installed and the caller has not chosen a compiler.
-if (-not $targetWindows -and -not $env:CXX -and (Get-Command clang++ -ErrorAction SilentlyContinue)) {
+if ($targetLinux -and -not $env:CXX -and (Get-Command clang++ -ErrorAction SilentlyContinue)) {
     $cmakeArgs += @("-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++")
     Write-Host "==> compiler: clang++ (set CXX to override)"
 }
+# macOS: CMake's default compiler is Xcode's AppleClang, which is what NRI's Apple support is
+# written against. The architecture is pinned so a pwsh running under Rosetta, or a universal
+# default, cannot produce anything but an arm64 library for an arm64 RID.
+if ($targetMac) { $cmakeArgs += "-DCMAKE_OSX_ARCHITECTURES=$(if ($targetArm64) { 'arm64' } else { 'x86_64' })" }
 if (-not $targetWindows -or $Generator) { $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Configuration" }  # single-config generators
 $cmakeArgs += @(
     "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$(& $fwd $binRoot)"      # NRI defaults these to nri/_Bin
@@ -268,7 +287,7 @@ foreach ($kv in $opt.GetEnumerator()) {
         throw "$($kv.Key): requested $($kv.Value) but CMake has $($effective[$kv.Key]) (dependent option condition false?)"
     }
 }
-if (-not $targetWindows) {
+if ($targetLinux) {
     Write-Host "    NRI_ENABLE_XLIB_SUPPORT    (auto) $($effective['NRI_ENABLE_XLIB_SUPPORT'])"
     Write-Host "    NRI_ENABLE_WAYLAND_SUPPORT (auto) $($effective['NRI_ENABLE_WAYLAND_SUPPORT'])"
 }
@@ -284,7 +303,7 @@ if (Test-Path $agilityHeader) { Move-Item $agilityHeader (Join-Path $build "NRIA
 
 # Multi-config generators append the configuration to a non-genex output directory.
 $bin = @((Join-Path $binRoot $Configuration), $binRoot) | Where-Object {
-    Test-Path (Join-Path $_ $(if ($targetWindows) { "NRI.dll" } else { "libNRI.so" }))
+    Test-Path (Join-Path $_ $libName)
 } | Select-Object -First 1
 if (-not $bin) { throw "NRI library not found under $binRoot" }
 
@@ -315,6 +334,17 @@ if ($targetWindows) {
     } else {
         Write-Warning "dumpbin not found; NRI.dll's imports were not checked"
     }
+}
+# macOS: NRI opens the Vulkan loader with dlopen at device creation, so libNRI.dylib must not link
+# it (or MoltenVK) at load time, or the NONE backend would need Vulkan installed. The minimum macOS
+# version stamped into the library is the oldest system that will load it.
+if ($targetMac) {
+    $linked = @(otool -L (Join-Path $bin $libName) | Select-Object -Skip 1 | ForEach-Object { $_.Trim() })
+    Write-Host "==> $libName links: $($linked -join '; ')"
+    $vulkan = @($linked | Where-Object { $_ -match 'libvulkan|MoltenVK' })
+    if ($vulkan) { throw "$libName links the Vulkan loader at load time: $($vulkan -join ', ')" }
+    $build_ = @(otool -l (Join-Path $bin $libName) | Select-String -Pattern '^\s*(minos|sdk)\s' | ForEach-Object { $_.Line.Trim() })
+    Write-Host "    build version: $($build_ -join ', ')"
 }
 
 # ------------------------------------------------------------------------------------------ 4. stage
@@ -357,7 +387,7 @@ if ($targetWindows) {
     Stage (Join-Path $bin "NRI.dll") "NRI.dll"
     if (& $on NRI_ENABLE_AMDAGS) { Stage (Join-Path $bin "amd_ags_$arch.dll") "amd_ags_$arch.dll" }   # LoadLibrary'd by name; MIT
 } else {
-    Stage (Join-Path $bin "libNRI.so") "libNRI.so"
+    Stage (Join-Path $bin $libName) $libName
 }
 
 # Anything NRI's post-build copied that we did not stage is a vendor runtime the application ships,

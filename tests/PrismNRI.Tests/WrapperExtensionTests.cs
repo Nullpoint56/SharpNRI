@@ -242,8 +242,20 @@ public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
                 Validated |= Marshal.PtrToStringUTF8((nint)l.layerName) == "VK_LAYER_KHRONOS_validation";
             }
 
+            // A portability driver (MoltenVK) is only enumerated by an instance that opts in with
+            // VK_KHR_portability_enumeration and the matching flag; without it the loader hides
+            // the device. Where no such driver exists the loader does not offer the extension.
+            uint extensionCount = 0;
+            vkEnumerateInstanceExtensionProperties(null, &extensionCount, null);
+            var availableExtensions = new VkExtensionProperties[extensionCount];
+            fixed (VkExtensionProperties* p = availableExtensions) vkEnumerateInstanceExtensionProperties(null, &extensionCount, p);
+            var portability = availableExtensions.Any(e => Marshal.PtrToStringUTF8((nint)e.extensionName) == "VK_KHR_portability_enumeration");
+
+            List<string> extensionList = [];
+            if (Validated) extensionList.Add("VK_EXT_debug_utils");
+            if (portability) extensionList.Add("VK_KHR_portability_enumeration");
             using var layerNames = new VkStringArray(Validated ? ["VK_LAYER_KHRONOS_validation"] : Array.Empty<string>());
-            using var instanceExtensions = new VkStringArray(Validated ? ["VK_EXT_debug_utils"] : Array.Empty<string>());
+            using var instanceExtensions = new VkStringArray(extensionList);
             var app = new VkApplicationInfo { apiVersion = VK_API_VERSION_1_3 };
             var messengerInfo = new VkDebugUtilsMessengerCreateInfoEXT
             {
@@ -255,6 +267,7 @@ public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
             var instanceInfo = new VkInstanceCreateInfo
             {
                 pNext = Validated ? &messengerInfo : null,
+                flags = portability ? VkInstanceCreateFlags.EnumeratePortabilityKHR : VkInstanceCreateFlags.None,
                 pApplicationInfo = &app,
                 enabledLayerCount = layerNames.Length,
                 ppEnabledLayerNames = layerNames,
@@ -312,9 +325,25 @@ public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
             var features = new VkPhysicalDeviceFeatures2 { pNext = &features11 };
             _instanceApi.vkGetPhysicalDeviceFeatures2(PhysicalDevice, &features);
 
+            // A device that advertises VK_KHR_portability_subset must have it enabled
+            // (VUID-VkDeviceCreateInfo-pProperties-04451); that is the only extension enabled here.
+            uint deviceExtensionCount = 0;
+            _instanceApi.vkEnumerateDeviceExtensionProperties(PhysicalDevice, null, &deviceExtensionCount, null);
+            var deviceExtensions = new VkExtensionProperties[deviceExtensionCount];
+            fixed (VkExtensionProperties* p = deviceExtensions) _instanceApi.vkEnumerateDeviceExtensionProperties(PhysicalDevice, null, &deviceExtensionCount, p);
+            var subset = deviceExtensions.Any(e => Marshal.PtrToStringUTF8((nint)e.extensionName) == "VK_KHR_portability_subset");
+            using var enabledDeviceExtensions = new VkStringArray(subset ? ["VK_KHR_portability_subset"] : Array.Empty<string>());
+
             var priority = 1.0f;
             var queueInfo = new VkDeviceQueueCreateInfo { queueFamilyIndex = QueueFamily, queueCount = 1, pQueuePriorities = &priority };
-            var deviceInfo = new VkDeviceCreateInfo { pNext = &features, queueCreateInfoCount = 1, pQueueCreateInfos = &queueInfo };
+            var deviceInfo = new VkDeviceCreateInfo
+            {
+                pNext = &features,
+                queueCreateInfoCount = 1,
+                pQueueCreateInfos = &queueInfo,
+                enabledExtensionCount = enabledDeviceExtensions.Length,
+                ppEnabledExtensionNames = enabledDeviceExtensions,
+            };
             VkDevice device;
             Check(_instanceApi.vkCreateDevice(PhysicalDevice, &deviceInfo, null, &device), "vkCreateDevice");
             Device = device;

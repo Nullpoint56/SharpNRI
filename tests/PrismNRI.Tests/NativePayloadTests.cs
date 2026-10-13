@@ -1,6 +1,7 @@
 // The staged native payloads (tools/build-native.ps1) are part of the package contract
 // (docs/design.md §3.6): every file below ships, and nothing else does. The lists mirror the summary
-// tables build-native.ps1 prints; change both together.
+// tables build-native.ps1 prints; change both together. osx-arm64 has a Base contract only: the
+// script builds no other variant there.
 //
 //   Base       runtimes/<rid>/native             -> PrismNRI
 //   Upscalers  runtimes-upscalers/<rid>/native   -> PrismNRI.Native.Upscalers
@@ -24,7 +25,7 @@ public sealed class NativePayloadTests
         .GetCustomAttributes<AssemblyMetadataAttribute>()
         .Single(a => a.Key == "RepoRoot").Value!;
 
-    static string Rid => (OperatingSystem.IsWindows() ? "win-" : OperatingSystem.IsLinux() ? "linux-" : "unsupported-")
+    static string Rid => (OperatingSystem.IsWindows() ? "win-" : OperatingSystem.IsLinux() ? "linux-" : OperatingSystem.IsMacOS() ? "osx-" : "unsupported-")
         + (RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64");
 
     static string Dir(string stagingRoot) => Path.GetFullPath(Path.Combine(RepoRoot, stagingRoot, Rid, "native"));
@@ -62,6 +63,7 @@ public sealed class NativePayloadTests
     {
         ["win-x64"] = WindowsBase,
         ["linux-x64"] = ["libNRI.so", .. CommonLicenses],
+        ["osx-arm64"] = ["libNRI.dylib", .. CommonLicenses],
     };
 
     static readonly Dictionary<string, string[]> Upscalers = new()
