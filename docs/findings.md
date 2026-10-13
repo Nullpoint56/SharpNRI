@@ -481,3 +481,22 @@ matched `VkPhysicalDeviceIDProperties.deviceLUID` against `AdapterDesc::uid`, an
 
 `tools/ci/verify-linux.sh` runs the same steps as the workflow's `linux-x64` job; under WSL2 the
 native build takes about four minutes with clang and the tests three seconds.
+
+### 8.8 The ray query test fails on some runner hosts: lavapipe's 512-bit path
+
+After patch 0005 landed, `RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS(VK)`
+failed on the Linux runner twice in a row (the centre pixel reports no hit), having passed the
+day before with identical packages: Mesa 25.2.8, loader 1.3.275, clang 18. It was not the patch:
+the test uses committed resources only, and `MemoryHeap::alignment` is only ever copied into a
+VMA field. It was not the Mesa version: WSL upgraded to the same 25.2.8 passes 18 runs out of 18
+on "llvmpipe (LLVM 20.1.2, 256 bits)". The difference is the host. GitHub's runner pool mixes
+CPUs, and lavapipe JIT-compiles its shaders for the host it finds, taking a 512-bit vector path
+on AVX-512 machines.
+
+The job now prints `vulkaninfo --summary` and the CPU model, and sets `LP_NATIVE_VECTOR_WIDTH=256`
+for the whole job. The first run with that: host "AMD EPYC 9V45 96-Core Processor" with `avx512f`,
+device reported as 256 bits, 216 total, 108 passed, 108 skipped, 0 failed. Circumstantial, not a
+proof: the failing host was not caught with the diagnostics on, and the pin was applied before
+`vulkaninfo` ran. If the test fails again with the pin in place, the printed device line and CPU
+model are the first thing to read. This is a lavapipe matter, nothing a user of the binding sees
+on a real GPU.
