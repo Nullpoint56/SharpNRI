@@ -118,11 +118,16 @@ public sealed class DescriptorTests
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
 
+        // Within the device's reported limit: a portability device without samplerMipLodBias
+        // (MoltenVK) allows no bias at all, and NRI reports samplerLodBiasMax = 0 there (patch 0006).
+        var mipBias = Math.Min(0.5f, device.Desc.other.samplerLodBiasMax);
+        GpuWork.Record($"{backend}: samplerLodBiasMax = {device.Desc.other.samplerLodBiasMax}, mipBias = {mipBias}");
+
         var desc = new SamplerDesc
         {
             filters = new Filters { min = Filter.LINEAR, mag = Filter.LINEAR, mip = Filter.LINEAR, op = FilterOp.AVERAGE },
             anisotropy = 8,
-            mipBias = 0.5f,
+            mipBias = mipBias,
             mipMin = 0,
             mipMax = 12,
             addressModes = new AddressModes { u = AddressMode.CLAMP_TO_EDGE, v = AddressMode.MIRRORED_REPEAT, w = AddressMode.CLAMP_TO_BORDER },
