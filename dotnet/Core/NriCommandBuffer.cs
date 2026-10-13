@@ -1,0 +1,374 @@
+// L2 — command recording.
+//
+// One method per Cmd* entry in CoreInterface, same name without the prefix, same argument order.
+// Where NRI takes a pointer to an array of descs that themselves point at NRI objects (barriers,
+// attachments, vertex buffers), the method takes a span of small records naming the wrapper and
+// builds the native array on the stack: no heap allocation per call, which the allocation tests
+// hold the recording path to.
+//
+// Not thread safe, per NRI: one thread records into one command buffer at a time.
+
+using PrismNRI.Interop;
+using PrismNRI.Native;
+using Buffer = PrismNRI.Native.Buffer;
+
+namespace PrismNRI;
+
+/// <summary><c>BufferBarrierDesc</c> naming the wrapper.</summary>
+public readonly unsafe record struct NriBufferBarrier(NriBuffer Buffer, AccessStage Before, AccessStage After)
+{
+    internal BufferBarrierDesc ToNative() => new() { buffer = Buffer.Raw, before = Before, after = After };
+}
+
+/// <summary><c>TextureBarrierDesc</c> naming the wrapper. Defaults cover the whole texture.</summary>
+public readonly unsafe record struct NriTextureBarrier(
+    NriTexture Texture,
+    AccessLayoutStage Before,
+    AccessLayoutStage After,
+    ushort MipOffset = 0,
+    ushort MipNum = NriApi.REMAINING,
+    ushort LayerOffset = 0,
+    ushort LayerNum = NriApi.REMAINING,
+    PlaneBits Planes = PlaneBits.ALL,
+    NriQueue? SrcQueue = null,
+    NriQueue? DstQueue = null)
+{
+    internal unsafe TextureBarrierDesc ToNative() => new()
+    {
+        texture = Texture.Raw,
+        before = Before,
+        after = After,
+        mipOffset = MipOffset,
+        mipNum = MipNum,
+        layerOffset = LayerOffset,
+        layerNum = LayerNum,
+        planes = Planes,
+        srcQueue = SrcQueue is null ? null : SrcQueue.Raw,
+        dstQueue = DstQueue is null ? null : DstQueue.Raw,
+    };
+}
+
+/// <summary><c>AttachmentDesc</c> naming the wrapper. A default value means "no attachment".</summary>
+public readonly unsafe record struct NriAttachment(
+    NriDescriptor Descriptor,
+    ClearValue ClearValue = default,
+    LoadOp LoadOp = LoadOp.LOAD,
+    StoreOp StoreOp = StoreOp.STORE,
+    ResolveOp ResolveOp = ResolveOp.AVERAGE,
+    NriDescriptor? ResolveDst = null)
+{
+    internal unsafe AttachmentDesc ToNative() => new()
+    {
+        descriptor = Descriptor is null ? null : Descriptor.Raw,
+        clearValue = ClearValue,
+        loadOp = LoadOp,
+        storeOp = StoreOp,
+        resolveOp = ResolveOp,
+        resolveDst = ResolveDst is null ? null : ResolveDst.Raw,
+    };
+}
+
+/// <summary><c>VertexBufferDesc</c> naming the wrapper.</summary>
+public readonly unsafe record struct NriVertexBuffer(NriBuffer Buffer, ulong Offset = 0, uint Stride = 0)
+{
+    internal VertexBufferDesc ToNative() => new() { buffer = Buffer.Raw, offset = Offset, stride = Stride };
+}
+
+/// <summary>A command buffer. Begin, record, End, submit; then wait before recording again.</summary>
+public sealed unsafe class NriCommandBuffer : NriObject
+{
+    private readonly NriDevice _device;
+
+    internal NriCommandBuffer(NriCommandAllocator allocator, CommandBuffer* handle) : base(handle, "NriCommandBuffer")
+    {
+        Allocator = allocator;
+        _device = allocator.Device;
+        _device.ChildCreated();
+    }
+
+    /// <summary>A command buffer wrapped from a native one (WrapperVK, WrapperD3D12): no NRI allocator backs it.</summary>
+    internal NriCommandBuffer(NriDevice device, CommandBuffer* handle) : base(handle, "NriCommandBuffer")
+    {
+        _device = device;
+        device.ChildCreated();
+    }
+
+    /// <summary>The allocator backing this command buffer; null for one wrapped from a native command buffer.</summary>
+    public NriCommandAllocator? Allocator { get; }
+
+    public override NriDevice Device => _device;
+
+    internal CommandBuffer* Raw => (CommandBuffer*)Handle;
+
+    private ref readonly CoreInterface Core => ref Device.Core;
+
+    // ---------------------------------------------------------------- begin / end
+
+    /// <summary>Starts recording. The pool, if given, is set for the whole buffer.</summary>
+    public void Begin(NriDescriptorPool? descriptorPool = null) =>
+        Device.Check(Core.BeginCommandBuffer(Raw, descriptorPool is null ? null : descriptorPool.Raw), "BeginCommandBuffer");
+
+    public void End() => Device.Check(Core.EndCommandBuffer(Raw), "EndCommandBuffer");
+
+    // ---------------------------------------------------------------- binding
+
+    public void SetDescriptorPool(NriDescriptorPool pool) => Core.CmdSetDescriptorPool(Raw, pool.Raw);
+
+    public void SetPipelineLayout(BindPoint bindPoint, NriPipelineLayout layout) => Core.CmdSetPipelineLayout(Raw, bindPoint, layout.Raw);
+
+    public void SetDescriptorSet(uint setIndex, NriDescriptorSet set, BindPoint bindPoint = BindPoint.INHERIT)
+    {
+        var desc = new SetDescriptorSetDesc { setIndex = setIndex, descriptorSet = set.Raw, bindPoint = bindPoint };
+        Core.CmdSetDescriptorSet(Raw, &desc);
+    }
+
+    public void SetRootConstants(uint rootConstantIndex, ReadOnlySpan<byte> data, uint offset = 0, BindPoint bindPoint = BindPoint.INHERIT)
+    {
+        fixed (byte* p = data)
+        {
+            var desc = new SetRootConstantsDesc { rootConstantIndex = rootConstantIndex, data = p, size = (uint)data.Length, offset = offset, bindPoint = bindPoint };
+            Core.CmdSetRootConstants(Raw, &desc);
+        }
+    }
+
+    public void SetRootConstants<T>(uint rootConstantIndex, in T value, uint offset = 0, BindPoint bindPoint = BindPoint.INHERIT) where T : unmanaged
+    {
+        fixed (T* p = &value)
+        {
+            var desc = new SetRootConstantsDesc { rootConstantIndex = rootConstantIndex, data = p, size = (uint)sizeof(T), offset = offset, bindPoint = bindPoint };
+            Core.CmdSetRootConstants(Raw, &desc);
+        }
+    }
+
+    public void SetRootDescriptor(uint rootDescriptorIndex, NriDescriptor descriptor, uint offset = 0, BindPoint bindPoint = BindPoint.INHERIT)
+    {
+        var desc = new SetRootDescriptorDesc { rootDescriptorIndex = rootDescriptorIndex, descriptor = descriptor.Raw, offset = offset, bindPoint = bindPoint };
+        Core.CmdSetRootDescriptor(Raw, &desc);
+    }
+
+    public void SetPipeline(NriPipeline pipeline) => Core.CmdSetPipeline(Raw, pipeline.Raw);
+
+    // ---------------------------------------------------------------- barriers
+
+    /// <summary>One barrier call covering any mix of global, buffer and texture barriers.</summary>
+    public void Barrier(ReadOnlySpan<GlobalBarrierDesc> globals, ReadOnlySpan<NriBufferBarrier> buffers, ReadOnlySpan<NriTextureBarrier> textures)
+    {
+        var nativeBuffers = stackalloc BufferBarrierDesc[buffers.Length];
+        for (var i = 0; i < buffers.Length; i++) nativeBuffers[i] = buffers[i].ToNative();
+
+        var nativeTextures = stackalloc TextureBarrierDesc[textures.Length];
+        for (var i = 0; i < textures.Length; i++) nativeTextures[i] = textures[i].ToNative();
+
+        fixed (GlobalBarrierDesc* nativeGlobals = globals)
+        {
+            var desc = new BarrierDesc
+            {
+                globals = nativeGlobals,
+                globalNum = (uint)globals.Length,
+                buffers = nativeBuffers,
+                bufferNum = (uint)buffers.Length,
+                textures = nativeTextures,
+                textureNum = (uint)textures.Length,
+            };
+            Core.CmdBarrier(Raw, &desc);
+        }
+    }
+
+    public void Barrier(in NriTextureBarrier texture) => Barrier([], [], new ReadOnlySpan<NriTextureBarrier>(in texture));
+    public void Barrier(in NriBufferBarrier buffer) => Barrier([], new ReadOnlySpan<NriBufferBarrier>(in buffer), []);
+    public void Barrier(in GlobalBarrierDesc global) => Barrier(new ReadOnlySpan<GlobalBarrierDesc>(in global), [], []);
+
+    // ---------------------------------------------------------------- input assembly and state
+
+    public void SetIndexBuffer(NriBuffer buffer, ulong offset, IndexType indexType) => Core.CmdSetIndexBuffer(Raw, buffer.Raw, offset, indexType);
+
+    public void SetVertexBuffers(uint baseSlot, ReadOnlySpan<NriVertexBuffer> buffers)
+    {
+        var native = stackalloc VertexBufferDesc[buffers.Length];
+        for (var i = 0; i < buffers.Length; i++) native[i] = buffers[i].ToNative();
+        Core.CmdSetVertexBuffers(Raw, baseSlot, native, (uint)buffers.Length);
+    }
+
+    public void SetVertexBuffer(uint slot, NriBuffer buffer, ulong offset = 0, uint stride = 0)
+    {
+        var native = new VertexBufferDesc { buffer = buffer.Raw, offset = offset, stride = stride };
+        Core.CmdSetVertexBuffers(Raw, slot, &native, 1);
+    }
+
+    public void SetViewports(ReadOnlySpan<Viewport> viewports)
+    {
+        fixed (Viewport* p = viewports) Core.CmdSetViewports(Raw, p, (uint)viewports.Length);
+    }
+
+    public void SetViewport(in Viewport viewport) => SetViewports(new ReadOnlySpan<Viewport>(in viewport));
+
+    public void SetScissors(ReadOnlySpan<Rect> rects)
+    {
+        fixed (Rect* p = rects) Core.CmdSetScissors(Raw, p, (uint)rects.Length);
+    }
+
+    public void SetScissor(in Rect rect) => SetScissors(new ReadOnlySpan<Rect>(in rect));
+
+    public void SetStencilReference(byte frontRef, byte backRef) => Core.CmdSetStencilReference(Raw, frontRef, backRef);
+    public void SetDepthBounds(float boundsMin, float boundsMax) => Core.CmdSetDepthBounds(Raw, boundsMin, boundsMax);
+
+    public void SetBlendConstants(in Color32f color)
+    {
+        fixed (Color32f* p = &color) Core.CmdSetBlendConstants(Raw, p);
+    }
+
+    public void SetSampleLocations(ReadOnlySpan<SampleLocation> locations, byte sampleNum)
+    {
+        fixed (SampleLocation* p = locations) Core.CmdSetSampleLocations(Raw, p, checked((byte)locations.Length), sampleNum);
+    }
+
+    public void SetShadingRate(in ShadingRateDesc desc)
+    {
+        fixed (ShadingRateDesc* p = &desc) Core.CmdSetShadingRate(Raw, p);
+    }
+
+    public void SetDepthBias(in DepthBiasDesc desc)
+    {
+        fixed (DepthBiasDesc* p = &desc) Core.CmdSetDepthBias(Raw, p);
+    }
+
+    // ---------------------------------------------------------------- rendering
+
+    /// <summary>
+    /// Begins a render pass. Pass a default <see cref="NriAttachment"/> for no depth or stencil.
+    /// </summary>
+    public void BeginRendering(ReadOnlySpan<NriAttachment> colors, in NriAttachment depth = default, in NriAttachment stencil = default, NriDescriptor? shadingRate = null, uint viewMask = 0)
+    {
+        var native = stackalloc AttachmentDesc[colors.Length];
+        for (var i = 0; i < colors.Length; i++) native[i] = colors[i].ToNative();
+
+        var desc = new RenderingDesc
+        {
+            colors = native,
+            colorNum = (uint)colors.Length,
+            depth = depth.ToNative(),
+            stencil = stencil.ToNative(),
+            shadingRate = shadingRate is null ? null : shadingRate.Raw,
+            viewMask = viewMask,
+        };
+        Core.CmdBeginRendering(Raw, &desc);
+    }
+
+    public void EndRendering() => Core.CmdEndRendering(Raw);
+
+    public void ClearAttachments(ReadOnlySpan<ClearAttachmentDesc> attachments, ReadOnlySpan<Rect> rects = default)
+    {
+        fixed (ClearAttachmentDesc* a = attachments)
+        fixed (Rect* r = rects)
+        {
+            Core.CmdClearAttachments(Raw, a, (uint)attachments.Length, r, (uint)rects.Length);
+        }
+    }
+
+    public void Draw(in DrawDesc desc)
+    {
+        fixed (DrawDesc* p = &desc) Core.CmdDraw(Raw, p);
+    }
+
+    public void Draw(uint vertexNum, uint instanceNum = 1, uint baseVertex = 0, uint baseInstance = 0) =>
+        Draw(new DrawDesc { vertexNum = vertexNum, instanceNum = instanceNum, baseVertex = baseVertex, baseInstance = baseInstance });
+
+    public void DrawIndexed(in DrawIndexedDesc desc)
+    {
+        fixed (DrawIndexedDesc* p = &desc) Core.CmdDrawIndexed(Raw, p);
+    }
+
+    public void DrawIndexed(uint indexNum, uint instanceNum = 1, uint baseIndex = 0, int baseVertex = 0, uint baseInstance = 0) =>
+        DrawIndexed(new DrawIndexedDesc { indexNum = indexNum, instanceNum = instanceNum, baseIndex = baseIndex, baseVertex = baseVertex, baseInstance = baseInstance });
+
+    public void DrawIndirect(NriBuffer buffer, ulong offset, uint drawNum, uint stride, NriBuffer? countBuffer = null, ulong countBufferOffset = 0) =>
+        Core.CmdDrawIndirect(Raw, buffer.Raw, offset, drawNum, stride, countBuffer is null ? null : countBuffer.Raw, countBufferOffset);
+
+    public void DrawIndexedIndirect(NriBuffer buffer, ulong offset, uint drawNum, uint stride, NriBuffer? countBuffer = null, ulong countBufferOffset = 0) =>
+        Core.CmdDrawIndexedIndirect(Raw, buffer.Raw, offset, drawNum, stride, countBuffer is null ? null : countBuffer.Raw, countBufferOffset);
+
+    // ---------------------------------------------------------------- compute
+
+    public void Dispatch(in DispatchDesc desc)
+    {
+        fixed (DispatchDesc* p = &desc) Core.CmdDispatch(Raw, p);
+    }
+
+    public void Dispatch(uint x, uint y = 1, uint z = 1) => Dispatch(new DispatchDesc { workGroupNumX = x, workGroupNumY = y, workGroupNumZ = z });
+
+    public void DispatchIndirect(NriBuffer buffer, ulong offset) => Core.CmdDispatchIndirect(Raw, buffer.Raw, offset);
+
+    // ---------------------------------------------------------------- copy, clear, resolve
+
+    public void CopyBuffer(NriBuffer dst, ulong dstOffset, NriBuffer src, ulong srcOffset, ulong size) =>
+        Core.CmdCopyBuffer(Raw, dst.Raw, dstOffset, src.Raw, srcOffset, size);
+
+    /// <summary>Whole-texture copy when both regions are null.</summary>
+    public void CopyTexture(NriTexture dst, TextureRegionDesc? dstRegion, NriTexture src, TextureRegionDesc? srcRegion)
+    {
+        var d = dstRegion ?? default;
+        var s = srcRegion ?? default;
+        Core.CmdCopyTexture(Raw, dst.Raw, dstRegion is null ? null : &d, src.Raw, srcRegion is null ? null : &s);
+    }
+
+    public void UploadBufferToTexture(NriTexture dst, in TextureRegionDesc dstRegion, NriBuffer src, in TextureDataLayoutDesc srcDataLayout)
+    {
+        fixed (TextureRegionDesc* r = &dstRegion)
+        fixed (TextureDataLayoutDesc* l = &srcDataLayout)
+        {
+            Core.CmdUploadBufferToTexture(Raw, dst.Raw, r, src.Raw, l);
+        }
+    }
+
+    public void ReadbackTextureToBuffer(NriBuffer dst, in TextureDataLayoutDesc dstDataLayout, NriTexture src, in TextureRegionDesc srcRegion)
+    {
+        fixed (TextureDataLayoutDesc* l = &dstDataLayout)
+        fixed (TextureRegionDesc* r = &srcRegion)
+        {
+            Core.CmdReadbackTextureToBuffer(Raw, dst.Raw, l, src.Raw, r);
+        }
+    }
+
+    public void ZeroBuffer(NriBuffer buffer, ulong offset, ulong size) => Core.CmdZeroBuffer(Raw, buffer.Raw, offset, size);
+
+    public void ResolveTexture(NriTexture dst, TextureRegionDesc? dstRegion, NriTexture src, TextureRegionDesc? srcRegion, ResolveOp op)
+    {
+        var d = dstRegion ?? default;
+        var s = srcRegion ?? default;
+        Core.CmdResolveTexture(Raw, dst.Raw, dstRegion is null ? null : &d, src.Raw, srcRegion is null ? null : &s, op);
+    }
+
+    public void ClearStorage(NriDescriptor descriptor, in Color value, uint setIndex, uint rangeIndex, uint descriptorIndex)
+    {
+        var desc = new ClearStorageDesc { descriptor = descriptor.Raw, value = value, setIndex = setIndex, rangeIndex = rangeIndex, descriptorIndex = descriptorIndex };
+        Core.CmdClearStorage(Raw, &desc);
+    }
+
+    // ---------------------------------------------------------------- queries
+
+    public void ResetQueries(NriQueryPool pool, uint offset, uint num) => Core.CmdResetQueries(Raw, pool.Raw, offset, num);
+    public void BeginQuery(NriQueryPool pool, uint offset) => Core.CmdBeginQuery(Raw, pool.Raw, offset);
+    public void EndQuery(NriQueryPool pool, uint offset) => Core.CmdEndQuery(Raw, pool.Raw, offset);
+    public void CopyQueries(NriQueryPool pool, uint offset, uint num, NriBuffer dst, ulong dstOffset) => Core.CmdCopyQueries(Raw, pool.Raw, offset, num, dst.Raw, dstOffset);
+
+    // ---------------------------------------------------------------- annotations
+
+    public void BeginAnnotation(string name, uint bgra = NriApi.BGRA_UNUSED)
+    {
+        using var utf8 = new Utf8.Scoped(name);
+        Core.CmdBeginAnnotation(Raw, utf8, bgra);
+    }
+
+    public void EndAnnotation() => Core.CmdEndAnnotation(Raw);
+
+    public void Annotation(string name, uint bgra = NriApi.BGRA_UNUSED)
+    {
+        using var utf8 = new Utf8.Scoped(name);
+        Core.CmdAnnotation(Raw, utf8, bgra);
+    }
+
+    /// <summary><c>ID3D12CommandList*</c> on D3D12, <c>VkCommandBuffer</c> on Vulkan. Last resort.</summary>
+    public nint GetNativeObject() => (nint)Core.GetCommandBufferNativeObject(Raw);
+
+    private protected override void Destroy(void* handle) => Core.DestroyCommandBuffer((CommandBuffer*)handle);
+}

@@ -1,0 +1,144 @@
+name: ci
+
+# Deliberately small: three jobs, no matrix explosion, superseded runs are cancelled, and the
+# multi-GB NRI dependency downloads are cached once per (NRI version, patches) pair.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+
+jobs:
+  win-x64:
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Read NRI pin
+        id: pin
+        shell: pwsh
+        run: |
+          if ((Get-Content Directory.Build.props -Raw) -notmatch '<NriVersion>([^<]+)</NriVersion>') { throw "NriVersion not found" }
+          "nri=$($Matches[1].Trim())" >> $env:GITHUB_OUTPUT
+
+      # FetchContent downloads of the Base variant (Agility SDK, NVAPI, AGS, headers). With a
+      # matching _deps, build-native.ps1 configures with FETCHCONTENT_FULLY_DISCONNECTED=ON.
+      - name: Cache NRI dependencies
+        uses: actions/cache@v4
+        with:
+          path: _build/win-x64-base/_deps
+          key: nri-deps-win-x64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Build native payload
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid win-x64 -Configuration Release
+
+      - name: Build managed
+        run: dotnet build PrismNRI.slnx -c Release
+
+      - name: Test
+        run: dotnet test --solution PrismNRI.slnx -c Release --no-build
+
+  linux-x64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # Vulkan loader + lavapipe (software ICD) + Khronos validation layer for the tests.
+      # libx11-dev / libwayland-dev: NRI enables its X11 / Wayland swapchain paths when it finds the
+      # headers; installing them keeps the CI payload identical to a release payload.
+      - name: Install system packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            ninja-build libvulkan1 mesa-vulkan-drivers vulkan-validationlayers \
+            libx11-dev libwayland-dev
+
+      - name: Read NRI pin
+        id: pin
+        shell: pwsh
+        run: |
+          if ((Get-Content Directory.Build.props -Raw) -notmatch '<NriVersion>([^<]+)</NriVersion>') { throw "NriVersion not found" }
+          "nri=$($Matches[1].Trim())" >> $env:GITHUB_OUTPUT
+
+      - name: Cache NRI dependencies
+        uses: actions/cache@v4
+        with:
+          path: _build/linux-x64-base/_deps
+          key: nri-deps-linux-x64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Build native payload
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid linux-x64 -Configuration Release
+
+      - name: Build managed
+        run: dotnet build PrismNRI.slnx -c Release
+
+      - name: Test
+        run: dotnet test --solution PrismNRI.slnx -c Release --no-build
+
+  # The checked-in L0 layer must be exactly what the pinned headers generate. Runs on Windows
+  # because generate-native.ps1 writes CRLF and the files are generated there.
+  regen:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # ClangSharpPInvokeGenerator 21.1.8.4 targets net10.0.
+          dotnet-version: |
+            10.0.x
+            11.0.x
+
+      - name: Install ClangSharpPInvokeGenerator
+        shell: pwsh
+        run: |
+          dotnet tool install --global ClangSharpPInvokeGenerator --version 21.1.8.4
+          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+
+      - name: Regenerate
+        shell: pwsh
+        run: ./tools/generate-native.ps1
+
+      - name: Fail on drift
+        shell: pwsh
+        run: |
+          $drift = git status --porcelain -- dotnet/Native
+          if ($drift) {
+            git --no-pager diff --stat -- dotnet/Native
+            $drift
+            throw "dotnet/Native is out of date with the pinned NRI headers. Run tools/generate-native.ps1 and commit."
+          }

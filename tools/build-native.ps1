@@ -1,0 +1,434 @@
+<#
+.SYNOPSIS
+  Build the NRI native payload from the pinned submodule and stage one native package variant.
+
+.DESCRIPTION
+  1. Checks that nri/Include/NRI.h is at the NRI_VERSION pinned in Directory.Build.props.
+  2. Applies patches/*.patch to nri/ in name order. A patch that is already applied (its reverse
+     applies cleanly) is skipped, so the script is re-runnable. An empty patches/ is valid.
+  3. Configures and builds NRI with CMake into _build/<rid>-<variant>/, one build tree per variant so
+     no CMake cache is shared. Nothing is written into nri/ except the header NRI's own CMakeLists
+     generates there (Include/NRIAgilitySDK.h, ignored by nri/.gitignore); it is moved into the build
+     tree after configure so the submodule stays pristine.
+  4. Stages NRI plus the files it needs into the variant's staging directory, and the licence of every
+     component that is actually inside what is staged into <staging>/licenses/.
+  5. On Windows, also stages the Agility package (runtimes-agility/<rid>/native/AgilitySDK/).
+  6. Prints a table of what was staged.
+
+  Variants (docs/design.md §3.6). Both produce a library named NRI.dll / libNRI.so, so a consumer
+  takes exactly one of them:
+
+    Base       runtimes/<rid>/native/             no upscaler SDK compiled in. NRI, AMD AGS, licences.
+    Upscalers  runtimes-upscalers/<rid>/native/   NIS, FSR and XeSS compiled in (DLSS only with -WithDlss).
+                                                  Vendor runtimes (amd_fidelityfx_*, libxess, nvngx_*)
+                                                  are NOT staged: the application ships them.
+    Agility    runtimes-agility/<rid>/native/AgilitySDK/   D3D12Core.dll, d3d12SDKLayers.dll and
+                                                  Microsoft's licence. Staged by either variant on
+                                                  Windows; both load it at run time when present.
+
+  Options are the PrismNRI contract, not NRI's defaults. Only options that exist on the target
+  platform are passed: NRI declares most SDK switches with cmake_dependent_option, and passing one
+  whose condition is false is silently ignored, which would make the log lie about what was built.
+
+  FetchContent downloads go to _build/<rid>-<variant>/_deps. When a previous run left a matching
+  _deps (same NRI version, patches and option set) the configure runs with
+  FETCHCONTENT_FULLY_DISCONNECTED=ON and never touches the network. NRI downloads an SDK only when
+  its option is ON, so the Base variant never downloads DLSS, FidelityFX or XeSS, and without
+  -WithDlss nothing downloads DLSS at all.
+
+.PARAMETER Rid
+  win-x64 (default on Windows), win-arm64, linux-x64 (default on Linux) or linux-arm64. Must match
+  the host OS; this script does not cross-compile.
+
+.PARAMETER Variant
+  Base (default) or Upscalers.
+
+.PARAMETER WithDlss
+  Path to an NVIDIA DLSS SDK checkout (the github.com/NVIDIA/DLSS layout: include/, lib/). Builds the
+  Upscalers variant with NRI_ENABLE_NGX_SDK=ON against that directory (FETCHCONTENT_SOURCE_DIR_NGX,
+  so NRI downloads nothing for it) into _build/<rid>-upscalers-dlss/, and stages into
+  runtimes-upscalers-dlss/<rid>/native/. This is a consumer-side build: the result is under
+  NVIDIA's RTX SDK licence, is never packed by this repository, and the nvngx_* runtimes are not
+  staged. Implies -Variant Upscalers.
+
+.PARAMETER Configuration
+  CMake configuration. Release by default.
+
+.PARAMETER Disable
+  NRI options to force OFF, e.g. -Disable NRI_ENABLE_XESS_SDK. For when an upstream SDK breaks the
+  build; the staged payload and tests/PrismNRI.Tests/NativePayloadTests.cs must then be reconciled.
+
+.PARAMETER Generator
+  CMake generator override. Default: CMake's default on Windows (Visual Studio), Ninja on Linux if
+  installed, otherwise Unix Makefiles.
+
+.PARAMETER Clean
+  Delete the variant's build directory (including downloads) before configuring.
+#>
+[CmdletBinding()]
+param(
+    [ValidateSet("win-x64", "win-arm64", "linux-x64", "linux-arm64")]
+    [string]$Rid,
+    [ValidateSet("Base", "Upscalers")]
+    [string]$Variant = "Base",
+    [string]$WithDlss,
+    [string]$Configuration = "Release",
+    [string[]]$Disable = @(),
+    [string]$Generator,
+    [switch]$Clean
+)
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version 3.0
+$PSNativeCommandUseErrorActionPreference = $false
+
+$root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$nri  = Join-Path $root "nri"
+
+function Invoke-Native {
+    param([string]$What, [scriptblock]$Command)
+    & $Command
+    if ($LASTEXITCODE -ne 0) { throw "$What failed with exit code $LASTEXITCODE" }
+}
+
+# ------------------------------------------------------------------------------------------ target
+if (-not $Rid) {
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    $a = if ($arch -eq [System.Runtime.InteropServices.Architecture]::Arm64) { "arm64" } else { "x64" }
+    $Rid = if ($IsWindows) { "win-$a" } elseif ($IsLinux) { "linux-$a" } else { throw "Unsupported host OS" }
+}
+$targetWindows = $Rid.StartsWith("win-")
+$targetArm64   = $Rid.EndsWith("-arm64")
+if ($targetWindows -and -not $IsWindows) { throw "$Rid must be built on Windows" }
+if (-not $targetWindows -and -not $IsLinux) { throw "$Rid must be built on Linux" }
+
+# ------------------------------------------------------------------------------------------ variant
+$dlssDir = $null
+if ($WithDlss) {
+    if ($PSBoundParameters.ContainsKey("Variant") -and $Variant -ne "Upscalers") { throw "-WithDlss builds the Upscalers variant; it cannot be combined with -Variant $Variant" }
+    $Variant = "Upscalers"
+    if (-not (Test-Path $WithDlss -PathType Container)) { throw "-WithDlss: $WithDlss is not a directory" }
+    $dlssDir = (Resolve-Path $WithDlss).Path
+    if (-not (Test-Path (Join-Path $dlssDir "include" "nvsdk_ngx.h"))) { throw "-WithDlss: $dlssDir has no include/nvsdk_ngx.h (expected the github.com/NVIDIA/DLSS layout)" }
+    if (-not (Test-Path (Join-Path $dlssDir "lib"))) { throw "-WithDlss: $dlssDir has no lib/" }
+}
+$upscalers  = $Variant -eq "Upscalers"
+$variantKey = if ($dlssDir) { "upscalers-dlss" } elseif ($upscalers) { "upscalers" } else { "base" }
+$stageRoot  = switch ($variantKey) { "base" { "runtimes" } "upscalers" { "runtimes-upscalers" } "upscalers-dlss" { "runtimes-upscalers-dlss" } }
+
+# ------------------------------------------------------------------------------------------ 1. pin
+$props = Get-Content (Join-Path $root "Directory.Build.props") -Raw
+if ($props -notmatch '<NriVersion>([^<]+)</NriVersion>') { throw "NriVersion not found in Directory.Build.props" }
+$NriVersion = $Matches[1].Trim()
+
+$nriHeader = Join-Path $nri "Include" "NRI.h"
+if (-not (Test-Path $nriHeader)) { throw "$nriHeader not found. Run: git submodule update --init" }
+$m = Select-String -Path $nriHeader -Pattern '^\s*#define\s+NRI_VERSION\s+(\d+)\s*$' | Select-Object -First 1
+if (-not $m) { throw "#define NRI_VERSION not found in $nriHeader" }
+$headerVersion = $m.Matches[0].Groups[1].Value
+if ($headerVersion -ne $NriVersion) {
+    throw "nri/ is at NRI_VERSION $headerVersion but Directory.Build.props pins $NriVersion. Check out tag v$NriVersion in nri/."
+}
+Write-Host "==> NRI v$NriVersion, $Rid, $Configuration, variant $Variant$(if ($dlssDir) { " + DLSS from $dlssDir" })"
+
+# ------------------------------------------------------------------------------------------ 2. patches
+$patches = @(Get-ChildItem (Join-Path $root "patches") -Filter "*.patch" -File -ErrorAction SilentlyContinue | Sort-Object Name)
+$sha = [System.Security.Cryptography.SHA256]::Create()
+$patchHashInput = [System.Text.StringBuilder]::new()
+foreach ($p in $patches) {
+    $bytes = [System.IO.File]::ReadAllBytes($p.FullName)
+    [void]$patchHashInput.Append($p.Name).Append(':').Append([Convert]::ToHexString($sha.ComputeHash($bytes))).Append(';')
+}
+$patchHash = [Convert]::ToHexString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($patchHashInput.ToString()))).Substring(0, 16)
+
+Write-Host "==> patches: $($patches.Count)"
+foreach ($p in $patches) {
+    git -C $nri apply --check --reverse $p.FullName 2>$null
+    if ($LASTEXITCODE -eq 0) { Write-Host "    $($p.Name): already applied, skipped"; continue }
+    git -C $nri apply --check $p.FullName
+    if ($LASTEXITCODE -ne 0) { throw "patch $($p.Name) does not apply to nri/ at v$NriVersion" }
+    Invoke-Native "git apply $($p.Name)" { git -C $nri apply $p.FullName }
+    Write-Host "    $($p.Name): applied"
+}
+
+# ------------------------------------------------------------------------------------------ 3. options
+# Ordered: name -> ON/OFF. Each entry exists on the target; see nri/CMakeLists.txt for the conditions.
+$sdk = if ($upscalers) { "ON" } else { "OFF" }
+$opt = [ordered]@{
+    NRI_STATIC_LIBRARY                     = "OFF"
+    NRI_ENABLE_DEBUG_NAMES_AND_ANNOTATIONS = "ON"
+    NRI_ENABLE_NONE_SUPPORT                = "ON"
+    NRI_ENABLE_VALIDATION_SUPPORT          = "ON"
+    NRI_ENABLE_IMGUI_EXTENSION             = "ON"
+    NRI_ENABLE_VK_SUPPORT                  = "ON"   # "NOT IOS"
+    NRI_ENABLE_NVTX_SUPPORT                = "ON"   # "NOT IOS"; header-only, upstream default, pinned for reproducibility
+    NRI_ENABLE_NIS_SDK                     = $sdk   # "NOT IOS"; pulls in ShaderMake + DXC to compile the NIS shaders
+    # "WGPU_BIN_ARCHITECTURE; NOT ANDROID; NOT IOS", and its *default* is ON under GitHub Actions
+    # (GITHUB_CI). Must be passed explicitly or CI would silently build a different library.
+    NRI_ENABLE_WGPU_SUPPORT                = "OFF"
+}
+# NGX: "(D3D11 OR D3D12 OR VK); WIN32 OR NOT IS_ARM64" -> Windows any arch, Linux x64 only. Passed
+# explicitly OFF so NRI's FetchContent never declares (and never downloads) the DLSS repository.
+if ($targetWindows -or -not $targetArm64) { $opt.NRI_ENABLE_NGX_SDK = $(if ($dlssDir) { "ON" } else { "OFF" }) }
+elseif ($dlssDir) { throw "-WithDlss: NRI has no NGX support on $Rid" }
+if ($targetWindows) {
+    $opt.NRI_ENABLE_D3D11_SUPPORT          = "OFF"  # "WIN32"
+    $opt.NRI_ENABLE_D3D12_SUPPORT          = "ON"   # "WIN32"
+    $opt.NRI_ENABLE_NVAPI                  = "ON"   # "D3D11 OR D3D12"
+    # "D3D12". Compiles NRI against the Agility headers; patch 0001 loads the SDK from a directory at
+    # run time when one is present. The DLLs go to the separate Agility package, never to a variant.
+    $opt.NRI_ENABLE_AGILITY_SDK_SUPPORT    = "ON"
+    if (-not $targetArm64) {
+        $opt.NRI_ENABLE_AMDAGS             = "ON"   # "(D3D11 OR D3D12); NOT IS_ARM64"
+        $opt.NRI_ENABLE_FFX_SDK            = $sdk   # "(VK OR D3D12); WIN32; NOT IS_ARM64"
+        $opt.NRI_ENABLE_XESS_SDK           = $sdk   # "D3D12; WIN32; NOT IS_ARM64"
+    }
+}
+# Not passed anywhere: NRI_ENABLE_METAL_SUPPORT ("APPLE"), D3D11/D3D12/NVAPI/AGS/Agility/FFX/XeSS on
+# Linux. NRI_ENABLE_XLIB_SUPPORT / NRI_ENABLE_WAYLAND_SUPPORT are left to NRI's header detection.
+foreach ($d in $Disable) {
+    if (-not $opt.Contains($d)) { throw "-Disable ${d}: not an option this script passes for $Rid" }
+    $opt[$d] = "OFF"
+    Write-Warning "$d forced OFF by -Disable"
+}
+$on = { param($n) $opt.Contains($n) -and $opt[$n] -eq "ON" }
+
+# ------------------------------------------------------------------------------------------ configure
+$build   = Join-Path $root "_build" "$Rid-$variantKey"
+$deps    = Join-Path $build "_deps"
+$binRoot = Join-Path $build "bin"
+if ($Clean -and (Test-Path $build)) { Remove-Item $build -Recurse -Force -Confirm:$false }
+New-Item -ItemType Directory -Force -Path $build | Out-Null
+
+$fwd = { param($p) $p -replace '\\', '/' }
+# XeSS: libxess.lib makes libxess.dll a load-time import of NRI.dll. A CMake fragment injected
+# after NRI's project() adds /DELAYLOAD for the NRI target only, so NRI.dll loads without it.
+$delayLoad = $targetWindows -and (& $on NRI_ENABLE_XESS_SDK)
+$delayLoadFragment = Join-Path $PSScriptRoot "cmake" "xess-delayload.cmake"
+
+$optString = ($opt.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ";"
+$depsKey = "nri=$NriVersion;patches=$patchHash;rid=$Rid;$optString$(if ($dlssDir) { ";ngx=$dlssDir" })"
+$depsMarker = Join-Path $deps ".prismnri-deps"
+$offline = (Test-Path $depsMarker) -and ((Get-Content $depsMarker -Raw).Trim() -eq $depsKey)
+
+$cmakeArgs = @("-S", $nri, "-B", $build)
+if ($Generator) {
+    $cmakeArgs += @("-G", $Generator)
+} elseif ($targetWindows) {
+    $cmakeArgs += @("-A", $(if ($targetArm64) { "ARM64" } else { "x64" }))
+} else {
+    $cmakeArgs += @("-G", $(if (Get-Command ninja -ErrorAction SilentlyContinue) { "Ninja" } else { "Unix Makefiles" }))
+}
+if (-not $targetWindows -or $Generator) { $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Configuration" }  # single-config generators
+$cmakeArgs += @(
+    "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$(& $fwd $binRoot)"      # NRI defaults these to nri/_Bin
+    "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=$(& $fwd $binRoot)"
+    "-DNRI_SHADERS_PATH=$(& $fwd (Join-Path $build '_Shaders'))" # NRI defaults this to nri/_Shaders
+    "-DFETCHCONTENT_BASE_DIR=$(& $fwd $deps)"
+    "-DFETCHCONTENT_FULLY_DISCONNECTED=$(if ($offline) { 'ON' } else { 'OFF' })"
+    # ShaderMake otherwise prefers whatever dxc a local Vulkan SDK has; use its pinned GitHub DXC for
+    # both DXIL and SPIR-V so the embedded shader blobs do not depend on the machine.
+    "-DSHADERMAKE_FIND_DXC_VK=OFF"
+    # Always passed (empty when unused) so a stale value can never linger in an existing cache.
+    "-DCMAKE_PROJECT_NRI_INCLUDE=$(if ($delayLoad) { & $fwd $delayLoadFragment })"
+)
+# Only the -WithDlss build tree ever has NGX on, so this never needs clearing elsewhere.
+if ($dlssDir) { $cmakeArgs += "-DFETCHCONTENT_SOURCE_DIR_NGX=$(& $fwd $dlssDir)" }
+foreach ($kv in $opt.GetEnumerator()) { $cmakeArgs += "-D$($kv.Key)=$($kv.Value)" }
+
+Write-Host "==> configure -> $build$(if ($offline) { ' (deps cached, offline)' })"
+foreach ($kv in $opt.GetEnumerator()) { Write-Host ("    {0,-40} {1}" -f $kv.Key, $kv.Value) }
+if ($delayLoad) { Write-Host "    /DELAYLOAD:libxess.dll                   (tools/cmake/xess-delayload.cmake)" }
+if ($dlssDir)   { Write-Host "    FETCHCONTENT_SOURCE_DIR_NGX              $dlssDir" }
+Invoke-Native "cmake configure" { cmake @cmakeArgs }
+New-Item -ItemType Directory -Force -Path $deps | Out-Null
+Set-Content -Path $depsMarker -Value $depsKey -NoNewline
+
+# NRI writes Include/NRIAgilitySDK.h into its own source tree at configure time (for the host
+# executable to include). Keep it, but not in the submodule.
+$agilityHeader = Join-Path $nri "Include" "NRIAgilitySDK.h"
+if (Test-Path $agilityHeader) { Move-Item $agilityHeader (Join-Path $build "NRIAgilitySDK.h") -Force }
+
+# What CMake actually decided (dependent options can still be forced OFF by their conditions).
+$cache = Get-Content (Join-Path $build "CMakeCache.txt")
+$effective = [ordered]@{}
+foreach ($n in @($opt.Keys) + @("NRI_ENABLE_XLIB_SUPPORT", "NRI_ENABLE_WAYLAND_SUPPORT")) {
+    $line = $cache | Where-Object { $_ -match "^$n`:(BOOL|INTERNAL)=(.*)$" } | Select-Object -First 1
+    if ($line -and $line -match "=(.*)$") { $effective[$n] = $Matches[1] }
+}
+foreach ($kv in $opt.GetEnumerator()) {
+    if ($effective.Contains($kv.Key) -and $effective[$kv.Key] -ne $kv.Value) {
+        throw "$($kv.Key): requested $($kv.Value) but CMake has $($effective[$kv.Key]) (dependent option condition false?)"
+    }
+}
+if (-not $targetWindows) {
+    Write-Host "    NRI_ENABLE_XLIB_SUPPORT    (auto) $($effective['NRI_ENABLE_XLIB_SUPPORT'])"
+    Write-Host "    NRI_ENABLE_WAYLAND_SUPPORT (auto) $($effective['NRI_ENABLE_WAYLAND_SUPPORT'])"
+}
+# The DLSS repository is 1.4 GB and under NVIDIA's terms: without -WithDlss it must not be fetched.
+if (-not $dlssDir -and (Test-Path (Join-Path $deps "ngx-src"))) {
+    throw "NGX is off but $deps/ngx-src exists: something downloaded the DLSS SDK"
+}
+
+# ------------------------------------------------------------------------------------------ build
+Write-Host "==> build ($Configuration)"
+Invoke-Native "cmake build" { cmake --build $build --config $Configuration --parallel }
+if (Test-Path $agilityHeader) { Move-Item $agilityHeader (Join-Path $build "NRIAgilitySDK.h") -Force }
+
+# Multi-config generators append the configuration to a non-genex output directory.
+$bin = @((Join-Path $binRoot $Configuration), $binRoot) | Where-Object {
+    Test-Path (Join-Path $_ $(if ($targetWindows) { "NRI.dll" } else { "libNRI.so" }))
+} | Select-Object -First 1
+if (-not $bin) { throw "NRI library not found under $binRoot" }
+
+$nriStatus = git -C $nri status --porcelain
+if ($nriStatus -and $patches.Count -eq 0) { Write-Warning "nri/ is not clean after the build:`n$($nriStatus -join "`n")" }
+
+# Load-time imports of NRI.dll: no vendor runtime may be among them (a missing one would make the
+# whole library fail to load). Read with dumpbin when Visual Studio provides one.
+if ($targetWindows) {
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio" "Installer" "vswhere.exe"
+    $dumpbin = if (Test-Path $vswhere) {
+        & $vswhere -latest -products * -find "VC/Tools/MSVC/**/bin/Hostx64/x64/dumpbin.exe" | Select-Object -First 1
+    }
+    if ($dumpbin) {
+        $deps_ = & $dumpbin /nologo /dependents (Join-Path $bin "NRI.dll")
+        $section = ""; $loadTime = @(); $delayed = @()
+        foreach ($l in $deps_) {
+            if ($l -match 'following dependencies:') { $section = "load" }
+            elseif ($l -match 'following delay load dependencies:') { $section = "delay" }
+            elseif ($l -match '^\s+(\S+\.dll)\s*$') { if ($section -eq "load") { $loadTime += $Matches[1] } elseif ($section -eq "delay") { $delayed += $Matches[1] } }
+            elseif ($l -match '^\s+Summary') { $section = "" }
+        }
+        Write-Host "==> NRI.dll imports: $($loadTime -join ', ')"
+        if ($delayed) { Write-Host "    delay-loaded:    $($delayed -join ', ')" }
+        $vendor = @($loadTime | Where-Object { $_ -match '^(libxess|nvngx|amd_fidelityfx|amd_ags|D3D12Core)' })
+        if ($vendor) { throw "NRI.dll has a load-time import of a vendor runtime: $($vendor -join ', ')" }
+        if ($delayLoad -and $delayed -notcontains "libxess.dll") { throw "libxess.dll is not delay-loaded by NRI.dll" }
+    } else {
+        Write-Warning "dumpbin not found; NRI.dll's imports were not checked"
+    }
+}
+
+# ------------------------------------------------------------------------------------------ 4. stage
+$staged = [System.Collections.Generic.List[string]]::new()
+$out = $null
+function Start-Staging([string]$Dir) {
+    if (Test-Path $Dir) { Remove-Item $Dir -Recurse -Force -Confirm:$false }
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    $script:out = $Dir
+    $script:staged = [System.Collections.Generic.List[string]]::new()
+}
+function Stage([string]$Source, [string]$RelDest) {
+    if (-not (Test-Path $Source -PathType Leaf)) { throw "expected file missing: $Source" }
+    $dest = Join-Path $script:out $RelDest
+    New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+    Copy-Item $Source $dest -Force
+    $script:staged.Add(($RelDest -replace '\\', '/'))
+}
+function StageLicense([string]$Component, [string]$Source, [string]$Name) {
+    if (-not $Name) { $Name = Split-Path $Source -Leaf }
+    Stage $Source "licenses/$Component/$Name"
+}
+function Write-Summary([string]$Title) {
+    Write-Host ""
+    Write-Host "==> $Title staged into $script:out"
+    $total = 0L
+    $rows = foreach ($rel in $script:staged) {
+        $len = (Get-Item (Join-Path $script:out $rel)).Length
+        $total += $len
+        [pscustomobject]@{ File = $rel; Bytes = $len; Size = if ($len -ge 1MB) { "{0:N1} MB" -f ($len / 1MB) } else { "{0:N1} KB" -f ($len / 1KB) } }
+    }
+    $rows | Format-Table -AutoSize File, @{ n = "Size"; e = { $_.Size }; a = "right" }, @{ n = "Bytes"; e = { $_.Bytes }; a = "right" } | Out-String | Write-Host
+    Write-Host ("    {0} files, {1:N1} MB total" -f $script:staged.Count, ($total / 1MB))
+}
+
+Start-Staging (Join-Path $root $stageRoot $Rid "native")
+
+$arch = if ($targetArm64) { "arm64" } else { "x64" }
+if ($targetWindows) {
+    Stage (Join-Path $bin "NRI.dll") "NRI.dll"
+    if (& $on NRI_ENABLE_AMDAGS) { Stage (Join-Path $bin "amd_ags_$arch.dll") "amd_ags_$arch.dll" }   # LoadLibrary'd by name; MIT
+} else {
+    Stage (Join-Path $bin "libNRI.so") "libNRI.so"
+}
+
+# Anything NRI's post-build copied that we did not stage is a vendor runtime the application ships,
+# the Agility SDK (its own package), a tool, debug data, or new.
+$notOurs = '^(nvngx_dlssd?\.dll|libnvidia-ngx-dlssd?\.so\..*|amd_fidelityfx_(loader_dx12|upscaler_dx12|vk)\.dll|libxess\.dll)$'
+$ignored = '\.(lib|exp|pdb|ilk|a)$|^AgilitySDK[\\/]'
+$unexpected = @(Get-ChildItem $bin -Recurse -File | ForEach-Object {
+    [System.IO.Path]::GetRelativePath($bin, $_.FullName) -replace '\\', '/'
+} | Where-Object { $_ -notin $staged -and $_ -notmatch $ignored })
+foreach ($u in $unexpected) {
+    if ($u -match $notOurs) { Write-Host "    not staged: $u (vendor runtime; the application ships it)" }
+    else { Write-Warning "not staged: $u (review whether NRI needs it at run time)" }
+}
+
+# ------------------------------------------------------------------------------------------ licences
+# Only for what is inside the staged files: compiled into NRI, linked into NRI, or shipped beside it.
+StageLicense "NRI" (Join-Path $nri "LICENSE.txt")
+if (& $on NRI_ENABLE_NVTX_SUPPORT) { StageLicense "NVTX" (Join-Path $deps "nvtx-src" "LICENSE.txt") }
+if (& $on NRI_ENABLE_VK_SUPPORT) {
+    StageLicense "Vulkan-Headers" (Join-Path $deps "vulkan_headers-src" "LICENSE.md")
+    foreach ($f in Get-ChildItem (Join-Path $deps "vulkan_headers-src" "LICENSES") -File) { StageLicense "Vulkan-Headers" $f.FullName }
+    StageLicense "VulkanMemoryAllocator" (Join-Path $deps "vma-src" "LICENSE.txt")
+}
+if (& $on NRI_ENABLE_D3D12_SUPPORT) {
+    StageLicense "D3D12MemoryAllocator" (Join-Path $deps "d3d12ma-src" "LICENSE.txt")
+    StageLicense "D3D12MemoryAllocator" (Join-Path $deps "d3d12ma-src" "NOTICES.txt")
+}
+# The Agility headers are compiled into NRI (MIT). The runtime's licence goes with the runtime, in
+# the Agility package.
+if (& $on NRI_ENABLE_AGILITY_SDK_SUPPORT) { StageLicense "DirectX-AgilitySDK" (Join-Path $deps "agilitysdk-src" "LICENSE-CODE.txt") }
+if (& $on NRI_ENABLE_NVAPI)   { StageLicense "NVAPI" (Join-Path $deps "nvapi-src" "License.txt") }
+if (& $on NRI_ENABLE_AMDAGS)  { StageLicense "AMD-AGS" (Join-Path $deps "amdags-src" "ags_lib" "LICENSE.txt") }
+if (& $on NRI_ENABLE_NGX_SDK) {
+    # nvsdk_ngx is statically linked into NRI: the NVIDIA RTX SDKs licence attaches to NRI.dll itself.
+    StageLicense "NVIDIA-DLSS-NGX" (Join-Path $dlssDir "LICENSE.txt")
+}
+if (& $on NRI_ENABLE_FFX_SDK) {
+    # NRI compiles against the FSR SDK's API headers (D3D12 and, through the same API, Vulkan) and
+    # loads the runtime DLLs by name. Nothing from the legacy FidelityFX SDK v1.1.4 is compiled in;
+    # its amd_fidelityfx_vk.dll is the application's to ship.
+    StageLicense "AMD-FSR-SDK" (Join-Path $deps "fsr-src" "docs" "license.md")
+    StageLicense "AMD-FSR-SDK" (Join-Path $deps "fsr-src" "3rdpartynotice.md")
+}
+if (& $on NRI_ENABLE_XESS_SDK) {
+    # Headers and the libxess.lib import stubs are inside NRI.dll; libxess.dll itself is not staged.
+    StageLicense "Intel-XeSS" (Join-Path $deps "xess-src" "LICENSE.txt")
+    StageLicense "Intel-XeSS" (Join-Path $deps "xess-src" "third-party-programs.txt")
+}
+if (& $on NRI_ENABLE_NIS_SDK) {
+    # NIS ships inside NRI (Shaders/NIS*.hlsl, compiled into NRI); its MIT notice is the header comment.
+    $nisLines = Get-Content (Join-Path $nri "Shaders" "NIS.hlsl")
+    $end = [Array]::FindIndex([string[]]$nisLines, [Predicate[string]] { param($l) $l -notmatch '^//' })
+    $nisLicense = Join-Path $build "NIS-LICENSE.txt"
+    ($nisLines[0..($end - 1)] | ForEach-Object { $_ -replace '^// ?', '' }) -join "`n" | Set-Content $nisLicense -NoNewline
+    StageLicense "NVIDIA-Image-Scaling" $nisLicense "LICENSE.txt"
+    # ShaderMakeBlob (blob lookup for the embedded shaders) is linked into NRI.
+    StageLicense "ShaderMake" (Join-Path $deps "shadermake-src" "LICENSE.txt")
+}
+$notices = Join-Path $root "THIRD-PARTY-NOTICES.md"
+if (Test-Path $notices) { Stage $notices "licenses/THIRD-PARTY-NOTICES.md" }
+
+Write-Summary "$Variant$(if ($dlssDir) { ' + DLSS' })"
+if ($dlssDir) {
+    Write-Warning "This NRI.dll statically links NVIDIA's NGX SDK and is under the NVIDIA RTX SDKs licence. It is for your application only: do not commit or pack it. nvngx_dlss.dll / nvngx_dlssd.dll are not staged; ship them from $dlssDir/lib beside your executable."
+}
+
+# ------------------------------------------------------------------------------------------ 5. Agility
+# Same SDK version for every variant (NRI_AGILITY_SDK_VERSION_*), so whichever variant ran last
+# stages identical bytes.
+if ($targetWindows -and (& $on NRI_ENABLE_AGILITY_SDK_SUPPORT)) {
+    Start-Staging (Join-Path $root "runtimes-agility" $Rid "native")
+    # NRI copies the whole bin/<arch> of the NuGet package; only what the package's
+    # "distributable files.txt" names may be redistributed, and only the DLLs are runtime files.
+    $redist = Get-Content (Join-Path $deps "agilitysdk-src" "distributable files.txt")
+    foreach ($f in "D3D12Core.dll", "d3d12SDKLayers.dll") {
+        if ($redist -notcontains $f) { throw "Agility SDK no longer lists $f as distributable" }
+        Stage (Join-Path $bin "AgilitySDK" $f) "AgilitySDK/$f"
+    }
+    Stage (Join-Path $deps "agilitysdk-src" "LICENSE.txt") "AgilitySDK/LICENSE.txt"   # Microsoft Software License Terms
+    Write-Summary "Agility"
+}

@@ -1,3 +1,14 @@
 <Solution>
-  <Project Path="PrismNRI/PrismNRI.csproj" />
+  <Folder Name="/src/">
+    <Project Path="descs/PrismNRI.Descs.csproj" />
+    <Project Path="dotnet/PrismNRI.csproj" />
+    <Project Path="testing/PrismNRI.Testing.csproj" />
+  </Folder>
+  <Folder Name="/native/">
+    <Project Path="native/PrismNRI.Native.Agility.csproj" />
+    <Project Path="native/PrismNRI.Native.Upscalers.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PrismNRI.Tests/PrismNRI.Tests.csproj" />
+  </Folder>
 </Solution>

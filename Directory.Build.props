@@ -1,0 +1,33 @@
+<Project>
+
+  <!--
+    Single source of truth for the pinned NRI release.
+
+    NRI is integer-versioned with breaking changes between versions and an ABI that is not stable
+    upstream (docs/design.md §2). This is an exact pin, not a floor. Everything downstream reads it
+    from here:
+
+      nri/                        the submodule, checked out at tag v$(NriVersion)
+      tools/generate-native.ps1   the headers the L0 layer is generated from
+      tools/build-native.ps1      the tag the native library is built from
+      dotnet/PrismNRI.csproj      package metadata and the AssemblyMetadata the runtime check reads
+      tests/                      the DeviceDesc.nriVersion a created device must report
+
+    Bumping NRI is therefore: move the submodule, change this line, re-run both tools, rebase
+    patches/, run the tests, review the diff.
+  -->
+
+  <PropertyGroup>
+    <NriVersion>190</NriVersion>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Authors>szombathy-tamas</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/Nullpoint56/PrismNRI</RepositoryUrl>
+  </PropertyGroup>
+
+</Project>

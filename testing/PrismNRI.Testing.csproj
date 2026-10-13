@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    PrismNRI.Testing - a validated, headless NRI device for a test project.
+
+    The fourth oracle, packaged: a device per backend with NRI's own validation and the backend
+    validation layer on, every message recorded, the software adapter (WARP, lavapipe) picked under
+    CI, and a reason string when a backend is not available on the machine. This repository's own
+    tests use it through a thin xunit wrapper; a downstream project (PrismSlang's NRI projection,
+    the engine's renderer tests) references this package and gets the same device.
+
+    No test framework dependency on purpose: it answers "is this backend available" and "did
+    anything report an error" as values, and the consumer turns them into skips and assertions
+    in whatever framework it uses.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>PrismNRI.Testing</RootNamespace>
+    <PackageId>PrismNRI.Testing</PackageId>
+    <Version>0.1.0-alpha</Version>
+    <Description>A headless, validated NRI device for tests: Vulkan, D3D12 or NRI's NONE backend with NRI validation and the backend validation layer on, messages captured, software adapters under CI, and skip reasons when a backend is absent. For projects that build on PrismNRI.</Description>
+    <PackageTags>nri;vulkan;d3d12;testing;validation</PackageTags>
+    <NoWarn>$(NoWarn);CS1591;NU5128</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\dotnet\PrismNRI.csproj" />
+  </ItemGroup>
+
+</Project>

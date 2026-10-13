@@ -1,0 +1,17 @@
+namespace PrismNRI.Native;
+
+[NativeTypeName("uint8_t")]
+public enum Topology : byte
+{
+    POINT_LIST,
+    LINE_LIST,
+    LINE_STRIP,
+    TRIANGLE_LIST,
+    TRIANGLE_STRIP,
+    LINE_LIST_WITH_ADJACENCY,
+    LINE_STRIP_WITH_ADJACENCY,
+    TRIANGLE_LIST_WITH_ADJACENCY,
+    TRIANGLE_STRIP_WITH_ADJACENCY,
+    PATCH_LIST,
+    MAX_NUM,
+}

@@ -1,0 +1,58 @@
+Agility SDK through ID3D12DeviceFactory, for hosts that cannot export D3D12SDKVersion.
+
+NRI loads the Agility SDK the way Microsoft documents for native executables: the host compiles in
+Include/NRIAgilitySDK.h, which exports D3D12SDKVersion and D3D12SDKPath, and the D3D12 runtime
+reads them from the EXE. A managed host (dotnet.exe, an apphost, a test runner) exports nothing,
+so NRI's D3D12 backend silently runs on the inbox runtime and OPTIONS22 and everything newer is
+absent (docs/findings.md §6.4).
+
+This patch adds one optional field, DeviceCreationDesc::d3d12AgilitySdkPath. When set, device
+creation obtains ID3D12SDKConfiguration1, creates a device factory for the SDK version NRI was
+compiled against (NRI_AGILITY_SDK_VERSION_MAJOR) from that directory, and applies it to the
+process state before any other D3D12 entry point is called, so D3D12GetDebugInterface,
+D3D12CreateDevice and AGS's device creation all see the SDK. Nothing changes when the field is
+null. Applies on top of NRI v190.
+
+diff --git a/Include/Extensions/NRIDeviceCreation.h b/Include/Extensions/NRIDeviceCreation.h
+index ddbffe5..a8ad7b5 100644
+--- a/Include/Extensions/NRIDeviceCreation.h
++++ b/Include/Extensions/NRIDeviceCreation.h
+@@ -78,6 +78,7 @@ NriStruct(DeviceCreationDesc) {
+     // D3D specific
+     NriOptional uint32_t d3dShaderExtRegister;  // vendor specific shader extensions (default is "NRI_SHADER_EXT_REGISTER", space is always "0")
+     NriOptional uint32_t d3dZeroBufferSize;     // no "memset" functionality in D3D, "CmdZeroBuffer" implemented via a bunch of copies (4 Mb by default)
++    NriOptional const char* d3d12AgilitySdkPath; // directory holding "D3D12Core.dll" of the Agility SDK NRI was built against; if set, the SDK is loaded through "ID3D12SDKConfiguration1::CreateDeviceFactory" and applied to the process, so the host executable needs no "D3D12SDKVersion" / "D3D12SDKPath" exports (requires "NRI_ENABLE_AGILITY_SDK_SUPPORT")
+ 
+     // Vulkan specific
+     Nri(VKBindingOffsets) vkBindingOffsets;
+diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
+index 0e1215a..855c521 100644
+--- a/Source/D3D12/DeviceD3D12.hpp
++++ b/Source/D3D12/DeviceD3D12.hpp
+@@ -489,6 +489,26 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
+     // Get adapter description as early as possible for meaningful error reporting
+     m_Desc.adapterDesc = *desc.adapterDesc;
+ 
++#if NRI_ENABLE_AGILITY_SDK_SUPPORT
++    // Agility SDK from a path, for hosts that cannot export "D3D12SDKVersion" / "D3D12SDKPath" (managed runtimes, plugins).
++    // Applied to the process state so that every D3D12 entry point below, including the debug layer and AGS, uses the SDK.
++    // IMPORTANT: Must be called before any other D3D12 entry point in this process
++    if (desc.d3d12AgilitySdkPath && !m_IsWrapped) {
++        ComPtr<ID3D12SDKConfiguration1> sdkConfiguration;
++        HRESULT hr = D3D12GetInterface(CLSID_D3D12SDKConfiguration, IID_PPV_ARGS(&sdkConfiguration));
++        NRI_RETURN_ON_BAD_HRESULT(this, hr, "D3D12GetInterface(CLSID_D3D12SDKConfiguration)");
++
++        ComPtr<ID3D12DeviceFactory> deviceFactory;
++        hr = sdkConfiguration->CreateDeviceFactory(NRI_AGILITY_SDK_VERSION_MAJOR, desc.d3d12AgilitySdkPath, IID_PPV_ARGS(&deviceFactory));
++        NRI_RETURN_ON_BAD_HRESULT(this, hr, "ID3D12SDKConfiguration1::CreateDeviceFactory");
++
++        hr = deviceFactory->ApplyToGlobalState();
++        NRI_RETURN_ON_BAD_HRESULT(this, hr, "ID3D12DeviceFactory::ApplyToGlobalState");
++
++        NRI_REPORT_INFO(this, "Using Agility SDK v1.%u from '%s'", (uint32_t)NRI_AGILITY_SDK_VERSION_MAJOR, desc.d3d12AgilitySdkPath);
++    }
++#endif
++
+     // IMPORTANT: Must be called before the D3D12 device is created, or the D3D12 runtime removes the device
+     if (desc.enableGraphicsAPIValidation) {
+         ComPtr<ID3D12Debug> debugController;

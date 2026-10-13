@@ -1,0 +1,14 @@
+namespace PrismNRI.Native;
+
+[NativeTypeName("uint8_t")]
+public enum QueryType : byte
+{
+    TIMESTAMP,
+    TIMESTAMP_COPY_QUEUE,
+    OCCLUSION,
+    PIPELINE_STATISTICS,
+    ACCELERATION_STRUCTURE_SIZE,
+    ACCELERATION_STRUCTURE_COMPACTED_SIZE,
+    MICROMAP_COMPACTED_SIZE,
+    MAX_NUM,
+}

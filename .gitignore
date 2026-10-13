@@ -1,0 +1,17 @@
+# build output
+bin/
+obj/
+*.user
+.vs/
+.idea/
+TestResults/
+
+# native payloads: built by tools/build-native.ps1 from the pinned submodule, never committed
+# (runtimes-upscalers-dlss/ above all: it is under NVIDIA's licence)
+runtimes/
+runtimes-*/
+_build/
+_NRI_SDK/
+
+# generated at ABI-probe time
+*.abi-probe.*

@@ -1,0 +1,17 @@
+namespace PrismNRI.Native;
+
+[NativeTypeName("uint8_t")]
+public enum TextureView : byte
+{
+    TEXTURE,
+    TEXTURE_ARRAY,
+    TEXTURE_CUBE,
+    TEXTURE_CUBE_ARRAY,
+    STORAGE_TEXTURE,
+    STORAGE_TEXTURE_ARRAY,
+    SUBPASS_INPUT,
+    COLOR_ATTACHMENT,
+    DEPTH_STENCIL_ATTACHMENT,
+    SHADING_RATE_ATTACHMENT,
+    MAX_NUM,
+}
