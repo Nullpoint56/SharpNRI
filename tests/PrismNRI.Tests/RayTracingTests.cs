@@ -132,13 +132,21 @@ public sealed class RayTracingTests
         readback.Unmap();
         device.WaitIdle();
 
-        Assert.Equal(1u, hits[8 * Width + 8]);    // centre: inside the triangle
-        Assert.Equal(1u, hits[6 * Width + 8]);
-        Assert.Equal(0u, hits[0]);                 // corners: outside
-        Assert.Equal(0u, hits[Width - 1]);
-        Assert.Equal(0u, hits[(Width - 1) * Width]);
-        Assert.Equal(0u, hits[Width * Width - 1]);
+        // One picture of the whole field in the failure message: a software ray tracer that misses
+        // on one runner host and hits on another (findings 8.8) is diagnosed from the map, not from
+        // "expected 1, got 0".
         var hitCount = hits.Count(h => h == 1);
+        var map = string.Join("\n", Enumerable.Range(0, Width).Select(y =>
+            string.Concat(Enumerable.Range(0, Width).Select(x => hits[y * Width + x] switch { 0 => '.', 1 => '#', _ => '?' }))));
+        GpuWork.Record($"{backend}: {hitCount} hits\n{map}");
+        void Expect(uint value, int x, int y, string where) =>
+            Assert.True(hits[y * Width + x] == value, $"({x},{y}) {where}: expected {value}, got {hits[y * Width + x]}; {hitCount} hits of {Width * Width}\n{map}");
+        Expect(1, 8, 8, "centre, inside the triangle");
+        Expect(1, 8, 6, "inside the triangle");
+        Expect(0, 0, 0, "corner, outside");
+        Expect(0, Width - 1, 0, "corner, outside");
+        Expect(0, 0, Width - 1, "corner, outside");
+        Expect(0, Width - 1, Width - 1, "corner, outside");
         Assert.InRange(hitCount, 30, 130);         // a triangle of area 0.5 in a 2x2 field of 256 rays is 64 hits, give or take the edges
         Assert.DoesNotContain(messages, m => m.IsError);
     }

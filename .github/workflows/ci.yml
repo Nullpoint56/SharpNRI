@@ -134,10 +134,24 @@ jobs:
       - name: Build managed
         run: dotnet build PrismNRI.slnx -c Release
 
+      # The ray query test passes on some runner hosts and fails on others with identical packages
+      # (findings 8.8). Until the host-side cause is known this runs it on its own several times and
+      # prints the hit map, so a failing host leaves a picture rather than "expected 1, got 0".
+      - name: Ray query probe
+        continue-on-error: true
+        run: |
+          t=tests/PrismNRI.Tests/bin/Release/net11.0/PrismNRI.Tests
+          pass=0
+          for i in 1 2 3 4 5; do
+            if $t -method "PrismNRI.Tests.RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS" > /tmp/rq.log 2>&1; then pass=$((pass+1)); else grep -v "^\s*$" /tmp/rq.log | head -60; fi
+          done
+          echo "ray query: $pass of 5 runs passed"
+
       - name: Test
         run: dotnet test --solution PrismNRI.slnx -c Release --no-build
 
-  # The checked-in L0 layer must be exactly what the pinned headers generate. The generator writes
+  # The checked-in L0 layer
+ must be exactly what the pinned headers generate. The generator writes
   # LF whatever the host, so any runner compares equal; Windows is where ClangSharp is exercised
   # for releases.
   regen:
