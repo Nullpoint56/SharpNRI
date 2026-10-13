@@ -47,6 +47,14 @@ public sealed class TextureTests
     public void Committed_2D_texture_is_created_with_each_usage(Backend backend, TextureUsageBits usage)
     {
         TestDevice.RequireAvailable(backend);
+        // Not a missing capability but a driver crash, measured on GitHub's macOS runner: binding
+        // memory to a host-transfer image faults inside Apple's paravirtual Metal driver, below
+        // MoltenVK, with no Vulkan error first (docs/findings.md 9.4). The device advertises
+        // hostImageCopy, so nothing NRI reports can predict it; the skip names the device instead.
+        Assert.SkipWhen(backend.Api == GraphicsAPI.VK && usage == TextureUsageBits.HOST_TRANSFER
+                && TestDevice.AdapterFor(GraphicsAPI.VK)?.Name == "Apple Paravirtual device",
+            "MoltenVK on the Apple Paravirtual device crashes in vkBindImageMemory for a VK_IMAGE_USAGE_HOST_TRANSFER_BIT image "
+            + "(EXC_BAD_ACCESS in AppleParavirtGPUMetalIOGPUFamily under MVKImagePlane::updateMTLTextureContent)");
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
 
