@@ -335,14 +335,18 @@ if ($targetWindows) {
         Write-Warning "dumpbin not found; NRI.dll's imports were not checked"
     }
 }
-# macOS: NRI opens the Vulkan loader with dlopen at device creation, so libNRI.dylib must not link
-# it (or MoltenVK) at load time, or the NONE backend would need Vulkan installed. The minimum macOS
-# version stamped into the library is the oldest system that will load it.
+# macOS: unlike on Windows and Linux, NRI's CMakeLists links the Vulkan loader into the library on
+# Apple (find_package(Vulkan), Vulkan_LIBRARIES), by the absolute install name of whatever loader
+# the build machine had, and still dlopens "libvulkan.1.dylib" at device creation. So a Vulkan
+# loader must be present for libNRI.dylib to load at all, NONE backend included (findings §9).
+# Anything else outside the system is unexpected; MoltenVK linked directly would bypass the loader
+# and with it the validation layer. The minimum macOS version stamped into the library is the
+# oldest system that will load it.
 if ($targetMac) {
-    $linked = @(otool -L (Join-Path $bin $libName) | Select-Object -Skip 1 | ForEach-Object { $_.Trim() })
-    Write-Host "==> $libName links: $($linked -join '; ')"
-    $vulkan = @($linked | Where-Object { $_ -match 'libvulkan|MoltenVK' })
-    if ($vulkan) { throw "$libName links the Vulkan loader at load time: $($vulkan -join ', ')" }
+    $linked = @(otool -L (Join-Path $bin $libName) | Select-Object -Skip 1 | ForEach-Object { ($_.Trim() -split ' \(')[0] })
+    Write-Host "==> $libName links: $($linked -join ', ')"
+    $foreign = @($linked | Where-Object { $_ -notmatch '^(/usr/lib/|/System/|@rpath/libNRI\.dylib$)' -and $_ -notmatch '/libvulkan\.1\.dylib$' })
+    if ($foreign) { throw "$libName links something other than the system and the Vulkan loader: $($foreign -join ', ')" }
     $build_ = @(otool -l (Join-Path $bin $libName) | Select-String -Pattern '^\s*(minos|sdk)\s' | ForEach-Object { $_.Line.Trim() })
     Write-Host "    build version: $($build_ -join ', ')"
 }

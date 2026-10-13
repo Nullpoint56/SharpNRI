@@ -160,23 +160,25 @@ jobs:
       - name: Install system packages
         run: brew install ninja molten-vk vulkan-loader vulkan-validationlayers vulkan-tools
 
-      # Homebrew's prefix (/opt/homebrew) is on none of the loader's or dyld's default paths:
-      # NRI and Vortice dlopen libvulkan.1.dylib by name, so dyld must be told where it is, and the
-      # loader where MoltenVK's ICD manifest and the validation layer's manifest are.
+      # Homebrew's prefix (/opt/homebrew) is on none of dyld's default paths: NRI and Vortice
+      # dlopen libvulkan.1.dylib by name, so dyld is told where it is. The loader is pointed at
+      # MoltenVK's ICD manifest alone, so that no other driver on the image can be picked up;
+      # it finds the validation layer in $(brew --prefix)/share/vulkan/explicit_layer.d by itself.
       - name: Point dyld and the Vulkan loader at Homebrew
         run: |
-          prefix="$(brew --prefix)"
+          icd="$(find "$(brew --prefix molten-vk)/" -name MoltenVK_icd.json | head -n1)"
+          test -n "$icd" || { echo "MoltenVK_icd.json not found under $(brew --prefix molten-vk)"; exit 1; }
           {
-            echo "DYLD_FALLBACK_LIBRARY_PATH=$prefix/lib:/usr/local/lib:/usr/lib"
-            echo "VK_DRIVER_FILES=$(brew --prefix molten-vk)/share/vulkan/icd.d/MoltenVK_icd.json"
-            echo "VK_ADD_LAYER_PATH=$(brew --prefix vulkan-validationlayers)/share/vulkan/explicit_layer.d"
+            echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib:/usr/local/lib:/usr/lib"
+            echo "VK_DRIVER_FILES=$icd"
           } >> "$GITHUB_ENV"
 
       - name: Vulkan summary
         run: |
           brew list --versions molten-vk vulkan-loader vulkan-validationlayers cmake || true
           cmake --version | head -n1
-          cat "$VK_ADD_LAYER_PATH"/VkLayer_khronos_validation.json | grep -E '"(api_version|implementation_version|library_path)"' || true
+          echo "ICD: $VK_DRIVER_FILES"
+          cat "$(brew --prefix)/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json" | grep -E '"(api_version|implementation_version|library_path)"' || true
           vulkaninfo --summary || true
 
       - name: Read NRI pin
