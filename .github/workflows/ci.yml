@@ -130,9 +130,9 @@ jobs:
       - name: Build managed
         run: dotnet build PrismNRI.slnx -c Release
 
-      # lavapipe's ray query misses the triangle on runner hosts without AVX-512 and hits it on
-      # those with it (findings 8.8). The test records and skips on a software adapter; this step
-      # runs it on its own first so the host's hit map is in the log whatever it does.
+      # lavapipe's ray query misses the triangle on some runs and hits it on others, same packages,
+      # same CPU model (findings 8.8). The test records and skips on a software adapter; this step
+      # runs it on its own five times first so the run leaves its hit maps in the log.
       - name: Ray query probe
         continue-on-error: true
         run: |

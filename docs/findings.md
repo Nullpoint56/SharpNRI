@@ -511,3 +511,13 @@ ray query on the AVX2 path. `GALLIUM_OVERRIDE_CPU_CAPS` cannot narrow it further
 removed. The test now treats a software adapter as a measurement of the build-and-dispatch path:
 validation errors still fail it, a wrong hit map is recorded in the skip reason, and the hit
 assertions stay as they are on hardware. The probe step stays so that each host leaves its map.
+
+**Second correction.** The CPU pattern did not hold either: the next run on an "AMD EPYC 7763"
+passed the probe five times out of five and the suite with it. Four runner hosts, two CPU
+models, the same packages: the miss is intermittent, and nothing in the environment the job can
+print predicts it. What is known: the shader writes 0 or 1 for every ray, the geometry is opaque,
+the build-and-dispatch sequence passes both validation layers on every run, and the miss has
+never reproduced locally (Windows on the GPU, WSL on lavapipe, over fifty runs). The shader now
+loops on `Proceed()` as the spec describes instead of calling it once, which is correct for
+opaque geometry either way and removes one thing a software traversal could disagree about. The
+probe stays: the next miss leaves its map in the log, and that is the next piece of evidence.

@@ -18,7 +18,7 @@ void csMain(uint3 id : SV_DispatchThreadID)
 
     RayQuery<RAY_FLAG_NONE> query;
     query.TraceRayInline(gTlas, RAY_FLAG_NONE, 0xFF, ray);
-    query.Proceed();
+    while (query.Proceed()) { } // the geometry is opaque, so the first call commits and returns false; the committed status is defined once Proceed() has returned false
 
     gHits[id.y * 16 + id.x] = query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? 1u : 0u;
 }

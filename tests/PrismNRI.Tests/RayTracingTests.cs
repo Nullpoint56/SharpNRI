@@ -140,9 +140,9 @@ public sealed class RayTracingTests
             string.Concat(Enumerable.Range(0, Width).Select(x => hits[y * Width + x] switch { 0 => '.', 1 => '#', _ => '?' }))));
         GpuWork.Record($"{backend}: {hitCount} hits\n{map}");
         // A software ray tracer is a measurement of the build-and-dispatch path, not of the hits:
-        // lavapipe 25.2 misses the whole triangle on runner hosts without AVX-512 and hits it on
-        // those with it (findings 8.8), and no capability bit announces which. Validation errors
-        // still fail the test there; a wrong map is recorded and skipped, named as such.
+        // lavapipe 25.2 misses the whole triangle on some CI runs and hits it on others, with the
+        // same packages and the same CPU model (findings 8.8). Validation errors still fail the
+        // test there; a wrong map is recorded and skipped, named as such.
         var software = device.Desc.adapterDesc.architecture == PrismNRI.Native.Architecture.SOFTWARE;
         void Expect(uint value, int x, int y, string where)
         {
