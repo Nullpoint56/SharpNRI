@@ -290,6 +290,7 @@ Each layer is checked by something that is not the binding describing itself:
 | The whole stack works on both backends | `TriangleTests`: offscreen, read back, pixel-checked, on Vulkan and D3D12 |
 | Recording allocates nothing | `AllocationTests` on the NONE backend with `NriCountingAllocator` and GC allocation counters |
 | The payload is complete | `NativePayloadTests` against the staging allowlist |
+| Every declared entry point is exported by the library that loaded | `NativeExportTests`: each `DllImport` in `NriApi` resolved with `NativeLibrary.TryGetExport` under DllImport's own probing |
 
 The NONE backend deserves its own line: it is a real NRI device that validates nothing and
 allocates nothing, which makes it the right fixture for lifetime and allocation tests on a machine
@@ -313,3 +314,4 @@ the pin moves, and the ones that change headers are re-measured by the ABI oracl
 | 0001 note | kept although NRI's wrapped-device route also loads the SDK (§7.7): the patch keeps robustness, DRED and ray-tracing validation on the NRI-created path |
 | 0003 Validation layer passes `HAS_BUFFER` through | applied, measured (§7.5) |
 | 0004 Vulkan minor version capped at the instance's | applied, measured (§8.4); upstream bug |
+| 0005 `MemoryHeap::alignment` initialised | applied, measured with GCC 13 (§8.1); upstream bug |

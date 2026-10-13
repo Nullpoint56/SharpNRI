@@ -8,6 +8,7 @@ than a reconstruction. Status is updated as they are filed and answered.
 |---|---|---|
 | 0003 validation `HAS_BUFFER` crash | bug | to file, first |
 | 0004 Vulkan minor version above the instance's | bug | to file with 0003 |
+| 0005 `MemoryHeap::alignment` uninitialised (GCC `-Werror` build) | bug | to file with 0003 |
 | 0001 Agility SDK from a path | proposal | to file after 0003 |
 | 0002 SharedHandle extension | proposal | to file once the editor has used it |
 
@@ -47,6 +48,21 @@ Reproduces on v190, WSL2 Ubuntu 24.04, lavapipe (LLVM 20), stock loader: any roo
 set, or any `HOST_TRANSFER` texture with validation on. Fix: clamp `m_MinorVersion` to the
 version the instance was created with. Patch attached
 (`patches/0004-vulkan-clamp-minor-version-to-instance.patch`), 14 lines.
+
+## 0005 — Linux build fails with GCC: `MemoryHeap::alignment` is never initialised
+
+**Title:** GCC 13: `-Werror=maybe-uninitialized` on `HelperDeviceMemoryAllocator::MemoryHeap::alignment`
+
+`MemoryHeap`'s constructor (`Source/Shared/HelperInterface.hpp`) initialises `size` and `type` but
+not `alignment`. With GCC 13.3 and any optimised build (`-O2`, `-O3`) `-Wextra -Werror` turns the
+resulting `maybe-uninitialized` into a build failure at `HelperInterface.h:44`. Clang does not
+warn. The CI workflow does not catch it because `Scripts/Linux/1-Deploy.sh` configures without
+`CMAKE_BUILD_TYPE`, so the Ubuntu job compiles unoptimised and the analysis never runs.
+
+Reproduces on v190, Ubuntu 24.04, `cmake -DCMAKE_BUILD_TYPE=Release` with the distribution GCC.
+Fix: `, alignment(0)` in the initialiser list. Patch attached
+(`patches/0005-helper-memoryheap-alignment-init.patch`), one line; with it the library builds
+clean under GCC and passes our suite.
 
 ## 0001 — Load the Agility SDK from a path when the host cannot export `D3D12SDKVersion`
 

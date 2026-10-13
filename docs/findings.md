@@ -397,6 +397,14 @@ own flags are written for clang, so `tools/build-native.ps1` passes clang to CMa
 it is installed and `CXX` is unset. The apt lists in `tools/ci/verify-linux.sh` and the workflow
 install `clang` instead of `g++`.
 
+The cause is one member: `MemoryHeap`'s constructor never initialises `alignment`
+(`HelperInterface.hpp`), and GCC's analysis only runs at `-O2` and above. Upstream's own Ubuntu job
+configures without `CMAKE_BUILD_TYPE` and so compiles unoptimised, which is why it stays green there.
+Patch 0005 adds the initialiser; measured with GCC 13.3.0 (`CC=gcc CXX=g++`): native build clean,
+suite 215 total, 107 passed, 108 skipped, 0 failed, the same numbers as the clang build. CI keeps
+clang, which is what NRI's Apple and most Linux users compile with; the patch is there so the
+distribution compiler works too and so the report upstream carries a verified fix.
+
 ### 8.2 The regen job failed on line endings, not content
 
 The drift check was `git status --porcelain -- dotnet/Native`. On the Windows runner git has
