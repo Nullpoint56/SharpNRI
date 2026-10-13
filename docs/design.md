@@ -72,7 +72,7 @@ Three properties of NRI decide the shape of everything above L0:
 ## 3. Layers
 
 ```
-L4  PrismSlang.NRI       Slang reflection snapshot → NRI layout descs (separate package, this repo)
+L4  PrismSlang.NRI       Slang reflection snapshot → NRI layout descs (PrismSlang repository, §3.5)
 L3  Extensions/          one opt-in acquisition per NRI extension
 L2  Core/                NriDevice, NriQueue, NriBuffer, ... NriCommandBuffer — NRI's vocabulary as handles
 L1  Interop/             table acquisition, Result → exceptions, callback thunks, UTF-8, lifetime base
@@ -312,3 +312,4 @@ the pin moves, and the ones that change headers are re-measured by the ABI oracl
 | 0002 SharedHandle extension (Vulkan opaque handles, D3D12 shared NT handles, external queue-family sentinel for barriers) | applied, measured (§7.4, §7.8); upstream candidate |
 | 0001 note | kept although NRI's wrapped-device route also loads the SDK (§7.7): the patch keeps robustness, DRED and ray-tracing validation on the NRI-created path |
 | 0003 Validation layer passes `HAS_BUFFER` through | applied, measured (§7.5) |
+| 0004 Vulkan minor version capped at the instance's | applied, measured (§8.4); upstream bug |

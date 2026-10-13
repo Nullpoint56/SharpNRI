@@ -26,7 +26,7 @@ if [[ ! -f nri/Include/NRI.h ]]; then
 fi
 
 if [[ "${SKIP_APT:-0}" != "1" ]]; then
-    pkgs=(cmake ninja-build g++ libvulkan1 mesa-vulkan-drivers vulkan-validationlayers libx11-dev libwayland-dev)
+    pkgs=(cmake ninja-build clang libvulkan1 mesa-vulkan-drivers vulkan-validationlayers libx11-dev libwayland-dev)
     missing=()
     for p in "${pkgs[@]}"; do
         dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "install ok installed" || missing+=("$p")
@@ -37,6 +37,11 @@ if [[ "${SKIP_APT:-0}" != "1" ]]; then
         sudo apt-get install -y -qq --no-install-recommends "${missing[@]}"
     fi
 fi
+
+# The Khronos validation layer that matches NRI's Vulkan headers; the distribution's is too old
+# (tools/ci/fetch-vulkan-layer.sh). The loader stays the distribution's.
+bash tools/ci/fetch-vulkan-layer.sh _tools/vvl
+export VK_ADD_LAYER_PATH="$root/_tools/vvl/share/vulkan/explicit_layer.d"
 
 for tool in pwsh dotnet cmake git; do
     command -v "$tool" >/dev/null || { echo "verify-linux.sh: '$tool' not found on PATH" >&2; exit 1; }

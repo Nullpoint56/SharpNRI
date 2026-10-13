@@ -219,6 +219,13 @@ if ($Generator) {
 } else {
     $cmakeArgs += @("-G", $(if (Get-Command ninja -ErrorAction SilentlyContinue) { "Ninja" } else { "Unix Makefiles" }))
 }
+# NRI builds with -Werror and GCC 13 reports a false maybe-uninitialized in HelperInterface.h
+# (measured on Ubuntu 24.04 and on the GitHub runner); NRI's own flags are written for clang.
+# Prefer clang when it is installed and the caller has not chosen a compiler.
+if (-not $targetWindows -and -not $env:CXX -and (Get-Command clang++ -ErrorAction SilentlyContinue)) {
+    $cmakeArgs += @("-DCMAKE_C_COMPILER=clang", "-DCMAKE_CXX_COMPILER=clang++")
+    Write-Host "==> compiler: clang++ (set CXX to override)"
+}
 if (-not $targetWindows -or $Generator) { $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Configuration" }  # single-config generators
 $cmakeArgs += @(
     "-DCMAKE_RUNTIME_OUTPUT_DIRECTORY=$(& $fwd $binRoot)"      # NRI defaults these to nri/_Bin

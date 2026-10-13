@@ -11,6 +11,7 @@ TestResults/
 runtimes/
 runtimes-*/
 _build/
+_tools/
 _NRI_SDK/
 
 # generated at ABI-probe time

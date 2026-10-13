@@ -23,6 +23,15 @@ public sealed class SharedHandleTests
         _ => SharedHandleType.NONE,
     };
 
+    /// <summary>
+    /// Skips when NRI's Vulkan backend could not fill the interface. It needs both the external
+    /// memory and the external semaphore extension of the platform; lavapipe (Mesa 25) advertises
+    /// VK_KHR_external_memory_fd but not VK_KHR_external_semaphore_fd (docs/findings.md 8.2).
+    /// </summary>
+    private static void RequireSharedHandles(NriDevice device) =>
+        Assert.SkipWhen(device.GraphicsApi == GraphicsAPI.VK && device.TrySharedHandles is null,
+            "the adapter lacks VK_KHR_external_memory_* or VK_KHR_external_semaphore_* (lavapipe has no external semaphores)");
+
     [Theory]
     [MemberData(nameof(TestDevice.AllBackends), MemberType = typeof(TestDevice))]
     public void The_extension_is_available(Backend backend)
@@ -30,6 +39,7 @@ public sealed class SharedHandleTests
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
+        RequireSharedHandles(device);
 
         Assert.NotNull(device.TrySharedHandles);
         Assert.Same(device.SharedHandles, device.TrySharedHandles);
@@ -43,6 +53,7 @@ public sealed class SharedHandleTests
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
+        RequireSharedHandles(device);
 
         using var texture = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, new TextureDesc
         {
@@ -73,6 +84,7 @@ public sealed class SharedHandleTests
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
+        RequireSharedHandles(device);
 
         using var fence = device.SharedHandles.CreateSharedFence(5);
         Assert.Equal(5UL, fence.Value);
@@ -101,6 +113,7 @@ public sealed class SharedHandleTests
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
+        RequireSharedHandles(device);
 
         using var texture = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, new TextureDesc
         {
@@ -136,6 +149,7 @@ public sealed class SharedHandleTests
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
+        RequireSharedHandles(device);
 
         using var texture = device.CreateCommittedTexture(MemoryLocation.DEVICE, new TextureDesc
         {

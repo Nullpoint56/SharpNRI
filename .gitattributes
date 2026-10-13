@@ -1,0 +1,8 @@
+# Text files are stored with LF and checked out per platform. The exceptions are files whose
+# bytes are the point: patches must apply with git apply exactly as written, and shader
+# binaries are binaries.
+* text=auto
+patches/*.patch -text
+*.spv binary
+*.dxil binary
+*.png binary

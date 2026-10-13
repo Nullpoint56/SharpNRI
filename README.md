@@ -119,8 +119,10 @@ dotnet test --solution PrismNRI.slnx # NONE always; VK and D3D12 when a device e
 ```
 
 The native payload is not committed. Windows needs Visual Studio with C++ and CMake 3.30+; Linux
-needs CMake, a C++ compiler, the Vulkan loader and X11/Wayland headers. `pwsh tools/generate-native.ps1`
-regenerates the interop layer from the pinned, patched headers and is checked by CI for drift.
+needs CMake, clang (GCC 13 rejects NRI under `-Werror`), the Vulkan loader and X11/Wayland headers;
+`tools/ci/verify-linux.sh` installs them and runs the whole Linux leg, with a Khronos validation layer
+that matches NRI's headers. `pwsh tools/generate-native.ps1` regenerates the interop layer from the
+pinned, patched headers and is checked by CI for drift.
 
 ## What it uses
 

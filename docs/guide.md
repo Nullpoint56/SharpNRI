@@ -235,3 +235,6 @@ survives a native crash.
 | Same handle value from two `GetSharedHandle` calls on Vulkan | NVIDIA returns the same NT handle value for the same memory; do not assume distinctness | §7.4 |
 | `libxess.dll` missing beside `NRI.dll` | NRI does not load at all: it is a load-time import | §6.11 |
 | Visual C++ runtime missing | `NRI.dll` needs the 2015–2022 runtime; it is not shipped | §6.11 |
+| Vulkan loader older than the driver (Ubuntu 24.04's stock 1.3 loader with Mesa 25) | crashed in `CmdSetRootConstants` and rejected `HOST_TRANSFER` textures before patch 0004; fixed in the shipped library | §8.4 |
+| Khronos validation layer older than NRI's headers | every newer struct NRI chains is an `[ERROR]` message; match the layer to the headers (`tools/ci/fetch-vulkan-layer.sh`) | §8.3 |
+| `TrySharedHandles` null on Vulkan | the device lacks external memory or external semaphores (lavapipe has no `VK_KHR_external_semaphore_fd`) | §8.5 |

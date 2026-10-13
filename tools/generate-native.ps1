@@ -136,6 +136,17 @@ foreach ($f in $produced) {
 Write-Host "    narrowed literals in $narrowed enums, flagged $flagged NriBits enums (header declares $($bits.Count))"
 if ($flagged -ne $bits.Count) { throw "expected to flag $($bits.Count) NriBits enums, flagged $flagged" }
 
+# ---------------------------------------------------------------- line endings
+# ClangSharp writes the host platform's newline. The committed layer is LF so that the CI drift
+# check compares content rather than line endings, whichever runner regenerates it.
+foreach ($f in $produced) {
+    $c = Get-Content $f.FullName -Raw
+    $n = $c -replace "
+", "
+"
+    if ($n -ne $c) { [System.IO.File]::WriteAllText($f.FullName, $n) }
+}
+
 # ---------------------------------------------------------------- summary
 $fnptrs = (Select-String -Path (Join-Path $Output "*.cs") -Pattern 'delegate\* unmanaged' | Measure-Object).Count
 $imports = (Select-String -Path $api -Pattern 'DllImport' | Measure-Object).Count

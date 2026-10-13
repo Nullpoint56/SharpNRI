@@ -381,3 +381,95 @@ Positive controls, vendor DLLs present: FSR on D3D12 (provider 3.1.5) and Vulkan
 on D3D12 create on the NVIDIA GPU. The `-WithDlss` build reports NIS, FSR, XESS, DLSR, DLRR on
 D3D12 (NIS, FSR, DLSR, DLRR on Vulkan); without `nvngx_dlss*.dll`, raw DLSR creation is a clean
 `FAILURE` on both backends, and with them DLSR and DLRR create.
+
+## 8. Phase five: the Linux leg
+
+Measured on WSL2 Ubuntu 24.04 (stock `libvulkan1` 1.3.275, Mesa 25 lavapipe "llvmpipe (LLVM
+20.1.2)" reporting Vulkan 1.4.318) and on the `ubuntu-latest` GitHub runner. The Windows leg was
+already green on the runner (WARP for D3D12, no Vulkan ICD, 121 passed / 94 skipped / 0 failed);
+these are the things the Linux leg measured that Windows could not.
+
+### 8.1 GCC 13 rejects NRI; clang builds it
+
+NRI builds with `-Werror`, and GCC 13 reports `maybe-uninitialized` in
+`Source/Shared/HelperInterface.h:44` (`MemoryHeap`), a false positive clang does not raise. NRI's
+own flags are written for clang, so `tools/build-native.ps1` passes clang to CMake on Linux when
+it is installed and `CXX` is unset. The apt lists in `tools/ci/verify-linux.sh` and the workflow
+install `clang` instead of `g++`.
+
+### 8.2 The regen job failed on line endings, not content
+
+The drift check was `git status --porcelain -- dotnet/Native`. On the Windows runner git has
+`core.autocrlf=true`, the checkout is CRLF, ClangSharp writes LF, and `git status` reports every
+regenerated file as modified while `git diff --stat` prints nothing: the content was identical.
+Three changes: a `.gitattributes` (`* text=auto`; patches `-text`, since they must apply byte for
+byte; shader binaries `binary`), the generator normalises its output to LF whatever the host, and
+the drift check re-adds the directory and compares `git diff --cached`, which goes through the
+clean filter and compares content.
+
+### 8.3 Ubuntu's validation layer predates the headers NRI builds against
+
+NRI v190 pins Vulkan-Headers 1.4.365 and chains into `vkCreateDevice` every feature struct the
+driver offers. Ubuntu 24.04's `vulkan-validationlayers` is 1.3.275: it reports
+`VkPhysicalDeviceVulkan14Features`, maintenance7/8 and `VK_EXT_zero_initialize_device_memory` as
+"unknown VkStructureType" ERRORs through the debug messenger, which NRI forwards as `[ERROR]`
+messages and the tests assert against. LunarG's apt repository for noble stops at 1.4.313, which
+still does not know `VK_EXT_zero_initialize_device_memory` (sType 1000620000, which lavapipe
+advertises). The only current Linux binary is inside the SDK tarball (366 MB), so
+`tools/ci/fetch-vulkan-layer.sh` takes the one library and its manifest out of it, strips the
+library, and `VK_ADD_LAYER_PATH` puts it in front of the system one; the workflow caches the two
+files per SDK version. With 1.4.363 every "unknown struct" message is gone.
+
+### 8.4 An older loader in front of a newer driver crashes NRI: patch 0004
+
+Two failures remained with the current layer and went away together when the SDK's 1.4 loader
+was put on `LD_LIBRARY_PATH`, which made the cause the loader version:
+
+- `DescriptorTests.Several_sets_are_allocated_and_written_...` killed the process with
+  `SIGSEGV` at address 0 from `CmdSetRootConstants` (gdb). NRI resolves `vkCmdPushConstants2` as
+  an optional core 1.4 function because `m_MinorVersion` is 4, taken from the physical device;
+  Mesa returns null for core 1.4 entry points when the instance is 1.3, and
+  `CmdSetRootConstants` branches on the version, not on the pointer.
+- `TextureTests.Committed_2D_texture_is_created_with_each_usage(VK, HOST_TRANSFER)`: NRI does not
+  enable `VK_EXT_host_image_copy` on a "1.4" device (core there), the layer evaluates the 1.3
+  instance and rejects `VK_IMAGE_USAGE_HOST_TRANSFER_BIT` as needing the extension.
+
+`CreateInstance` asks for `min(vkEnumerateInstanceVersion(), 1.4)`, so the usable version is the
+lower of the two. Patch 0004 clamps `m_MinorVersion` to it (14 lines, `DeviceVK::Create`, the
+wrapper path keeps the caller's value). With the patch and the stock loader, NRI runs lavapipe
+as a 1.3 device, enables the extension and loads the KHR names, and both tests pass. This pairing
+is the stock Ubuntu 24.04 plus a Mesa update, so CI keeps the distribution loader on purpose.
+Upstream text in `docs/upstream.md`.
+
+### 8.5 Lavapipe has no external semaphores
+
+`vulkaninfo` on lavapipe lists `VK_KHR_external_memory_fd` and not
+`VK_KHR_external_semaphore_fd`. The SharedHandle extension (patch 0002) needs both, so
+`nriGetInterface(SharedHandleInterface)` is `UNSUPPORTED` there and `TrySharedHandles` is null.
+`SharedHandleTests` now skip on a Vulkan device without the interface, naming the two
+extensions; on D3D12 and NONE the interface is still asserted present. The import proofs are
+Windows-only already.
+
+### 8.6 Two wrapper tests assumed Windows
+
+With everything above in place the suite still died once per run, in
+`WrapperExtensionTests.WrapperVK_hands_out_the_native_instance_device_and_loader`: a null call
+from managed code (gdb frame 0 at address 0, frame 1 in JIT code). Vortice's `GetApi` goes
+through `vkGetDeviceProcAddr`, which is null until `vkInitialize()` has run, and only the
+raw-device test called it; on Windows that test had always run first. The loader is now a
+process-wide lazy both tests touch. The raw-device test then failed to find NRI's adapter: it
+matched `VkPhysicalDeviceIDProperties.deviceLUID` against `AdapterDesc::uid`, and on Linux
+`deviceLUIDValid` is false, so NRI builds the uid from the UUID (`ConstructUid`,
+`SharedExternal.h`); the test now does the same.
+
+### 8.7 Where the Linux leg ends up
+
+| | Windows (RTX 4070 SUPER, Base variant) | Linux (lavapipe, stock 1.3 loader, 1.4.363 layer) |
+|---|---|---|
+| total | 215 | 215 |
+| passed | 213 | 107 |
+| skipped | 2 (NIS under Base) | 108 (D3D12, Agility, NIS, shared handles, import proofs) |
+| failed | 0 | 0 |
+
+`tools/ci/verify-linux.sh` runs the same steps as the workflow's `linux-x64` job; under WSL2 the
+native build takes about four minutes with clang and the tests three seconds.

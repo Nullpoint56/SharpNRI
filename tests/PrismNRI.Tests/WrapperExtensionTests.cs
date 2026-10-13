@@ -22,6 +22,11 @@ namespace PrismNRI.Tests;
 
 public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
 {
+    // Vortice's vkGetInstanceProcAddr / vkGetDeviceProcAddr are null until vkInitialize has run; GetApi
+    // calls them. Lazy, process-wide, so the test that runs first pays for it (measured: a null
+    // call from GetApi on Linux when this test ran before the raw-device one).
+    private static readonly Lazy<VkResult> VulkanLoader = new(() => vkInitialize());
+
     [Theory]
     [MemberData(nameof(TestDevice.AllBackends), MemberType = typeof(TestDevice))]
     public void Each_wrapper_exists_only_on_its_own_backend(Backend backend)
@@ -53,6 +58,7 @@ public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
         output.WriteLine($"graphics queue family {family}");
 
         // A timeline semaphore made on NRI's own VkDevice, wrapped back as a fence. NRI does not own it.
+        Assert.True(VulkanLoader.Value == VkResult.Success, $"vkInitialize returned {VulkanLoader.Value}");
         var api = GetApi(new VkInstance(vk.GetInstanceVK()), new VkDevice(device.GetNativeObject()));
         var typeInfo = new VkSemaphoreTypeCreateInfo { semaphoreType = VkSemaphoreType.Timeline, initialValue = 7 };
         var info = new VkSemaphoreCreateInfo { pNext = &typeInfo };
@@ -187,8 +193,6 @@ public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
     /// </summary>
     private sealed class RawVulkanDevice : IDisposable
     {
-        private static readonly Lazy<VkResult> Loader = new(() => vkInitialize());
-
         private readonly List<string> _errors = [];
         private GCHandle _self;
         private VkInstanceApi? _instanceApi;
@@ -225,7 +229,7 @@ public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
 
         private void Initialize(NriAdapter adapter)
         {
-            Assert.True(Loader.Value == VkResult.Success, $"vkInitialize returned {Loader.Value}");
+            Assert.True(VulkanLoader.Value == VkResult.Success, $"vkInitialize returned {VulkanLoader.Value}");
             _self = GCHandle.Alloc(this);
 
             uint layerCount = 0;
@@ -268,7 +272,8 @@ public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
                 _messenger = messenger;
             }
 
-            // The physical device whose LUID is NRI's adapter uid.
+            // The physical device whose identity is NRI's adapter uid: the LUID when the driver has one
+            // (Windows), otherwise the UUID in both halves, as NRI's ConstructUid builds it (Linux).
             var uid = adapter.Uid;
             uint count = 0;
             Check(_instanceApi.vkEnumeratePhysicalDevices(&count, null), "vkEnumeratePhysicalDevices");
@@ -279,8 +284,10 @@ public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
                 var id = new VkPhysicalDeviceIDProperties();
                 var properties = new VkPhysicalDeviceProperties2 { pNext = &id };
                 _instanceApi.vkGetPhysicalDeviceProperties2(candidate, &properties);
-                var luid = id.deviceLUIDValid ? Unsafe.ReadUnaligned<ulong>(id.deviceLUID) : 0;
-                if (id.deviceLUIDValid && luid == uid.low)
+                var (low, high) = id.deviceLUIDValid
+                    ? (Unsafe.ReadUnaligned<ulong>(id.deviceLUID), 0UL)
+                    : (Unsafe.ReadUnaligned<ulong>(id.deviceUUID), Unsafe.ReadUnaligned<ulong>(id.deviceUUID + 8));
+                if (low == uid.low && high == uid.high)
                 {
                     PhysicalDevice = candidate;
                     DeviceName = Marshal.PtrToStringUTF8((nint)properties.properties.deviceName) ?? "";
@@ -288,7 +295,7 @@ public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
                     break;
                 }
             }
-            Assert.True(PhysicalDevice.Handle != 0, $"no VkPhysicalDevice has LUID 0x{uid.low:X16} ({adapter.Name})");
+            Assert.True(PhysicalDevice.Handle != 0, $"no VkPhysicalDevice has uid {uid.high:X16}{uid.low:X16} ({adapter.Name})");
             Assert.True(MinorVersion >= 2, $"{DeviceName} supports Vulkan 1.{MinorVersion}; NRI needs 1.2");
 
             uint familyCount = 0;

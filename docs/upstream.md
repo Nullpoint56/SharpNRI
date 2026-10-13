@@ -7,6 +7,7 @@ than a reconstruction. Status is updated as they are filed and answered.
 | Patch | Kind | Status |
 |---|---|---|
 | 0003 validation `HAS_BUFFER` crash | bug | to file, first |
+| 0004 Vulkan minor version above the instance's | bug | to file with 0003 |
 | 0001 Agility SDK from a path | proposal | to file after 0003 |
 | 0002 SharedHandle extension | proposal | to file once the editor has used it |
 
@@ -28,6 +29,24 @@ sentinel is an access violation before any message is reported.
 Reproduces on v190, Vulkan and D3D12, with a one-triangle BLAS desc whose `vertexBuffer` is
 `HAS_BUFFER`. Fix: return the sentinel unchanged for the five buffer fields the conversion
 touches. Patch attached (`patches/0003-validation-has-buffer-sentinel.patch`), 12 lines.
+
+## 0004 — `DeviceVK` uses the physical device's API version when the instance is older
+
+**Title:** Vulkan: `m_MinorVersion` comes from the physical device, not from the instance
+
+`DeviceVK::Create` sets `m_MinorVersion` from `VkPhysicalDeviceProperties::apiVersion`, while
+`CreateInstance` asks for `min(vkEnumerateInstanceVersion(), 1.4)`. With a 1.3 loader in front of
+a 1.4 driver (Ubuntu 24.04's stock `libvulkan1` is 1.3.275; Mesa 25's lavapipe reports 1.4.318)
+the device is treated as 1.4: `ResolveDispatchTable` loads `vkCmdPushConstants2` and the other
+maintenance6 core names, which Mesa refuses for a 1.3 instance, so `CmdSetRootConstants` calls a
+null pointer; and `VK_EXT_host_image_copy` is not enabled because it is "core in 1.4", so the
+validation layer rejects `VK_IMAGE_USAGE_HOST_TRANSFER_BIT`. Both go away with a 1.4 loader on
+`LD_LIBRARY_PATH`.
+
+Reproduces on v190, WSL2 Ubuntu 24.04, lavapipe (LLVM 20), stock loader: any root-constant
+set, or any `HOST_TRANSFER` texture with validation on. Fix: clamp `m_MinorVersion` to the
+version the instance was created with. Patch attached
+(`patches/0004-vulkan-clamp-minor-version-to-instance.patch`), 14 lines.
 
 ## 0001 — Load the Agility SDK from a path when the host cannot export `D3D12SDKVersion`
 
