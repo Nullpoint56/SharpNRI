@@ -5,7 +5,7 @@ have mipLodBias == 0 (VUID-VkSamplerCreateInfo-samplerMipLodBias-04467). MoltenV
 macOS runner ("Apple Paravirtual device", MoltenVK 1.4.2) reports the feature as false while
 VkPhysicalDeviceLimits::maxSamplerLodBias stays non-zero, and NRI copies the limit into
 DeviceDesc::other.samplerLodBiasMax. A caller that honours the reported limit therefore creates
-a sampler the Khronos validation layer rejects (docs/findings.md 9).
+a sampler the Khronos validation layer rejects (docs/findings.md 9.4).
 
 NRI already chains VkPhysicalDevicePortabilitySubsetFeaturesKHR under __APPLE__ and reads
 imageView2DOn3DImage from it; this reads samplerMipLodBias next to it and reports a limit of 0

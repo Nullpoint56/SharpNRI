@@ -192,8 +192,13 @@ Both NRI builds keep Vulkan, D3D12, NONE, NRI validation, the ImGui extension, N
 names, and are compiled against the Agility headers (`NRI_ENABLE_AGILITY_SDK_SUPPORT=ON`); neither
 contains the Agility runtime.
 
+On osx-arm64 only Base exists: `libNRI.dylib` with Vulkan (through MoltenVK), NONE, validation,
+ImGui and debug names, Metal passed OFF so the contents do not depend on the build machine's Xcode.
+NRI links the Vulkan loader into it on Apple, so unlike the other platforms the library needs a
+loader present to load at all (findings §9.1).
+
 **A consumer takes exactly one of `PrismNRI`'s native assets and `PrismNRI.Native.Upscalers`.** Both
-contain a file called `NRI.dll` (`libNRI.so`) at the same package path, and NuGet's conflict
+contain a file called `NRI.dll` (`libNRI.so`, `libNRI.dylib`) at the same package path, and NuGet's conflict
 resolution between two packages' native assets of the same name is not something to rely on. An
 application that wants the upscalers references both packages and excludes PrismNRI's native
 assets:
@@ -315,3 +320,4 @@ the pin moves, and the ones that change headers are re-measured by the ABI oracl
 | 0003 Validation layer passes `HAS_BUFFER` through | applied, measured (§7.5) |
 | 0004 Vulkan minor version capped at the instance's | applied, measured (§8.4); upstream bug |
 | 0005 `MemoryHeap::alignment` initialised | applied, measured with GCC 13 (§8.1); upstream bug |
+| 0006 `samplerLodBiasMax` is 0 on a portability device without `samplerMipLodBias` | applied, measured on MoltenVK (§9.4); upstream bug |

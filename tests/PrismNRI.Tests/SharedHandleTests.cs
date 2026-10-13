@@ -27,7 +27,7 @@ public sealed class SharedHandleTests
     /// Skips when NRI's Vulkan backend could not fill the interface. It needs both the external
     /// memory and the external semaphore extension of the platform; lavapipe (Mesa 25) advertises
     /// VK_KHR_external_memory_fd but not VK_KHR_external_semaphore_fd (docs/findings.md 8.5), and
-    /// MoltenVK neither (findings 9.5).
+    /// MoltenVK neither (findings 9.7).
     /// </summary>
     private static void RequireSharedHandles(NriDevice device) =>
         Assert.SkipWhen(device.GraphicsApi == GraphicsAPI.VK && device.TrySharedHandles is null,

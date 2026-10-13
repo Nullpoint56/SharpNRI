@@ -338,7 +338,7 @@ if ($targetWindows) {
 # macOS: unlike on Windows and Linux, NRI's CMakeLists links the Vulkan loader into the library on
 # Apple (find_package(Vulkan), Vulkan_LIBRARIES), by the absolute install name of whatever loader
 # the build machine had, and still dlopens "libvulkan.1.dylib" at device creation. So a Vulkan
-# loader must be present for libNRI.dylib to load at all, NONE backend included (findings §9).
+# loader must be present for libNRI.dylib to load at all, NONE backend included (findings §9.1).
 # Anything else outside the system is unexpected; MoltenVK linked directly would bypass the loader
 # and with it the validation layer. The minimum macOS version stamped into the library is the
 # oldest system that will load it.

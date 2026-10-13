@@ -50,7 +50,7 @@ public static class TestDevice
     /// <summary>
     /// The Vulkan adapter is MoltenVK on the paravirtualised Apple GPU of a macOS virtual machine
     /// (GitHub's macOS runners). Two driver defects measured there have no capability bit that
-    /// predicts them (docs/findings.md 9.4, 9.6); the tests that hit them skip by this name.
+    /// predicts them (docs/findings.md 9.5, 9.6); the tests that hit them skip by this name.
     /// </summary>
     public static bool IsAppleParavirtualVK(GraphicsAPI api) =>
         api == GraphicsAPI.VK && AdapterFor(GraphicsAPI.VK)?.Name == "Apple Paravirtual device";

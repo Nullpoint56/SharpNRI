@@ -9,6 +9,7 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0003 validation `HAS_BUFFER` crash | bug | to file, first |
 | 0004 Vulkan minor version above the instance's | bug | to file with 0003 |
 | 0005 `MemoryHeap::alignment` uninitialised (GCC `-Werror` build) | bug | to file with 0003 |
+| 0006 `samplerLodBiasMax` above what a portability device allows | bug | to file with 0003 |
 | 0001 Agility SDK from a path | proposal | to file after 0003 |
 | 0002 SharedHandle extension | proposal | to file once the editor has used it |
 
@@ -63,6 +64,25 @@ Reproduces on v190, Ubuntu 24.04, `cmake -DCMAKE_BUILD_TYPE=Release` with the di
 Fix: `, alignment(0)` in the initialiser list. Patch attached
 (`patches/0005-helper-memoryheap-alignment-init.patch`), one line; with it the library builds
 clean under GCC and passes our suite.
+
+## 0006 — `samplerLodBiasMax` permits a bias a portability device forbids
+
+**Title:** Vulkan on MoltenVK: `samplerLodBiasMax` ignores `VkPhysicalDevicePortabilitySubsetFeaturesKHR::samplerMipLodBias`
+
+`DeviceVK::Create` copies `VkPhysicalDeviceLimits::maxSamplerLodBias` into
+`DeviceDesc::other.samplerLodBiasMax`. Under `VK_KHR_portability_subset` a device may report
+`samplerMipLodBias = false`, and then every sampler must have `mipLodBias == 0`
+(VUID-VkSamplerCreateInfo-samplerMipLodBias-04467) whatever the limit says. MoltenVK 1.4.2 on an
+"Apple Paravirtual device" (GitHub's macOS arm64 runner) reports the feature as false and
+`maxSamplerLodBias = 15.999`, so a caller that keeps `SamplerDesc::mipBias` within NRI's reported
+limit gets "mipLodBias (portability error) is 0.500000, but samplerMipLodBias not supported" from
+the Khronos validation layer.
+
+Reproduces on v190, macOS 26.6, MoltenVK 1.4.2, validation layer 1.4.357: `CreateSampler` with
+`mipBias = 0.5`. NRI already chains `PortabilitySubsetFeatures` under `__APPLE__` and reads
+`imageView2DOn3DImage` from it. Fix: report 0 when the subset is enabled without
+`samplerMipLodBias`. Patch attached (`patches/0006-vulkan-portability-sampler-lod-bias.patch`), 6
+lines; with it the device reports 0 and a sampler made within the limit validates clean.
 
 ## 0001 — Load the Agility SDK from a path when the host cannot export `D3D12SDKVersion`
 
