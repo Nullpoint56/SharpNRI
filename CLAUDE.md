@@ -326,8 +326,10 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - **Sampler bias test** asks `min(0.5, samplerLodBiasMax)` and records both.
 - **Shared D3D12 textures stay TYPELESS** like every NRI texture; D3D11 import refusal is a recorded
   limitation, not a patch.
-- **Software ray tracer answers are recorded, not asserted** (lavapipe misses intermittently);
-  validation errors still fail.
+- **Software ray tracer answers are asserted like any other** (owner, 2026-10-14, reversing the
+  earlier record-and-skip): a wrong hit map fails on every adapter. lavapipe's intermittent miss is
+  an unsolved issue (CI runners and flakes), not something a skip makes green; a red Linux job from
+  it is the honest state.
 
 ---
 
@@ -467,7 +469,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - **No external semaphores**: has `VK_KHR_external_memory_fd`, not `VK_KHR_external_semaphore_fd`;
   `SharedHandleInterface` is `UNSUPPORTED`, `TrySharedHandles` null; `SharedHandleTests` skip naming
   both extensions (`SharedHandleTests.cs`).
-- **Ray query misses intermittently**: see CI runners and flakes.
+- **Ray query misses intermittently**, unsolved; the test fails when it does: see CI runners
+  and flakes.
 - `GALLIUM_OVERRIDE_CPU_CAPS=avx` or `sse4.1` makes lavapipe die with an illegal instruction before
   any test runs; not usable for narrowing.
 
@@ -665,8 +668,12 @@ extensions.
 - Skip strings name the capability: feature bit, extension, file. The exceptions quote a measured
   defect: `TestDevice.IsAppleParavirtualVK` (adapter name "Apple Paravirtual device":
   `HOST_TRANSFER` crash, timestamps), backend-keyed Reflex VK and H.264 encode VK, D3D12 micromap
-  `Close`, and the software ray tracer (records the map in the skip reason; validation errors still
-  fail).
+  `Close`.
+- **No skip turns a wrong result into a pass on a software adapter** (lavapipe, WARP), or on any
+  adapter: a skip names a missing capability only. A wrong answer fails, with enough in the message
+  (the hit map for ray queries) to diagnose it. The two macOS device-name skips are the recorded
+  exception; the backend-keyed ones above skip a case that cannot run to completion (a hang, a
+  failed `Close`, a poisoned test process), not a wrong answer.
 - Timestamp frequency 1 GHz on both GPU backends; result 8 bytes.
 - `PRISMNRI_TRACE=1` when a test host dies: the message stream is the only record.
 - Expected skip shape per platform (counts move as tests are added): Windows hardware skips almost
@@ -677,6 +684,29 @@ extensions.
 
 ### CI runners and flakes
 
+**Unsolved.** Both are on the Linux leg (lavapipe on GitHub hosts of varying CPU); the Windows and
+macOS legs have no intermittent failures. Nothing masks either: a red Linux job can be either one.
+
+1. **lavapipe ray query intermittent miss.**
+   `RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS(VK)` on the Linux runner sometimes
+   reports no hit at the centre. Same packages (Mesa 25.2.8, loader 1.3.275, clang 18) pass and fail
+   on different runs. Ruled out: patch 0005 (committed resources only; the field is only copied into
+   VMA), Mesa version (WSL with 25.2.8: 18/18), CPU model / AVX-512 (failed on EPYC 7763 without
+   avx512f and later passed 5/5 on the same model; passed on 9V74 and 9V45 with it; Ryzen 9700X local
+   never fails), `LP_NATIVE_VECTOR_WIDTH=256` (failed with it; removed). Never reproduced locally in
+   more than ninety runs. Known: the shader writes 0 or 1 per ray, geometry opaque, both validation
+   layers clean every run; the shader loops on `Proceed()`. The test fails on a miss since the commit
+   "Linux: the ray-query miss fails the job again" (it was a skip before); Linux CI is red when it
+   happens. The hit map is in the log (`GpuWork.Record`) and in the failure message. The same
+   assertions in `RayScene.ExpectTriangle` (RT pipeline, micromap, import tests) fail likewise.
+2. **Linux test host SIGSEGV, seen once** (run 38546336866, a branch with no code changes): exit 139
+   after 106 of 239 tests, 58 passed, 48 skipped, 0 failed. Not reproduced in 41 local runs. The log
+   ends after the `WrapperExtensionTests` D3D12 skips; the classes that had not reported yet were
+   MeshShader, RayTracing, Query, SharedHandle, Video and others on lavapipe, and stdout buffering
+   means the crashing test is not the last printed one. The `Test` step runs with
+   `DOTNET_DbgEnableMiniDump`, so the next crash prints every stack (`clrstack -all -f`, "Crash
+   stacks" step): read that to name the test and the native frame.
+
 - Four jobs in `.github/workflows/ci.yml`: `win-x64` (WARP + NONE), `linux-x64` (lavapipe, stock 1.3
   loader, 1.4.363 layer), `osx-arm64` (MoltenVK), `regen` (ClangSharp drift). `_deps` cached per
   (NRI version, patches hash).
@@ -685,27 +715,11 @@ extensions.
   unoptimised, so green. Patch 0005 fixes it (GCC 13.3.0 builds and the suite matches clang's
   numbers). `build-native.ps1` still picks clang on Linux when installed and `CXX` unset; CI installs
   `clang`, not `g++`.
-- **lavapipe ray query intermittent miss.**
-  `RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS(VK)` on the Linux runner sometimes
-  reports no hit at the centre. Same packages (Mesa 25.2.8, loader 1.3.275, clang 18) pass and fail
-  on different runs. Ruled out: patch 0005 (committed resources only; the field is only copied into
-  VMA), Mesa version (WSL with 25.2.8: 18/18), CPU model / AVX-512 (failed on EPYC 7763 without
-  avx512f and later passed 5/5 on the same model; passed on 9V74 and 9V45 with it; Ryzen 9700X local
-  never fails), `LP_NATIVE_VECTOR_WIDTH=256` (failed with it; removed). Never reproduced locally in
-  more than fifty runs. Known: the shader writes 0 or 1 per ray, geometry opaque, both validation
-  layers clean every run. The shader loops on `Proceed()`. The test records the hit map in the skip
-  reason on software adapters (`RayScene.cs`, `RayTracingTests.cs`).
-- **The "Ray query probe" step** (`linux-x64`, `continue-on-error`) runs that test five times through
-  the test executable before the suite and prints the map on failure plus "ray query: N of 5 runs
-  passed". The "Vulkan device and host CPU" step prints `vulkaninfo --summary`, the CPU model and
-  `avx512f`. On the next miss, read those first.
-- **Linux test host SIGSEGV, seen once** (run 38546336866, a branch with no code changes): exit 139
-  after 106 of 239 tests, 58 passed, 48 skipped, 0 failed. The log ends after the
-  `WrapperExtensionTests` D3D12 skips; the classes that had not reported yet were MeshShader,
-  RayTracing, Query, SharedHandle, Video and others on lavapipe, and stdout buffering means the
-  crashing test is not the last printed one. The `Test` step now runs with `DOTNET_DbgEnableMiniDump`
-  and a failing job prints `clrstack -all -f` from the dump ("Crash stacks" step): read that to name
-  the test and the native frame. Re-run of the same commit: see the run's second attempt.
+- **The "Ray query probe" step** (`linux-x64`, `continue-on-error`) is a diagnostic, not the gate:
+  it runs the ray query test five times through the test executable before the suite and prints the
+  map on failure plus "ray query: N of 5 runs passed". The `Test` step is what fails the job. The
+  "Vulkan device and host CPU" step prints `vulkaninfo --summary`, the CPU model and `avx512f`. On
+  the next miss, read those first.
 - macOS job prints CPU, `sw_vers`, brew versions, the ICD, the layer manifest, and
   `maxSamplerLodBias|samplerMipLodBias|hostImageCopy|timestamp*|external_*` from `vulkaninfo`.
 - Windows runner: WARP for D3D12, no Vulkan ICD; Developer Mode off (the Agility measurement).
