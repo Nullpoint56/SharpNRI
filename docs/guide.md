@@ -310,7 +310,7 @@ reallocations and frees through `NriCountingAllocator`.
   `UpdateRange` / `CopyRange`, `SetDescriptorPool`, `SetPipelineLayout`, `SetDescriptorSet`,
   `Barrier` (global, buffer, texture), `SetViewports`, `SetScissors`, `BeginRendering` /
   `EndRendering`, `Draw`, `Dispatch`, `CopyBuffer`, `queue.Submit` (spans of command buffers,
-  waits and signals), `fence.Wait`, `fence.Value`, `SwapChain.AcquireNextTexture`,
+  waits and signals, and the one-buffer `Submit(cmd, fence, value)`), `fence.Wait`, `fence.Value`, `SwapChain.AcquireNextTexture`,
   `SwapChain.QueuePresent` (the `OutOfDate` path allocates nothing either).
 - Extension frame: `MeshShader.DrawMeshTasks` / `DrawMeshTasksIndirect`,
   `DescriptorHeap.WriteResourceDescriptors` / `WriteSamplerDescriptors` / `SetDescriptorHeap`,

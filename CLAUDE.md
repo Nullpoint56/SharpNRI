@@ -405,7 +405,7 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   allocations/frees, no reallocations.
 - Recording a representative stream 300 times on NONE: 0 managed bytes, 0 host allocations; 300
   whole frames (allocator and descriptor pool reset, sets allocated into a reused span plus one
-  single, `Update` / `UpdateRange` / `CopyRange`, recording, submit with wait and signal fences,
+  single, `Update` / `UpdateRange` / `CopyRange`, recording, submit with wait and signal fences and the one-buffer `Submit(cmd, fence, value)` (48 bytes per call until it passed its signal as a span over a local),
   `fence.Wait` / `Value`, acquire and present): 0 managed bytes, 0 host allocations, reallocations
   or frees; a 300-frame loop over every extension's per-frame path: 0 managed bytes. `Map` is not
   in the frame: NONE's `MapBuffer` returns null, which `NriBuffer.Map` reports as a failure.
