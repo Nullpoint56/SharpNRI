@@ -9,7 +9,7 @@ both in this repository.
 
 ## Status
 
-`0.1.0-alpha`, against NRI `v190` plus seven patches ([patches/](patches/README.md)), on .NET 11.
+`0.2.0-alpha`, against NRI `v190` plus seven patches ([patches/](patches/README.md)), on .NET 11.
 Windows x64, Linux x64, macOS arm64. On macOS the binding is Vulkan through MoltenVK; NRI's Metal
 backend is not built, only the Base package exists, the application provides the Vulkan loader and
 MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
@@ -38,12 +38,12 @@ The two NRI payloads are both a file named `NRI.dll`: take exactly one.
 
 ```xml
 <!-- default -->
-<PackageReference Include="PrismNRI" Version="0.1.0-alpha" />
+<PackageReference Include="PrismNRI" Version="0.2.0-alpha" />
 
 <!-- with upscalers and Agility -->
-<PackageReference Include="PrismNRI" Version="0.1.0-alpha" ExcludeAssets="native" />
-<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.1.0-alpha" />
-<PackageReference Include="PrismNRI.Native.Agility" Version="0.1.0-alpha" />
+<PackageReference Include="PrismNRI" Version="0.2.0-alpha" ExcludeAssets="native" />
+<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.2.0-alpha" />
+<PackageReference Include="PrismNRI.Native.Agility" Version="0.2.0-alpha" />
 ```
 
 The packages are [release](https://github.com/Nullpoint56/PrismNRI/releases) assets, not on

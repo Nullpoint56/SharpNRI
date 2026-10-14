@@ -17,7 +17,7 @@
   <PropertyGroup>
     <RootNamespace>PrismNRI.Testing</RootNamespace>
     <PackageId>PrismNRI.Testing</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>0.2.0-alpha</Version>
     <Description>A headless, validated NRI device for tests: Vulkan, D3D12 or NRI's NONE backend with NRI validation and the backend validation layer on, messages captured, software adapters under CI, and skip reasons when a backend is absent. For projects that build on PrismNRI.</Description>
     <PackageTags>nri;vulkan;d3d12;testing;validation</PackageTags>
     <NoWarn>$(NoWarn);CS1591;NU5128</NoWarn>
