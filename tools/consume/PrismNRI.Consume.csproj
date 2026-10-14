@@ -5,7 +5,7 @@
     through PackageReference, runtimes/<rid>/native and deps.json, not the repository's
     ProjectReference copy. Not in PrismNRI.slnx. Run by the release workflow's consume job.
 
-      dotnet run -c Release -p:PrismNRIPackageVersion=0.1.0-alpha
+      dotnet run -c Release -p:PrismNRIPackageVersion=0.2.0-alpha
       PRISMNRI_FEED=<dir with the .nupkg files>   (default: ../../nupkg, see nuget.config)
 
     Packages restore into obj/packages, never the global cache, so a stale PrismNRI of the same
