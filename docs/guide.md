@@ -37,6 +37,19 @@ headers do not say. NRI v190.
 <PackageReference Include="PrismNRI.Native.Agility" Version="0.1.0-alpha" />
 ```
 
+- Not on NuGet.org: the `.nupkg` files are GitHub release assets. Folder feed, `nuget.config` beside
+  the project:
+
+  ```xml
+  <configuration>
+    <packageSources>
+      <add key="prismnri" value="path/to/nupkg" />
+    </packageSources>
+  </configuration>
+  ```
+
+- The release workflow's `consume` job restores them that way (`tools/consume`) and creates NONE
+  plus a GPU device on windows, ubuntu and macos before publishing.
 - Base and Upscalers both contain `NRI.dll` / `libNRI.so` at the same path: take exactly one; with
   Upscalers, `ExcludeAssets="native"` on `PrismNRI`.
 - Base: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI, AGS, debug names; no upscaler SDK.

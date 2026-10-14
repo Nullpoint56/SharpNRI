@@ -16,3 +16,6 @@ _NRI_SDK/
 
 # generated at ABI-probe time
 *.abi-probe.*
+
+# the consume smoke test's default folder feed (tools/consume/nuget.config)
+nupkg/

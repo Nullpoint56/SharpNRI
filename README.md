@@ -41,6 +41,21 @@ The two NRI payloads are both a file named `NRI.dll`: take exactly one.
 <PackageReference Include="PrismNRI.Native.Agility" Version="0.1.0-alpha" />
 ```
 
+The packages are [release](https://github.com/Nullpoint56/PrismNRI/releases) assets, not on
+NuGet.org. From a local feed: put the `.nupkg` files in a folder and add it beside your project:
+
+```xml
+<!-- nuget.config -->
+<configuration>
+  <packageSources>
+    <add key="prismnri" value="path/to/nupkg" />
+  </packageSources>
+</configuration>
+```
+
+The release workflow restores them that way and creates a device on Windows, Linux and macOS
+before it publishes (`tools/consume`).
+
 No package contains a vendor runtime (`amd_fidelityfx_*`, `libxess.dll`, `nvngx_*`): the
 application ships them beside its executable. DLSS is a build switch, not a package:
 `pwsh tools/build-native.ps1 -WithDlss <DLSS SDK path>` stages an NGX-linked `NRI.dll` under

@@ -93,6 +93,23 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 - In-repo, `dotnet/PrismNRI.csproj` copies `runtimes/<rid>/native` beside `ProjectReference`
   consumers and also `runtimes-agility/<rid>/native` when staged (never packed;
   `-p:PrismNRIDevAgility=false` turns it off), so tests run D3D12 on Agility.
+- **Consumption smoke test** (`tools/consume`, not in the solution): `PackageReference`s to
+  `PrismNRI` + `PrismNRI.Testing` at `-p:PrismNRIPackageVersion`, from the folder in
+  `PRISMNRI_FEED` (default `nupkg/`), restored into `tools/consume/obj/packages` so the global
+  cache never stands in; the build prints the source NuGet recorded. Prints the loaded NRI path,
+  creates NONE and each available GPU backend's validated device with a buffer and a fence; exit 0
+  only when NONE and one GPU backend worked. The release `consume` job runs it on windows, ubuntu
+  (`libvulkan1 mesa-vulkan-drivers`) and macos (`molten-vk vulkan-loader`, ci.yml's dyld/ICD env),
+  portable build and `-r <rid>`; `release` needs it. Locally (Windows, packs win-x64 only):
+  ```powershell
+  dotnet pack PrismNRI.slnx -c Release -o <dir>
+  $env:PRISMNRI_FEED = "<dir>"
+  dotnet build tools/consume -c Release -p:PrismNRIPackageVersion=0.1.0-alpha
+  dotnet tools/consume/bin/Release/net11.0/PrismNRI.Consume.dll
+  dotnet run --project tools/consume -c Release -r win-x64 -p:PrismNRIPackageVersion=0.1.0-alpha
+  ```
+  Portable build loads `bin/.../runtimes/win-x64/native/NRI.dll` through the deps.json; `-r`
+  loads the flat `NRI.dll`. Delete `tools/consume/obj` after re-packing the same version.
 - `NativePayloadTests` hold the staged files to an allowlist and read the PE import tables.
   `NativeExportTests` resolve every `NriApi` `DllImport` with `NativeLibrary.TryGetExport`.
 - Licence facts that shaped the split: NGX terms attach to `NRI.dll` itself when NGX is linked
