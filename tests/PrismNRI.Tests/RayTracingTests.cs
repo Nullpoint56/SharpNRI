@@ -126,15 +126,16 @@ public sealed class RayTracingTests
         commandBuffer.End();
 
         queue.Submit(commandBuffer, fence, 1);
-        fence.Wait(1);
+        GpuWork.Wait(fence, 1);
 
         var hits = MemoryMarshal.Cast<byte, uint>(readback.Map()).ToArray();
         readback.Unmap();
         device.WaitIdle();
 
-        // One picture of the whole field, in the log and in the failure message: lavapipe's
-        // intermittent miss on CI (CLAUDE.md: CI runners and flakes, Unsolved) is diagnosed from the
-        // map, not from "expected 1, got 0". A wrong map fails on every adapter, software included.
+        // One picture of the whole field, in the log and in the failure message. An all-zero map is
+        // what a readback looks like before the queue has written it: the CI "miss" was a fence wait
+        // that gave up after 5 s (CLAUDE.md: CI runners and flakes, item 1). A wrong map fails on
+        // every adapter, software included.
         var hitCount = hits.Count(h => h == 1);
         var map = string.Join("\n", Enumerable.Range(0, Width).Select(y =>
             string.Concat(Enumerable.Range(0, Width).Select(x => hits[y * Width + x] switch { 0 => '.', 1 => '#', _ => '?' }))));

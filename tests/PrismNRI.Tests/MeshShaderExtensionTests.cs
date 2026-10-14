@@ -87,7 +87,7 @@ public sealed class MeshShaderExtensionTests
             new TextureRegionDesc { width = Size, height = Size, depth = 1, planes = PlaneBits.COLOR });
         commandBuffer.End();
         queue.Submit(commandBuffer, fence, 1);
-        fence.Wait(1);
+        GpuWork.Wait(fence, 1);
 
         var mapped = readback.Map().ToArray();
         readback.Unmap();

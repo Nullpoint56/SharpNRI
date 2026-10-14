@@ -281,6 +281,10 @@ fence.Wait(1);
 - Barriers are never inserted for you. `AccessStage` / `AccessLayoutStage` are NRI's before/after.
 - Fences are timelines on both backends: `fence.Wait(value)`, `fence.Value`, and in a submit
   `NriFenceSubmit(fence, value, stages)`.
+- **`fence.Wait` gives up after 5 s** (NRI's `NRI_TIMEOUT_FENCE`, Vulkan and D3D12): it reports an
+  ERROR message ("WaitSemaphores() timed out!" on Vulkan) and returns normally, with the fence still
+  short of the value. Check `fence.Value >= value` before reading the results of long work (a first
+  submit on lavapipe JIT-compiles its shaders and can take seconds).
 - Queue ownership transfer to or from another API / process: `SrcQueue` / `DstQueue` =
   `NriQueue.External` (patch 0002; `VK_QUEUE_FAMILY_EXTERNAL` on Vulkan).
 - UNORM rounding is the driver's: `0.1 * 255 = 25.5` reads 25 on NVIDIA Vulkan, 26 elsewhere. Allow
@@ -343,9 +347,10 @@ if (device.TryRayTracing is { } rt)
   of thousands want batching.
 - **Ray query loop**: loop `while (q.Proceed())`, not a single call. One `Proceed()` is enough for
   opaque geometry on hardware but is one thing a software traversal may disagree on.
-- **lavapipe ray queries** miss intermittently on some hosts (wrong hit map, no validation error,
-  same packages); never seen on hardware or on WARP. Do not treat lavapipe RT results as ground
-  truth.
+- **lavapipe ray tracing is slow to start**: shaders are JIT-compiled when the command buffer runs,
+  so a first build-and-trace submit with a cold Mesa shader cache can pass `fence.Wait`'s 5 s
+  timeout. Reading back after that timeout gives an all-miss map; that was the intermittent CI
+  "ray query miss", not a lavapipe traversal bug. Wait for `fence.Value` before reading back.
 - **Ray tracing pipelines**: shader group identifier 32 B, SBT alignment 64 (NVIDIA VK, D3D12, WARP).
   `DispatchRays` and `DispatchRaysIndirect` give the same result as a ray query.
 - **D3D12 RT library per export.** NRI adds each `NriShaderDesc` as a DXIL library exporting
@@ -582,21 +587,19 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 
 ### Linux
 
-- **Unproven and not stable.** Linux is verified on lavapipe (software Vulkan) only; no hardware
-  Linux driver has run this code. Linux CI is flaky, with two open issues: an intermittent
-  lavapipe ray-query miss (wrong hit map, no validation error, varies by CI host) and one
-  unexplained test-host crash (SIGSEGV, not reproduced). A red Linux job can be either. Details:
-  CLAUDE.md, "CI runners and flakes".
-- In practice: ray query results on lavapipe are not trustworthy. Use a hardware driver for
-  anything that matters.
+- **Unproven on hardware.** Linux is verified on lavapipe (software Vulkan) only; no hardware
+  Linux driver has run this code. The two intermittent Linux CI failures were test bugs, both
+  identified and fixed in the tests: the ray-query "miss" was a readback after NRI's 5 s fence-wait
+  timeout on a slow first submit, and the test-host SIGSEGV was a stale Vortice function table.
+  Details: CLAUDE.md, "CI runners and flakes".
 - NRI `dlopen`s `libvulkan.so.1` at device creation.
 - **Loader older than the driver** (Ubuntu 24.04's stock 1.3.275 loader with Mesa 25's 1.4
   lavapipe): upstream NRI loads core 1.4 entry points the driver returns null for, and
   `CmdSetRootConstants` crashes (SIGSEGV at 0) while `HOST_TRANSFER` textures are rejected. Patch 0004
   clamps NRI's Vulkan version to the instance's; fixed in the shipped library. Such a device reports
   as Vulkan 1.3.
-- lavapipe: no external semaphores (no `SharedHandles`); ray queries miss intermittently (see
-  RayTracing).
+- lavapipe: no external semaphores (no `SharedHandles`); a first ray tracing submit can take
+  seconds (JIT, see RayTracing).
 - `NriAdapter.Uid` is built from the device UUID (no LUID on Linux).
 - Building NRI with GCC 13 needs patch 0005 (included); clang is what CI uses.
 
@@ -639,7 +642,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Same-submission timestamp copy on MoltenVK | reads 0 | Queries |
 | One DXIL library for a D3D12 RT pipeline | `CreateRayTracingPipeline` faults | RayTracing |
 | Single `Proceed()` in a ray query | software traversal may disagree | RayTracing |
-| lavapipe ray query | intermittent misses | RayTracing |
+| Reading back after `fence.Wait` timed out (5 s) | all-zero results, e.g. an all-miss ray query map | RayTracing |
 | D3D12 micromaps | debug error 1162; `Close` fails `E_INVALIDARG` | RayTracing |
 | Index-less OMM on Vulkan | VUID-...-pInfos-10904 (likely false positive) | RayTracing |
 | `TrySharedHandles` null | lavapipe (no external semaphore fd), MoltenVK (no fd handles) | SharedHandles |

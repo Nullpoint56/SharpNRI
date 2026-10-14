@@ -249,7 +249,7 @@ public sealed class VideoExtensionTests
         });
         commandBuffer.End();
         encodeQueue.Submit(commandBuffer, fence, 1);
-        fence.Wait(1);
+        GpuWork.Wait(fence, 1);
 
         // Where the backend needs the feedback resolved, it says on which queue and in which state.
         if (caps.encodeFeedbackResolveRequired != 0)
@@ -262,7 +262,7 @@ public sealed class VideoExtensionTests
             video.ResolveVideoEncodeFeedback(resolveCommands, session, resolved, 0);
             resolveCommands.End();
             resolveQueue.Submit(resolveCommands, fence, 2);
-            fence.Wait(2);
+            GpuWork.Wait(fence, 2);
         }
         var feedback = video.GetVideoEncodeFeedback(session, resolved, 0);
         GpuWork.Record($"{backend}: IDR frame: {feedback.encodedBitstreamWrittenBytes} B at offset {feedback.encodedBitstreamOffset}, average QP {feedback.averageQp}, intra units {feedback.intraCodingUnitNum}, errors 0x{feedback.errorFlags:X}");

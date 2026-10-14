@@ -1,7 +1,8 @@
 // Small helpers shared by the per-object L2 tests: record one command buffer, submit it on the
-// graphics queue with a fence, and wait. Plus the access/layout/stage triples the tests use, named
-// after what they mean so a barrier reads as "from X to Y".
+// graphics queue with a fence, and wait until the fence is reached. Plus the access/layout/stage
+// triples the tests use, named after what they mean so a barrier reads as "from X to Y".
 
+using System.Diagnostics;
 using PrismNRI.Native;
 using Xunit;
 
@@ -21,7 +22,32 @@ internal static class GpuWork
         record(commandBuffer);
         commandBuffer.End();
         queue.Submit(commandBuffer, fence, 1);
-        fence.Wait(1);
+        Wait(fence, 1);
+    }
+
+    /// <summary>The longest a test waits for its GPU work before failing.</summary>
+    public static readonly TimeSpan GpuTimeout = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Returns once <paramref name="fence"/> has reached <paramref name="value"/>; fails the test
+    /// after <see cref="GpuTimeout"/>. Not <see cref="NriFence.Wait"/>: NRI's Wait gives up after
+    /// NRI_TIMEOUT_FENCE (5 s), reports "WaitSemaphores() timed out!" as an ERROR message and returns
+    /// as if the work were done, so a readback that follows reads memory the queue has not written
+    /// yet. lavapipe JIT-compiles shaders while it executes the command buffer; with a cold Mesa
+    /// shader cache on a loaded runner that passes 5 s, and the ray query test read an all-zero map
+    /// (CLAUDE.md: CI runners and flakes, item 1). A wait of 250 ms or more is recorded.
+    /// </summary>
+    public static void Wait(NriFence fence, ulong value)
+    {
+        var clock = Stopwatch.StartNew();
+        while (fence.Value < value)
+        {
+            if (clock.Elapsed > GpuTimeout)
+                Assert.Fail($"the GPU work did not reach fence value {value} in {GpuTimeout.TotalSeconds:0} s (the fence is at {fence.Value})");
+            Thread.Sleep(1);
+        }
+        if (clock.ElapsedMilliseconds >= 250)
+            Record($"GPU work took {clock.ElapsedMilliseconds} ms to reach fence value {value}");
     }
 
     public static ulong Align(ulong value, ulong alignment) =>

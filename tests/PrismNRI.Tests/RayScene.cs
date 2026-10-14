@@ -186,7 +186,7 @@ internal sealed class RayScene : IDisposable
     /// <summary>
     /// The triangle's footprint: <paramref name="hit"/> at the centre and inside, <paramref name="miss"/>
     /// in the corners, 30 to 130 hits. A wrong map fails on every adapter, software included; the
-    /// map is in the log and in the failure message (CLAUDE.md: CI runners and flakes, Unsolved).
+    /// map is in the log and in the failure message (CLAUDE.md: CI runners and flakes, item 1).
     /// </summary>
     public void ExpectTriangle(uint[] values, uint hit, uint miss, string what)
     {
