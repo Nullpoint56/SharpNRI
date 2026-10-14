@@ -107,6 +107,51 @@ public sealed class SharedHandleTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// The binary form (patch 0002, SWAPCHAIN_SEMAPHORE as the initial value): on Vulkan a binary
+    /// semaphore that exports like the timeline one and is signalled and then waited by NRI's own
+    /// queue; on D3D12, which has no binary fences, UNSUPPORTED without an error report. The
+    /// import into another device is SharedHandleImportTests.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void A_shared_binary_fence_exports_on_Vulkan_and_is_unsupported_on_D3D12(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        RequireSharedHandles(device);
+
+        if (backend.Api == GraphicsAPI.D3D12)
+        {
+            Assert.Throws<NriUnsupportedException>(() => device.SharedHandles.CreateSharedBinaryFence());
+            Assert.Equal(0, device.LiveObjects);
+            Assert.DoesNotContain(messages, m => m.IsError);
+            return;
+        }
+
+        using var binary = device.SharedHandles.CreateSharedBinaryFence();
+        using (var handle = device.SharedHandles.GetSharedHandle(binary))
+        {
+            Assert.True(handle.IsValid, $"handle is {handle.Handle}");
+            Assert.Equal(ExpectedFenceType(backend.Api), handle.Type);
+        }
+
+        // Signal once, wait once, on NRI's queue; the timeline fence says the wait was satisfied.
+        var queue = device.GetQueue(QueueType.GRAPHICS);
+        using var fence = device.CreateFence();
+        using var allocator = queue.CreateCommandAllocator();
+        using var commandBuffer = allocator.CreateCommandBuffer();
+        commandBuffer.Begin();
+        commandBuffer.End();
+        queue.Submit([], [], [new NriFenceSubmit(binary, 0)]);
+        queue.Submit([commandBuffer], [new NriFenceSubmit(binary, 0)], [new NriFenceSubmit(fence, 1)]);
+        GpuWork.Wait(fence, 1);
+        device.WaitIdle();
+
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
     public void A_shared_texture_can_be_released_to_and_acquired_from_the_external_queue_family(Backend backend)

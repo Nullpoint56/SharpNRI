@@ -72,13 +72,28 @@ public sealed unsafe class NriSharedHandleExtension
         return new NriTexture(Device, handle);
     }
 
-    /// <summary>A timeline fence that can be exported.</summary>
+    /// <summary>
+    /// A timeline fence that can be exported. <see cref="NriSwapChainExtension.SwapChainSemaphore"/>
+    /// as <paramref name="initialValue"/> makes it binary instead (<see cref="CreateSharedBinaryFence"/>).
+    /// </summary>
     public NriFence CreateSharedFence(ulong initialValue = 0)
     {
         Fence* handle = null;
         Device.Check(_table.CreateSharedFence(Device.Raw, initialValue, &handle), "CreateSharedFence");
         return new NriFence(Device, handle);
     }
+
+    /// <summary>
+    /// An exportable binary semaphore: <c>CreateSharedFence(SWAPCHAIN_SEMAPHORE)</c>, the object an
+    /// external compositor imports as an opaque NT handle or file descriptor. Vulkan only; D3D12 has
+    /// no binary fences and throws <see cref="NriUnsupportedException"/>.
+    /// </summary>
+    /// <remarks>
+    /// Binary semantics: every signal must be followed by exactly one wait before the next signal,
+    /// across both sides of the export. In <see cref="NriFenceSubmit"/> the value is ignored (pass 0);
+    /// <see cref="NriFence.Value"/> and <see cref="NriFence.Wait"/> must not be used on it.
+    /// </remarks>
+    public NriFence CreateSharedBinaryFence() => CreateSharedFence(NriApi.SWAPCHAIN_SEMAPHORE);
 
     /// <summary>
     /// A new handle to the texture's memory. The caller owns it. Throws with

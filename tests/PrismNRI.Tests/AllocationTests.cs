@@ -158,7 +158,7 @@ public sealed class AllocationTests
             void Frame()
             {
                 frameValue++;
-                device.SwapChain.AcquireNextTexture(swapChain, acquire);
+                device.SwapChain.AcquireNextTexture(swapChain, acquire, out _);
 
                 commandAllocator.Reset();
                 pool.Reset();

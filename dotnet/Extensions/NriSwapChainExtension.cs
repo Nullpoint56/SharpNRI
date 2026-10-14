@@ -164,15 +164,20 @@ public sealed unsafe class NriSwapChainExtension
     }
 
     /// <summary>
-    /// The index of the next texture to render to. <paramref name="acquireSemaphore"/> must be
-    /// created with <see cref="SwapChainSemaphore"/> (ignored in D3D). VK only: may throw with
-    /// <see cref="Result.OUT_OF_DATE"/>; recreate the swap chain then.
+    /// Acquires the next texture to render to into <paramref name="textureIndex"/>.
+    /// <paramref name="acquireSemaphore"/> must be created with <see cref="SwapChainSemaphore"/>
+    /// (ignored in D3D). <see cref="NriSwapChainStatus.OutOfDate"/> (VK only: the window changed
+    /// and the swap chain no longer matches it): nothing was acquired, the semaphore is not
+    /// signalled; recreate the swap chain. NRI reports no error for it. Any other failure throws.
     /// </summary>
-    public uint AcquireNextTexture(NriSwapChain swapChain, NriFence acquireSemaphore)
+    public NriSwapChainStatus AcquireNextTexture(NriSwapChain swapChain, NriFence acquireSemaphore, out uint textureIndex)
     {
         uint index = 0;
-        Device.Check(_table.AcquireNextTexture(swapChain.Raw, acquireSemaphore.Raw, &index), "AcquireNextTexture");
-        return index;
+        var result = _table.AcquireNextTexture(swapChain.Raw, acquireSemaphore.Raw, &index);
+        textureIndex = index;
+        if (result == Result.OUT_OF_DATE) return NriSwapChainStatus.OutOfDate;
+        Device.Check(result, "AcquireNextTexture");
+        return NriSwapChainStatus.Ok;
     }
 
     /// <summary>
@@ -187,8 +192,30 @@ public sealed unsafe class NriSwapChainExtension
     /// Presents the acquired texture. A non-zero <paramref name="presentId"/> tracks the frame
     /// and must strictly increase per swap chain (gaps allowed); 0 is untracked.
     /// <paramref name="releaseSemaphore"/> must be created with <see cref="SwapChainSemaphore"/>
-    /// (ignored in D3D).
+    /// (ignored in D3D). <see cref="NriSwapChainStatus.OutOfDate"/> (VK only): the wait on
+    /// <paramref name="releaseSemaphore"/> still happens, the image is not shown; recreate the
+    /// swap chain. NRI reports no error for it. Any other failure throws.
     /// </summary>
-    public void QueuePresent(NriSwapChain swapChain, NriFence releaseSemaphore, ulong presentId = 0) =>
-        Device.Check(_table.QueuePresent(swapChain.Raw, releaseSemaphore.Raw, presentId), "QueuePresent");
+    public NriSwapChainStatus QueuePresent(NriSwapChain swapChain, NriFence releaseSemaphore, ulong presentId = 0)
+    {
+        var result = _table.QueuePresent(swapChain.Raw, releaseSemaphore.Raw, presentId);
+        if (result == Result.OUT_OF_DATE) return NriSwapChainStatus.OutOfDate;
+        Device.Check(result, "QueuePresent");
+        return NriSwapChainStatus.Ok;
+    }
+}
+
+/// <summary>
+/// What <see cref="NriSwapChainExtension.AcquireNextTexture"/> and
+/// <see cref="NriSwapChainExtension.QueuePresent"/> report besides throwing. An enum rather than a
+/// <c>bool</c> so that a further non-failure outcome can be added without changing the signatures;
+/// switch with a default branch.
+/// </summary>
+public enum NriSwapChainStatus
+{
+    /// <summary><c>SUCCESS</c>.</summary>
+    Ok,
+
+    /// <summary><c>OUT_OF_DATE</c> (Vulkan): the swap chain no longer matches its window; recreate it.</summary>
+    OutOfDate,
 }

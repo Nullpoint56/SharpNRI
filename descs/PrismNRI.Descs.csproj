@@ -19,7 +19,7 @@
   <PropertyGroup>
     <RootNamespace>PrismNRI</RootNamespace>
     <PackageId>PrismNRI.Descs</PackageId>
-    <Version>0.3.0-alpha</Version>
+    <Version>0.4.0-alpha</Version>
     <Description>NRI (NVIDIA Render Interface) descriptor structs, enums and function-table layouts as plain .NET types, generated from the pinned NRI headers. No native dependency: reference this to build NRI descriptors without the library.</Description>
     <PackageTags>nri;vulkan;d3d12;rhi;graphics</PackageTags>
     <NoWarn>$(NoWarn);CS0169;CS0649;CS1591;CS8981;NU5128</NoWarn>

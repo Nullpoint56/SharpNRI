@@ -97,6 +97,10 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 - In-repo, `dotnet/PrismNRI.csproj` copies `runtimes/<rid>/native` beside `ProjectReference`
   consumers and also `runtimes-agility/<rid>/native` when staged (never packed;
   `-p:PrismNRIDevAgility=false` turns it off), so tests run D3D12 on Agility.
+- A build from source with no staged library for its RID fails with `PRISMNRI001`, naming the
+  directory and the `build-native.ps1` command; before, it built and the consumer failed at device
+  creation with `DllNotFoundException`. `-p:PrismNRIRequireNative=false` skips the check. Every
+  workflow builds after the payload is staged or restored, so none needs it.
 - **Consumption smoke test** (`tools/consume`, not in the solution): `PackageReference`s to
   `PrismNRI` + `PrismNRI.Testing` at `-p:PrismNRIPackageVersion`, from the folder in
   `PRISMNRI_FEED` (default `nupkg/`), restored into `tools/consume/obj/packages` so the global
@@ -108,9 +112,9 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   ```powershell
   dotnet pack PrismNRI.slnx -c Release -o <dir>
   $env:PRISMNRI_FEED = "<dir>"
-  dotnet build tools/consume -c Release -p:PrismNRIPackageVersion=0.3.0-alpha
+  dotnet build tools/consume -c Release -p:PrismNRIPackageVersion=0.4.0-alpha
   dotnet tools/consume/bin/Release/net11.0/PrismNRI.Consume.dll
-  dotnet run --project tools/consume -c Release -r win-x64 -p:PrismNRIPackageVersion=0.3.0-alpha
+  dotnet run --project tools/consume -c Release -r win-x64 -p:PrismNRIPackageVersion=0.4.0-alpha
   ```
   Portable build loads `bin/.../runtimes/win-x64/native/NRI.dll` through the deps.json; `-r`
   loads the flat `NRI.dll`. Delete `tools/consume/obj` after re-packing the same version.
@@ -267,17 +271,21 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | Patch | What | Why |
 |---|---|---|
 | 0001 agility-sdk-device-factory | `DeviceCreationDesc::d3d12AgilitySdkPath`; `D3D12GetInterface(CLSID_D3D12SDKConfiguration)` -> `ID3D12SDKConfiguration1::CreateDeviceFactory(NRI_AGILITY_SDK_VERSION_MAJOR, path)` -> `ApplyToGlobalState()` before any other D3D12 call | a managed host cannot export `D3D12SDKVersion`, so the SDK never loads otherwise |
-| 0002 shared-handle-extension | `NRISharedHandle.h`: `CreateSharedTexture`, `CreateSharedFence`, `GetTextureSharedHandle`, `GetFenceSharedHandle`; Vulkan opaque win32/fd, D3D12 NT, NONE dummy, through validation; `EXTERNAL_QUEUE` sentinel for barriers to/from `VK_QUEUE_FAMILY_EXTERNAL` | upstream has no export path |
+| 0002 shared-handle-extension | `NRISharedHandle.h`: `CreateSharedTexture`, `CreateSharedFence`, `GetTextureSharedHandle`, `GetFenceSharedHandle`; Vulkan opaque win32/fd, D3D12 NT, NONE dummy, through validation; `EXTERNAL_QUEUE` sentinel for barriers to/from `VK_QUEUE_FAMILY_EXTERNAL`; `CreateSharedFence(SWAPCHAIN_SEMAPHORE)` = exportable binary VkSemaphore (D3D12 `UNSUPPORTED`, silently; validation marks it a swap-chain semaphore) | upstream has no export path; compositors import binary semaphores |
 | 0003 validation-has-buffer-sentinel | validation's geometry conversion passes `HAS_BUFFER` through | upstream bug: access violation on the documented sentinel with NRI validation on |
 | 0004 vulkan-clamp-minor-version-to-instance | `DeviceVK::Create` caps `m_MinorVersion` at the instance version (14 lines; wrapper path keeps the caller's) | upstream bug: old loader + new driver -> null core 1.4 entry points |
 | 0005 helper-memoryheap-alignment-init | `MemoryHeap::alignment` initialised | upstream bug: GCC 13 `-O2 -Werror` `maybe-uninitialized` |
 | 0006 vulkan-portability-sampler-lod-bias | `samplerLodBiasMax = 0` with `VK_KHR_portability_subset` and no `samplerMipLodBias` (6 lines beside NRI's `imageView2DOn3DImage` read) | upstream bug: MoltenVK reports 15.999 and forbids any bias |
 | 0007 cmake-vulkan-loader-link-option | `NRI_ENABLE_VULKAN_LOADER_LINKING` (default ON) wraps the Apple `find_package(Vulkan)` + link; we pass OFF | shipped dylib otherwise needs the build machine's loader path; NRI PR 134 added it for an IDE case, maintainer: "just not needed" |
+| 0008 vulkan-format-table-compressed | `VK_FORMAT_TABLE` extended from 131 to 185 entries: VkFormat 131-184 (BC, ETC2/EAC, ASTC LDR) map to NRI's formats; BC1 RGB (131, 132) stay `UNKNOWN` | upstream gap: `nriConvertVKFormatToNRI` returned `UNKNOWN` for all 52 compressed formats while the reverse table produces them |
+| 0009 vulkan-swapchain-out-of-date-not-an-error | `AcquireNextTexture` / `Present` return `OUT_OF_DATE` for exactly `VK_ERROR_OUT_OF_DATE_KHR` before `NRI_RETURN_ON_BAD_VKRESULT` (no report); return values unchanged | upstream reporting defect: a documented, expected result reported as `Message::ERROR` on every resize |
 
 - Applied by both `build-native.ps1` and `generate-native.ps1` (a header patch changes L0), each
   skipping already-applied patches (reverse applies cleanly).
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
-  patches stay independent; verified by applying in order onto a clean checkout.
+  patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
+  for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
+  `git diff --cached HEAD`); 0003-0009 each also apply alone onto the bare tag.
 - Patch 0007 inserts three lines at `CMakeLists.txt:126`; upstream line numbers past that are three
   lower than the patched tree's.
 - 0001 stays even though the wrapped-device route also loads Agility (see D3D12 and the Agility
@@ -628,6 +636,14 @@ extensions.
   format: NRI creates every texture `TYPELESS` (`DeviceD3D12::GetResourceDesc`), D3D11 opens typed
   only. The test asserts the refusal; if D3D11 ever opens it, the header comment in
   `NRISharedHandle.h` needs revisiting.
+- **Binary shared fence** (`CreateSharedBinaryFence`, patch 0002): VK binary semaphore with
+  `VkExportSemaphoreCreateInfo`; NRI's `QueueSubmit` passes the value, which a binary semaphore
+  ignores, as for swap-chain semaphores. Import proof (Windows, NVIDIA): imported into a binary
+  VkSemaphore on a second device; NRI queue signals -> second queue waits, second queue signals ->
+  NRI queue waits; second device's Khronos layer and NRI's messages clean. D3D12: `UNSUPPORTED`,
+  no message. Upstream 0002 refused the sentinel in validation ("a shared fence can't be a swap
+  chain semaphore"); the extended patch passes it through and marks the `FenceVal` a swap-chain
+  semaphore.
 - Exclusive VK images need a release to `VK_QUEUE_FAMILY_EXTERNAL`; `NriQueue.External` (patch
   0002's `EXTERNAL_QUEUE`) expresses it. NVIDIA tolerated the omission before.
 
@@ -636,6 +652,24 @@ extensions.
 - Availability: NONE supports every extension except the two wrappers; VK everything except
   `WrapperD3D12`; D3D12 everything except `WrapperVK` (feature bits permitting).
 - `Window` in `NRISwapChain.h` is five members side by side, not a union (`descs/NriWindow.cs`).
+- **OUT_OF_DATE (patch 0009, binding `AcquireNextTexture` / `QueuePresent` -> `NriSwapChainStatus.OutOfDate`; an enum so a later suboptimal value needs no API break; VK_SUBOPTIMAL_KHR is SUCCESS in NRI and not surfaced, pending owner decision).**
+  Upstream reports `Message::ERROR` through `NRI_RETURN_ON_BAD_VKRESULT` for it. The validation
+  layer passes both results through; D3D12 never returns it from these calls. Measured on NVIDIA
+  (RTX 4070 SUPER, driver's VK 1.4), `SwapChainResizeTests`: an NRI-created device has
+  `swapchain_maintenance1`, `features.resizableSwapChain = 1`, NRI chains present scaling, and 8
+  resizes (including 0x0, and minimise/restore with a visible window in a trial) never gave
+  `OUT_OF_DATE`; a raw VkDevice with only `VK_KHR_swapchain`, wrapped (`resizableSwapChain = 0`),
+  got it from present 6 times over the same 8 resizes, never from acquire, no ERROR message, the
+  raw instance's Khronos layer clean.
+- **The resize test runs in a child process**: the test exe started again with
+  `PRISMNRI_TEST_CHILD=swapchain-resize` and `VK_LOADER_LAYERS_DISABLE=~implicit~`; a
+  `[ModuleInitializer]` runs the frames and exits before xunit starts. Reasons: RTSS's implicit layer
+  kills a Vulkan-presenting process here, and Vulkan presents poisoned later D3D12 device creation
+  in the same process (Reflex, below).
+- **Wrapped VK device + swap chain needs `VK_KHR_get_surface_capabilities2`** on the instance:
+  `SwapChainVK::Create` calls `vkGetPhysicalDeviceSurfaceCapabilities2KHR` unconditionally; without
+  it, an access violation in `CreateSwapChain` (measured). Not patched (caller error, NRI's own
+  instance always enables it).
 - `StreamerDesc::constantBufferMemoryLocation` is marked optional but validation rejects its default.
 - SwapChain / Streamer tests on NONE only prove the marshalling: NONE has no validation, nothing
   says the calls are legal.
@@ -677,9 +711,12 @@ extensions.
   NRI indexes unchecked, so `Nri` throws `ArgumentOutOfRangeException` for `MAX_NUM` and above.
 - Formats (108): on Linux/macOS payloads every DXGI conversion is 0 and `ConvertDXGIFormatToNRI` is
   `UNKNOWN` (`Creation.cpp` guards the table with `NRI_ENABLE_D3D11_SUPPORT ||
-  NRI_ENABLE_D3D12_SUPPORT`); `FlatExportTests` measures that there. Windows: round trips hold except
-  DXGI has none for the 38 ETC2/ASTC formats; VK -> NRI gives `UNKNOWN` for all 52 block-compressed
-  formats (table ends at 130); DXGI 18 -> `RGB32_SINT`.
+  NRI_ENABLE_D3D12_SUPPORT`); `FlatExportTests` measures that there. Windows: DXGI round trips hold
+  except DXGI has none for the 38 ETC2/ASTC formats; DXGI 18 -> `RGB32_SINT`. NRI -> VK -> NRI is the
+  identity for all 108 formats (patch 0008; upstream v190 gave `UNKNOWN` for all 52 block-compressed
+  ones, table ending at 130); no format round-trips to a different one (sRGB/UNORM and the D24
+  variants each map back to themselves; VK 125 `X8_D24` -> `D24_UNORM_S8_UINT` is one-way). BC1 RGB
+  (131, 132) stay `UNKNOWN`: NRI has only BC1 RGBA.
 
 ### Tests and skips
 

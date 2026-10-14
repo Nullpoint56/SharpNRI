@@ -7,6 +7,7 @@
 //   - D3D12 fence   -> D3D12:  ID3D12Device::OpenSharedHandle on a second device, signalled both ways
 //   - VK texture    -> VK:     vkAllocateMemory + VkImportMemoryWin32HandleInfoKHR on a second VkDevice
 //   - VK semaphore  -> VK:     vkImportSemaphoreWin32HandleKHR on a second VkDevice, signalled both ways
+//   - VK binary     -> VK:     the same into a binary VkSemaphore, one queue signal and one queue wait each way
 //
 // Hand-off: after rendering, NRI moves the texture to Layout::GENERAL (D3D12_BARRIER_LAYOUT_COMMON,
 // VK_IMAGE_LAYOUT_GENERAL) with no access after, which is the state a resource is handed to another
@@ -365,6 +366,72 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// The binary form, the one compositors import: NRI's exported binary semaphore imported into
+    /// a binary VkSemaphore on the second device, then one signal and one wait in each direction
+    /// with real submits on both queues (binary semaphores alternate signal and wait exactly). Each
+    /// wait is satisfied only by the other device's signal; a lost signal shows up as a timed-out fence.
+    /// </summary>
+    [Fact]
+    public void A_Vulkan_shared_binary_semaphore_imports_into_a_second_Vulkan_device_and_signals_both_ways()
+    {
+        Require(GraphicsAPI.VK);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(GraphicsAPI.VK, messages);
+        using var binary = device.SharedHandles.CreateSharedBinaryFence();
+        using var fence = device.CreateFence();
+
+        using var vk = SecondVulkanDevice.Create(TestDevice.AdapterFor(GraphicsAPI.VK)!);
+        output.WriteLine($"second VkDevice on '{vk.DeviceName}', validation {(vk.Validated ? "on" : "unavailable")}");
+        var api = vk.Api;
+
+        // The importer's semaphore is binary as well: an import replaces the payload, not the type.
+        var semaphoreInfo = new VkSemaphoreCreateInfo();
+        VkSemaphore semaphore;
+        Check(api.vkCreateSemaphore(&semaphoreInfo, null, &semaphore), "vkCreateSemaphore");
+
+        using (var handle = device.SharedHandles.GetSharedHandle(binary))
+        {
+            Assert.Equal(SharedHandleType.OPAQUE_WIN32, handle.Type);
+            var import = new VkImportSemaphoreWin32HandleInfoKHR
+            {
+                semaphore = semaphore,
+                handleType = VkExternalSemaphoreHandleTypeFlags.OpaqueWin32,
+                handle = handle.Handle,
+            };
+            Check(api.vkImportSemaphoreWin32HandleKHR(&import), "vkImportSemaphoreWin32HandleKHR");
+        }
+
+        var queue = device.GetQueue(QueueType.GRAPHICS);
+        using var allocator = queue.CreateCommandAllocator();
+        using var commandBuffer = allocator.CreateCommandBuffer();
+        commandBuffer.Begin();
+        commandBuffer.End();
+
+        // NRI -> second device: NRI's queue signals, the second device's queue waits.
+        queue.Submit([commandBuffer], [], [new NriFenceSubmit(binary, 0), new NriFenceSubmit(fence, 1)]);
+        var first = vk.SubmitSemaphores(wait: semaphore, signal: default);
+        output.WriteLine($"NRI signalled the binary semaphore; the second device's wait on it completed: {first}");
+        Assert.True(first == VkResult.Success, $"the second device's submit waiting on the imported semaphore: {first}");
+        GpuWork.Wait(fence, 1);
+
+        // Second device -> NRI: the second device's queue signals, NRI's queue waits.
+        var second = vk.SubmitSemaphores(wait: default, signal: semaphore);
+        Assert.True(second == VkResult.Success, $"the second device's submit signalling the imported semaphore: {second}");
+        queue.Submit([], [new NriFenceSubmit(binary, 0)], [new NriFenceSubmit(fence, 2)]);
+        var seenByNri = PollUntil(() => fence.Value, 2);
+        output.WriteLine($"the second device signalled the binary semaphore; NRI's wait on it let fence reach {seenByNri}");
+        Assert.Equal(2UL, seenByNri);
+
+        device.WaitIdle();
+        api.vkDeviceWaitIdle();
+        api.vkDestroySemaphore(semaphore, null);
+
+        var vkErrors = vk.Errors;
+        Assert.True(vkErrors.Count == 0, "Vulkan validation (second device): " + string.Join(" | ", vkErrors));
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
     // ==================================================================================== helpers
 
     private void AssertSamePixels(byte[] expected, byte[] actual, string what)
@@ -628,6 +695,30 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
             Api.vkDestroyFence(fence, null);
             Api.vkFreeCommandBuffers(_pool, 1, &cmd);
             Check(waited, "vkWaitForFences");
+        }
+
+        /// <summary>
+        /// A submit with no command buffers that waits on and/or signals one binary semaphore, and
+        /// a fence waited for at most <see cref="Timeout"/>. Returns the fence wait's result.
+        /// </summary>
+        public VkResult SubmitSemaphores(VkSemaphore wait, VkSemaphore signal)
+        {
+            var fenceInfo = new VkFenceCreateInfo();
+            VkFence fence;
+            Check(Api.vkCreateFence(&fenceInfo, null, &fence), "vkCreateFence");
+            var waitStage = VkPipelineStageFlags.AllCommands;
+            var submit = new VkSubmitInfo
+            {
+                waitSemaphoreCount = wait.Handle != 0 ? 1u : 0u,
+                pWaitSemaphores = &wait,
+                pWaitDstStageMask = &waitStage,
+                signalSemaphoreCount = signal.Handle != 0 ? 1u : 0u,
+                pSignalSemaphores = &signal,
+            };
+            Check(Api.vkQueueSubmit(_queue, 1, &submit, fence), "vkQueueSubmit");
+            var waited = Api.vkWaitForFences(1, &fence, true, (ulong)Timeout.Ticks * 100);
+            if (waited == VkResult.Success) Api.vkDestroyFence(fence, null); // a fence still pending must not be destroyed
+            return waited;
         }
 
         [UnmanagedCallersOnly]

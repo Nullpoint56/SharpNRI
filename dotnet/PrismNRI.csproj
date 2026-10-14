@@ -19,7 +19,7 @@
   <PropertyGroup>
     <RootNamespace>PrismNRI</RootNamespace>
     <PackageId>PrismNRI</PackageId>
-    <Version>0.3.0-alpha</Version>
+    <Version>0.4.0-alpha</Version>
     <Description>C# bindings over NRI (NVIDIA Render Interface): Vulkan and D3D12 through one API. Pure managed P/Invoke over a pinned NRI build. Windows x64, Linux x64 and macOS arm64 (Vulkan through MoltenVK). Alpha.</Description>
     <PackageTags>nri;vulkan;d3d12;rhi;graphics;rendering</PackageTags>
     <NoWarn>$(NoWarn);CS0169;CS0649;CS1591;CS8981;NU5128</NoWarn>
@@ -78,9 +78,24 @@
              Visible="false" />
   </ItemGroup>
 
-  <Target Name="PrismNRIWarnIfNoNative" BeforeTargets="Build"
-          Condition="!Exists('$(MSBuildThisFileDirectory)..\runtimes\$(PrismNRIRid)\native')">
-    <Warning Text="No native payload for '$(PrismNRIRid)'. Run: pwsh tools/build-native.ps1 -Rid $(PrismNRIRid)" />
+  <!--
+    The native library is built, never committed (CLAUDE.md: Native packages). Without it a build
+    from source succeeds and the first device creation fails with a DllNotFoundException in the
+    consumer, far from the cause; so the build stops here instead, naming the file and the command.
+    Packages are unaffected: they carry the payload. -p:PrismNRIRequireNative=false builds anyway
+    (managed-only work on a RID without a payload).
+  -->
+  <PropertyGroup>
+    <PrismNRINativeDir>$(MSBuildThisFileDirectory)..\runtimes\$(PrismNRIRid)\native\</PrismNRINativeDir>
+  </PropertyGroup>
+
+  <Target Name="PrismNRIRequireNative" BeforeTargets="Build"
+          Condition="'$(PrismNRIRequireNative)' != 'false'
+                     and !Exists('$(PrismNRINativeDir)NRI.dll')
+                     and !Exists('$(PrismNRINativeDir)libNRI.so')
+                     and !Exists('$(PrismNRINativeDir)libNRI.dylib')">
+    <Error Code="PRISMNRI001"
+           Text="The NRI native library for '$(PrismNRIRid)' is not built: $([System.IO.Path]::GetFullPath('$(PrismNRINativeDir)')) has no NRI.dll, libNRI.so or libNRI.dylib. In the PrismNRI checkout run: git submodule update --init, then pwsh tools/build-native.ps1 -Rid $(PrismNRIRid). (-p:PrismNRIRequireNative=false skips this check.)" />
   </Target>
 
 </Project>

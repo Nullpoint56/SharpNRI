@@ -87,7 +87,7 @@ public sealed partial class LowLatencyExtensionTests
                 lowLatency.SetLatencyMarker(swapChain, presentId, LatencyMarker.RENDER_SUBMIT_START);
 
                 var acquired = acquire[frame % acquire.Length];
-                var index = ext.AcquireNextTexture(swapChain, acquired);
+                Assert.Equal(NriSwapChainStatus.Ok, ext.AcquireNextTexture(swapChain, acquired, out var index)); // the 64x64 window never changes size
                 allocator.Reset();
                 commandBuffer.Begin();
                 commandBuffer.Barrier(new NriTextureBarrier(textures[(int)index], Undefined, present));
@@ -96,7 +96,7 @@ public sealed partial class LowLatencyExtensionTests
                     [new NriFenceSubmit(release[index], 0), new NriFenceSubmit(frameFence, presentId)], swapChain, presentId);
 
                 lowLatency.SetLatencyMarker(swapChain, presentId, LatencyMarker.RENDER_SUBMIT_END);
-                ext.QueuePresent(swapChain, release[index], presentId);
+                Assert.Equal(NriSwapChainStatus.Ok, ext.QueuePresent(swapChain, release[index], presentId));
             }
             GpuWork.Wait(frameFence, FrameNum);
             device.WaitIdle();

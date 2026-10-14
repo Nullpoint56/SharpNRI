@@ -11,6 +11,8 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0005 `MemoryHeap::alignment` uninitialised (GCC `-Werror` build) | bug | to file with 0003 |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug | to file with 0003 |
 | 0007 Apple loader link should be optional | cleanup | to file after 0003, cite PR 134 |
+| 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | to file with 0003 |
+| 0009 `OUT_OF_DATE` from acquire/present reported as an error | bug (reporting) | to file with 0003 |
 | 0001 Agility SDK from a path | proposal | to file after 0003 |
 | 0002 SharedHandle extension | proposal | to file once the editor has used it |
 
@@ -103,6 +105,48 @@ links only the system, loads without a loader, and the Vulkan backend finds Home
 through `DYLD_FALLBACK_LIBRARY_PATH` as before. Patch attached
 (`patches/0007-cmake-vulkan-loader-link-option.patch`), 3 lines changed.
 
+## 0008 — `nriConvertVKFormatToNRI` returns `UNKNOWN` for every block-compressed format
+
+**Title:** `VKFormatToNRIFormat`: the table stops at `VK_FORMAT_D32_SFLOAT_S8_UINT`
+
+`VK_FORMAT_TABLE` in `Source/Shared/SharedExternal.hpp` has 131 entries, so every VkFormat from
+131 on falls through to the four special cases after it (the two-plane YUV formats and
+`A4R4G4B4`) and then to `UNKNOWN`. VkFormat 131 to 184 are BC1 to BC7, ETC2/EAC and ASTC LDR. NRI
+has all of them as `Format`s that `NRIFormatToVKFormat` (`g_Formats` in `ConversionVK.hpp`)
+produces, so NRI -> VK -> NRI is not an identity for any of the 52 compressed formats, and a
+compressed `VkImage` imported with `CreateTextureVK` or described by its `VkFormat` cannot be
+named in NRI terms.
+
+Measured on v190 through the flat exports: `nriConvertVKFormatToNRI(nriConvertNRIFormatToVK(f))`
+is `f` for every uncompressed format and `UNKNOWN` for all 52 compressed ones. Fix: extend the
+table to 184 in its existing style, one commented entry per VkFormat; BC1's RGB variants (131,
+132) stay `UNKNOWN` because NRI has only BC1 RGBA. With it the round trip holds for all 108
+formats. Patch attached (`patches/0008-vulkan-format-table-compressed.patch`), 55 lines, table only.
+
+## 0009 — `OUT_OF_DATE` from `AcquireNextTexture` / `QueuePresent` is reported as an error
+
+**Title:** Vulkan swap chain: the documented `OUT_OF_DATE` result should not be reported as `Message::ERROR`
+
+`NRISwapChain.h` documents `OUT_OF_DATE` as a result of `AcquireNextTexture` ("VK only: may return
+OUT_OF_DATE"), `NRIDescs.h` explains it as the swap chain being out of date without
+`features.resizableSwapChain`, and `SwapChainDesc::scaling` says unsupported scaling triggers it
+on resize. It is an expected outcome the caller handles by recreating the swap chain, not a
+failure. `SwapChainVK` nevertheless passes `VK_ERROR_OUT_OF_DATE_KHR` through
+`NRI_RETURN_ON_BAD_VKRESULT`, which reports `Message::ERROR` for any negative VkResult before
+returning. An application that treats reported errors as errors (a test harness that fails on
+them, the default `AbortExecution` breaking into the debugger, a log scraped by CI) sees a failure
+on every window resize and has to match message text to tell it from a real one.
+
+This is a reporting defect only: the returned `Result` is right. Fix: in `AcquireNextTexture` and
+`Present`, return `Result::OUT_OF_DATE` for exactly `VK_ERROR_OUT_OF_DATE_KHR` before the macro,
+without a report; every other negative result is reported as today. The validation layer passes
+both results through without a report of its own, and D3D12 does not return `OUT_OF_DATE` from
+these calls. Measured on v190, RTX 4070 SUPER, a wrapped VkDevice without
+`swapchain_maintenance1` (so NRI creates the swap chain without present scaling): resizing the
+window made `QueuePresent` return `OUT_OF_DATE` 6 times over 8 resizes; with the patch no message
+is reported and the swap chain is recreated normally. Patch attached
+(`patches/0009-vulkan-swapchain-out-of-date-not-an-error.patch`), 9 lines.
+
 ## 0001 — Load the Agility SDK from a path when the host cannot export `D3D12SDKVersion`
 
 **Title:** `DeviceCreationDesc::d3d12AgilitySdkPath`: Agility SDK for hosts that are not native executables
@@ -133,12 +177,17 @@ renderer, a capture tool or a second process importing a frame needs exactly tha
 `NRISharedHandle.h`: `CreateSharedTexture` (committed, dedicated, exportable), `CreateSharedFence`,
 `GetTextureSharedHandle` and `GetFenceSharedHandle`, each returning a caller-owned handle
 (`OPAQUE_WIN32` / `OPAQUE_FD` on Vulkan, NT handles on D3D12), plus an `EXTERNAL_QUEUE` sentinel
-for barriers that release to or acquire from `VK_QUEUE_FAMILY_EXTERNAL`. Vulkan enables the
+for barriers that release to or acquire from `VK_QUEUE_FAMILY_EXTERNAL`. `CreateSharedFence` with
+the `SWAPCHAIN_SEMAPHORE` initial value, the value NRI already uses to ask for a binary semaphore,
+creates an exportable binary semaphore on Vulkan, the signal-once/wait-once object external
+compositors import; D3D12 has no binary fences and answers `UNSUPPORTED`. Vulkan enables the
 external-memory and external-semaphore extensions itself and allocates the shared texture's memory
 directly so the export info can be chained; D3D12 uses `D3D12_HEAP_FLAG_SHARED` and
 `D3D12_FENCE_FLAG_SHARED`; NONE returns dummies; the validation layer wraps the four calls.
 
 Measured on v190, RTX 4070 SUPER: a Vulkan texture imports into a second Vulkan device byte for
-byte and the semaphore signals both ways; a D3D12 fence opens on a second D3D12 device and signals
+byte, the timeline semaphore signals both ways, and the binary semaphore, imported into a binary
+VkSemaphore, is signalled and waited by queue submits in both directions with the Khronos layer
+clean; a D3D12 fence opens on a second D3D12 device and signals
 both ways; a D3D12 texture opens on a second D3D12 device. One known limitation to state in the
 proposal: D3D11 refuses the typeless resource NRI creates. ~500 lines across 24 files.

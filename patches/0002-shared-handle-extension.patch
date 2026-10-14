@@ -9,7 +9,9 @@ This patch adds one NRI-shaped extension, NRISharedHandle.h:
 
   - SharedHandleType, SharedHandle
   - SharedHandleInterface::CreateSharedTexture   committed, dedicated, exportable (VK: VkExternalMemoryImageCreateInfo + VkExportMemoryAllocateInfo, not through VMA; D3D12: D3D12_HEAP_FLAG_SHARED)
-  - SharedHandleInterface::CreateSharedFence     timeline fence that can be exported (VK: VkExportSemaphoreCreateInfo; D3D12: D3D12_FENCE_FLAG_SHARED)
+  - SharedHandleInterface::CreateSharedFence     timeline fence that can be exported (VK: VkExportSemaphoreCreateInfo; D3D12: D3D12_FENCE_FLAG_SHARED);
+                                                 with the SWAPCHAIN_SEMAPHORE initial value an exportable binary semaphore (VK only,
+                                                 UNSUPPORTED on D3D12), the signal-once/wait-once object external compositors import
   - SharedHandleInterface::GetTextureSharedHandle / GetFenceSharedHandle   a new caller-owned handle per call (VK: vkGetMemory*/vkGetSemaphore* Win32HandleKHR or FdKHR; D3D12: ID3D12Device::CreateSharedHandle)
 
 The Vulkan backend enables VK_KHR_external_memory_win32/fd and VK_KHR_external_semaphore_win32/fd
@@ -31,10 +33,10 @@ index 1d48b9f..576f86e 100644
      "Include/Extensions/NRIUpscaler.h"
 diff --git a/Include/Extensions/NRISharedHandle.h b/Include/Extensions/NRISharedHandle.h
 new file mode 100644
-index 0000000..0ea360e
+index 0000000..d524f44
 --- /dev/null
 +++ b/Include/Extensions/NRISharedHandle.h
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,47 @@
 +// © 2021 NVIDIA Corporation
 +// PrismNRI patch 0002
 +
@@ -72,6 +74,8 @@ index 0000000..0ea360e
 +    Nri(Result)     (NRI_CALL *CreateSharedTexture)     (NriRef(Device) device, Nri(MemoryLocation) memoryLocation, float priority, const NriRef(TextureDesc) textureDesc, NriOut NriRef(Texture*) texture);
 +
 +    // A timeline fence that can be exported (VK: "VkExportSemaphoreCreateInfo"; D3D12: "D3D12_FENCE_FLAG_SHARED")
++    // VK only: "SWAPCHAIN_SEMAPHORE" initial value creates an exportable binary semaphore, which must be signaled once and then waited once
++    // before the next signal ("value" in "FenceSubmitDesc" is ignored, "GetFenceValue" and "Wait" must not be used). D3D12: "UNSUPPORTED"
 +    Nri(Result)     (NRI_CALL *CreateSharedFence)       (NriRef(Device) device, uint64_t initialValue, NriOut NriRef(Fence*) fence);
 +
 +    // Every call creates a new handle, which the caller owns. "INVALID_ARGUMENT" if the object was not created shared
@@ -129,10 +133,10 @@ index b38f558..a49358f 100644
  
  } // namespace nri
 diff --git a/Source/D3D12/FenceD3D12.hpp b/Source/D3D12/FenceD3D12.hpp
-index 2490319..ad54f4c 100644
+index 2490319..3ead9d4 100644
 --- a/Source/D3D12/FenceD3D12.hpp
 +++ b/Source/D3D12/FenceD3D12.hpp
-@@ -57,3 +57,33 @@ NRI_INLINE Result FenceD3D12::Wait(uint64_t value) {
+@@ -57,3 +57,37 @@ NRI_INLINE Result FenceD3D12::Wait(uint64_t value) {
  
      return Result::SUCCESS;
  }
@@ -142,6 +146,10 @@ index 2490319..ad54f4c 100644
 +Result FenceD3D12::Create(uint64_t initialValue, bool shared) {
 +    if (!shared)
 +        return Create(initialValue);
++
++    // D3D12 has no binary fences
++    if (initialValue == SWAPCHAIN_SEMAPHORE)
++        return Result::UNSUPPORTED;
 +
 +    HRESULT hr = m_Device->CreateFence(initialValue, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&m_Fence));
 +    NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12Device::CreateFence");
@@ -455,7 +463,7 @@ index 9221770..26456b3 100644
  
  } // namespace nri
 diff --git a/Source/VK/FenceVK.hpp b/Source/VK/FenceVK.hpp
-index 11c9dd0..3f6ac69 100644
+index 11c9dd0..b1b5489 100644
 --- a/Source/VK/FenceVK.hpp
 +++ b/Source/VK/FenceVK.hpp
 @@ -55,3 +55,66 @@ NRI_INLINE Result FenceVK::Wait(uint64_t value) {
@@ -478,8 +486,8 @@ index 11c9dd0..3f6ac69 100644
 +
 +    VkSemaphoreTypeCreateInfo semaphoreTypeCreateInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
 +    semaphoreTypeCreateInfo.pNext = &exportInfo;
-+    semaphoreTypeCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-+    semaphoreTypeCreateInfo.initialValue = initialValue;
++    semaphoreTypeCreateInfo.semaphoreType = initialValue == SWAPCHAIN_SEMAPHORE ? VK_SEMAPHORE_TYPE_BINARY : VK_SEMAPHORE_TYPE_TIMELINE;
++    semaphoreTypeCreateInfo.initialValue = initialValue == SWAPCHAIN_SEMAPHORE ? 0 : initialValue;
 +
 +    VkSemaphoreCreateInfo semaphoreCreateInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 +    semaphoreCreateInfo.pNext = &semaphoreTypeCreateInfo;
@@ -774,10 +782,10 @@ index 07c3e31..77958e8 100644
      m_IsExtSupported.video = deviceBaseImpl.FillFunctionTable(m_iVideoImpl) == Result::SUCCESS;
      m_IsExtSupported.swapChain = deviceBaseImpl.FillFunctionTable(m_iSwapChainImpl) == Result::SUCCESS;
 diff --git a/Source/Validation/ImplVal.cpp b/Source/Validation/ImplVal.cpp
-index 62ce094..39a46c5 100644
+index 62ce094..936dfc1 100644
 --- a/Source/Validation/ImplVal.cpp
 +++ b/Source/Validation/ImplVal.cpp
-@@ -2628,3 +2628,61 @@ Result DeviceVal::FillFunctionTable(WrapperVKInterface& table) const {
+@@ -2628,3 +2628,60 @@ Result DeviceVal::FillFunctionTable(WrapperVKInterface& table) const {
  }
  
  #pragma endregion
@@ -804,14 +812,13 @@ index 62ce094..39a46c5 100644
 +
 +static Result NRI_CALL CreateSharedFence(Device& device, uint64_t initialValue, Fence*& fence) {
 +    DeviceVal& deviceVal = (DeviceVal&)device;
-+    NRI_RETURN_ON_FAILURE(&deviceVal, initialValue != SWAPCHAIN_SEMAPHORE, Result::INVALID_ARGUMENT, "a shared fence can't be a swap chain semaphore");
 +
 +    Fence* fenceImpl = nullptr;
 +    Result result = deviceVal.GetSharedHandleInterfaceImpl().CreateSharedFence(deviceVal.GetImpl(), initialValue, fenceImpl);
 +
 +    fence = nullptr;
 +    if (result == Result::SUCCESS)
-+        fence = (Fence*)Allocate<FenceVal>(deviceVal.GetAllocationCallbacks(), deviceVal, fenceImpl, false);
++        fence = (Fence*)Allocate<FenceVal>(deviceVal.GetAllocationCallbacks(), deviceVal, fenceImpl, initialValue == SWAPCHAIN_SEMAPHORE);
 +
 +    return result;
 +}

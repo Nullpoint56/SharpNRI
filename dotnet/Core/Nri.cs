@@ -23,9 +23,10 @@ public static unsafe class Nri
     public static Format ConvertDXGIFormatToNRI(uint dxgiFormat) => NriApi.nriConvertDXGIFormatToNRI(dxgiFormat);
 
     /// <summary>
-    /// A <c>VkFormat</c> as NRI's format, <c>UNKNOWN</c> when NRI has none. NRI's table ends at
-    /// <c>VK_FORMAT_D32_SFLOAT_S8_UINT</c> (130) plus four planar and packed formats, so every
-    /// block-compressed <c>VkFormat</c> answers <c>UNKNOWN</c> (measured, NRI v190).
+    /// A <c>VkFormat</c> as NRI's format, <c>UNKNOWN</c> when NRI has none. The inverse of
+    /// <see cref="ConvertNRIFormatToVK"/> for every NRI format, block-compressed ones included
+    /// (patch 0008; NRI v190's table ended at <c>VK_FORMAT_D32_SFLOAT_S8_UINT</c>, 130). BC1's RGB
+    /// variants (131, 132) stay <c>UNKNOWN</c>: NRI has only BC1 RGBA.
     /// </summary>
     public static Format ConvertVKFormatToNRI(uint vkFormat) => NriApi.nriConvertVKFormatToNRI(vkFormat);
 

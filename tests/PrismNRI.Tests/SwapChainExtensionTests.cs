@@ -81,9 +81,9 @@ public sealed class SwapChainExtensionTests
             textures[0].Dispose(); // a no-op: the swap chain owns it
             Assert.Equal(3, device.LiveObjects);
 
-            var index = ext.AcquireNextTexture(swapChain, acquire);
+            Assert.Equal(NriSwapChainStatus.Ok, ext.AcquireNextTexture(swapChain, acquire, out var index));
             Assert.InRange(index, 0u, (uint)textures.Count - 1);
-            ext.QueuePresent(swapChain, release, presentId: 1);
+            Assert.Equal(NriSwapChainStatus.Ok, ext.QueuePresent(swapChain, release, presentId: 1));
             ext.WaitForPresent(swapChain, 1);
             _ = ext.GetDisplayDesc(swapChain);
         }
