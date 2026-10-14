@@ -1,12 +1,35 @@
 name: ci
 
-# Deliberately small: four jobs, no matrix explosion, superseded runs are cancelled, and the
-# multi-GB NRI dependency downloads are cached once per (NRI version, patches) pair.
+# Billed per job, each rounded up to whole minutes; a macOS minute costs about ten Linux minutes and
+# a Windows minute about two (measured in CLAUDE.md: Actions budget). The shape follows from that:
+#   - gate (Linux, seconds; tools/ci/ci-gate.ps1) tells each platform job to run fully, only to
+#     build the native payload into the cache, or to skip. A merge to master whose tree a pull
+#     request run already passed is not tested again.
+#   - The native payload is cached under a key of its inputs and rebuilt only when one of them
+#     changes. A rebuilt payload is saved before the tests run, so a red test run keeps it.
+#   - Edits that cannot change a result (Markdown, docs/, the other workflows, tools/consume, the
+#     interop generator) start no run; regen.yml checks the interop layer when its inputs change.
+#   - Superseded runs are cancelled. Timeouts sit a few times above the slowest measured job, so a
+#     hang costs minutes, not an hour.
 
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/regen.yml"
+      - "tools/consume/**"
+      - "tools/generate-native.ps1"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/workflows/release.yml"
+      - ".github/workflows/regen.yml"
+      - "tools/consume/**"
+      - "tools/generate-native.ps1"
   workflow_dispatch:
 
 concurrency:
@@ -23,15 +46,51 @@ env:
   VULKAN_SDK_VERSION: "1.4.363.0"   # tools/ci/fetch-vulkan-layer.sh; the layer must know every struct NRI's 1.4.365 headers chain
 
 jobs:
+  # full | warm | skip per platform, and the payload cache key; the reasoning is in the run summary.
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read          # runs and caches of this repository
+      pull-requests: read    # the pull request a merge commit belongs to
+    outputs:
+      key: ${{ steps.gate.outputs.key }}
+      win: ${{ steps.gate.outputs.win }}
+      linux: ${{ steps.gate.outputs.linux }}
+      osx: ${{ steps.gate.outputs.osx }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide
+        id: gate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./tools/ci/ci-gate.ps1
+
   win-x64:
+    needs: gate
+    if: needs.gate.outputs.win != 'skip'
     runs-on: windows-latest
-    timeout-minutes: 75
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
+      # runtimes/ and runtimes-agility/ exactly as tools/build-native.ps1 stages them.
+      - name: Restore native payload
+        id: payload
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            runtimes
+            runtimes-agility
+          key: native-win-x64-${{ needs.gate.outputs.key }}
+
       - name: Read NRI pin
+        if: steps.payload.outputs.cache-hit != 'true'
         id: pin
         shell: pwsh
         run: |
@@ -41,29 +100,55 @@ jobs:
       # FetchContent downloads of the Base variant (Agility SDK, NVAPI, AGS, headers). With a
       # matching _deps, build-native.ps1 configures with FETCHCONTENT_FULLY_DISCONNECTED=ON.
       - name: Cache NRI dependencies
+        if: steps.payload.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: _build/win-x64-base/_deps
           key: nri-deps-win-x64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
 
+      - name: Build native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid win-x64 -Configuration Release
+
+      - name: Save native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            runtimes
+            runtimes-agility
+          key: native-win-x64-${{ needs.gate.outputs.key }}
+
+      # The tests compile a C++ probe against nri/Include with patches/ applied (NativeAbiTests).
+      # build-native.ps1 applies them when it builds; a restored payload skipped that.
+      - name: Apply patches to nri/
+        if: steps.payload.outputs.cache-hit == 'true' && needs.gate.outputs.win == 'full'
+        shell: pwsh
+        run: ./tools/ci/apply-patches.ps1
+
       - uses: actions/setup-dotnet@v4
+        if: needs.gate.outputs.win == 'full'
         with:
           dotnet-version: "11.0.x"
           dotnet-quality: preview
 
-      - name: Build native payload
-        shell: pwsh
-        run: ./tools/build-native.ps1 -Rid win-x64 -Configuration Release
-
       - name: Build managed
+        if: needs.gate.outputs.win == 'full'
         run: dotnet build PrismNRI.slnx -c Release
 
       - name: Test
+        if: needs.gate.outputs.win == 'full'
         run: dotnet test --solution PrismNRI.slnx -c Release --no-build
 
   linux-x64:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    needs: gate
+    if: needs.gate.outputs.linux != 'skip'
+    # Pinned: ubuntu-latest becomes Ubuntu 26 from 2026-10-19, whose loader is 1.4. The suite is
+    # measured on 24.04's stock 1.3 loader, the pairing patches/0004 exists for (CLAUDE.md: Vulkan
+    # loader and validation layers). Moving is a decision, not an image update.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,34 +164,15 @@ jobs:
             ninja-build clang libvulkan1 mesa-vulkan-drivers vulkan-validationlayers vulkan-tools \
             libx11-dev libwayland-dev
 
-      # The Khronos validation layer that matches NRI's Vulkan headers. Ubuntu's package is 1.3.275
-      # and reports every 1.4-era struct NRI chains as an ERROR; LunarG's apt packages stop at
-      # 1.4.313. tools/ci/fetch-vulkan-layer.sh takes the layer out of the SDK tarball. The loader
-      # stays the distribution's 1.3 one on purpose: patches/0004 is for exactly that pairing.
-      - name: Cache Khronos validation layer
-        id: vvl
-        uses: actions/cache@v4
+      - name: Restore native payload
+        id: payload
+        uses: actions/cache/restore@v4
         with:
-          path: _tools/vvl
-          key: vvl-linux-x64-${{ env.VULKAN_SDK_VERSION }}
-
-      - name: Fetch Khronos validation layer
-        if: steps.vvl.outputs.cache-hit != 'true'
-        run: bash tools/ci/fetch-vulkan-layer.sh _tools/vvl
-
-      - name: Put the layer in front of the system one
-        run: echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/_tools/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
-
-      # What the tests actually run on. Runner hosts differ (one host passed the ray query test,
-      # the next failed it with the same packages), and lavapipe JIT-compiles for the host CPU.
-      - name: Vulkan device and host CPU
-        run: |
-          vulkaninfo --summary 2>/dev/null | grep -E "deviceName|driverInfo|driverVersion|apiVersion" || true
-          lscpu | grep -m1 "Model name"
-          echo "nproc: $(nproc)"
-          grep -o -m1 -w avx512f /proc/cpuinfo || echo "no avx512f"
+          path: runtimes
+          key: native-linux-x64-${{ needs.gate.outputs.key }}
 
       - name: Read NRI pin
+        if: steps.payload.outputs.cache-hit != 'true'
         id: pin
         shell: pwsh
         run: |
@@ -114,21 +180,67 @@ jobs:
           "nri=$($Matches[1].Trim())" >> $env:GITHUB_OUTPUT
 
       - name: Cache NRI dependencies
+        if: steps.payload.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: _build/linux-x64-base/_deps
           key: nri-deps-linux-x64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
 
+      - name: Build native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid linux-x64 -Configuration Release
+
+      - name: Save native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: runtimes
+          key: native-linux-x64-${{ needs.gate.outputs.key }}
+
+      - name: Apply patches to nri/
+        if: steps.payload.outputs.cache-hit == 'true' && needs.gate.outputs.linux == 'full'
+        shell: pwsh
+        run: ./tools/ci/apply-patches.ps1
+
+      # The Khronos validation layer that matches NRI's Vulkan headers. Ubuntu's package is 1.3.275
+      # and reports every 1.4-era struct NRI chains as an ERROR; LunarG's apt packages stop at
+      # 1.4.313. tools/ci/fetch-vulkan-layer.sh takes the layer out of the SDK tarball. The loader
+      # stays the distribution's 1.3 one on purpose: patches/0004 is for exactly that pairing.
+      - name: Cache Khronos validation layer
+        if: needs.gate.outputs.linux == 'full'
+        id: vvl
+        uses: actions/cache@v4
+        with:
+          path: _tools/vvl
+          key: vvl-linux-x64-${{ env.VULKAN_SDK_VERSION }}
+
+      - name: Fetch Khronos validation layer
+        if: needs.gate.outputs.linux == 'full' && steps.vvl.outputs.cache-hit != 'true'
+        run: bash tools/ci/fetch-vulkan-layer.sh _tools/vvl
+
+      - name: Put the layer in front of the system one
+        if: needs.gate.outputs.linux == 'full'
+        run: echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/_tools/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
+      # What the tests actually run on. Runner hosts differ (one host passed the ray query test,
+      # the next failed it with the same packages), and lavapipe JIT-compiles for the host CPU.
+      - name: Vulkan device and host CPU
+        if: needs.gate.outputs.linux == 'full'
+        run: |
+          vulkaninfo --summary 2>/dev/null | grep -E "deviceName|driverInfo|driverVersion|apiVersion" || true
+          lscpu | grep -m1 "Model name"
+          echo "nproc: $(nproc)"
+          grep -o -m1 -w avx512f /proc/cpuinfo || echo "no avx512f"
+
       - uses: actions/setup-dotnet@v4
+        if: needs.gate.outputs.linux == 'full'
         with:
           dotnet-version: "11.0.x"
           dotnet-quality: preview
 
-      - name: Build native payload
-        shell: pwsh
-        run: ./tools/build-native.ps1 -Rid linux-x64 -Configuration Release
-
       - name: Build managed
+        if: needs.gate.outputs.linux == 'full'
         run: dotnet build PrismNRI.slnx -c Release
 
       # The "intermittent ray query miss" was NRI's 5 s fence-wait timeout: lavapipe JIT-compiles
@@ -140,6 +252,7 @@ jobs:
       # Synchronization validation is on here and in the Test step: a hazard is a layer ERROR,
       # which the tests' message assertions fail on.
       - name: Ray tracing, cold shader cache
+        if: needs.gate.outputs.linux == 'full'
         env:
           MESA_SHADER_CACHE_DISABLE: "true"
           VK_KHRONOS_VALIDATION_VALIDATE_SYNC: "1"
@@ -153,6 +266,7 @@ jobs:
       # flakes). createdump writes a minidump on the signal; the step after prints every thread's
       # managed and native stack from it, which names the test and the native frame.
       - name: Test
+        if: needs.gate.outputs.linux == 'full'
         env:
           DOTNET_DbgEnableMiniDump: "1"
           DOTNET_DbgMiniDumpType: "1"
@@ -184,25 +298,43 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # The most expensive minutes: with the payload cached this job fits in one billed minute.
   osx-arm64:
+    needs: gate
+    if: needs.gate.outputs.osx != 'skip'
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
 
+      - name: Restore native payload
+        id: payload
+        uses: actions/cache/restore@v4
+        with:
+          path: runtimes
+          key: native-osx-arm64-${{ needs.gate.outputs.key }}
+
       # Vulkan on macOS is MoltenVK behind the Khronos loader, with the Khronos validation layer;
       # vulkan-tools only for the vulkaninfo summary below. NRI's Metal backend is off
-      # (build-native.ps1), so Xcode's Metal toolchain is not needed.
+      # (build-native.ps1), so Xcode's Metal toolchain is not needed, and the native build itself
+      # needs only Ninja: the Vulkan headers come through NRI's FetchContent and the loader is not
+      # linked (patches/0007).
       - name: Install system packages
-        run: brew install ninja molten-vk vulkan-loader vulkan-validationlayers vulkan-tools
+        if: needs.gate.outputs.osx == 'full'
+        run: brew install molten-vk vulkan-loader vulkan-validationlayers vulkan-tools
+
+      - name: Install Ninja
+        if: steps.payload.outputs.cache-hit != 'true'
+        run: brew install ninja
 
       # Homebrew's prefix (/opt/homebrew) is on none of dyld's default paths: NRI and Vortice
       # dlopen libvulkan.1.dylib by name, so dyld is told where it is. The loader is pointed at
       # MoltenVK's ICD manifest alone, so that no other driver on the image can be picked up;
       # it finds the validation layer in $(brew --prefix)/share/vulkan/explicit_layer.d by itself.
       - name: Point dyld and the Vulkan loader at Homebrew
+        if: needs.gate.outputs.osx == 'full'
         run: |
           icd="$(find "$(brew --prefix molten-vk)/" -name MoltenVK_icd.json | head -n1)"
           test -n "$icd" || { echo "MoltenVK_icd.json not found under $(brew --prefix molten-vk)"; exit 1; }
@@ -214,17 +346,19 @@ jobs:
       # What the tests actually run on, as on Linux: the runner host's GPU is paravirtualised and
       # MoltenVK translates to whatever Metal that host offers.
       - name: Vulkan device and host CPU
+        if: needs.gate.outputs.osx == 'full'
         run: |
           sysctl -n machdep.cpu.brand_string hw.model || true
           sw_vers || true
           brew list --versions molten-vk vulkan-loader vulkan-validationlayers cmake || true
           cmake --version | head -n1
           echo "ICD: $VK_DRIVER_FILES"
-          cat "$(brew --prefix)/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json" | grep -E '"(api_version|implementation_version|library_path)"' || true
+          grep -E '"(api_version|implementation_version|library_path)"' "$(brew --prefix)/share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json" || true
           vulkaninfo --summary || true
           vulkaninfo 2>/dev/null | grep -E "maxSamplerLodBias|samplerMipLodBias|hostImageCopy|timestampValidBits|timestampComputeAndGraphics|timestampPeriod|VK_KHR_external_(memory|semaphore)|VK_EXT_external_memory_metal" || true
 
       - name: Read NRI pin
+        if: steps.payload.outputs.cache-hit != 'true'
         id: pin
         shell: pwsh
         run: |
@@ -232,65 +366,40 @@ jobs:
           "nri=$($Matches[1].Trim())" >> $env:GITHUB_OUTPUT
 
       - name: Cache NRI dependencies
+        if: steps.payload.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: _build/osx-arm64-base/_deps
           key: nri-deps-osx-arm64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
 
+      - name: Build native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid osx-arm64 -Configuration Release
+
+      - name: Save native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: runtimes
+          key: native-osx-arm64-${{ needs.gate.outputs.key }}
+
+      - name: Apply patches to nri/
+        if: steps.payload.outputs.cache-hit == 'true' && needs.gate.outputs.osx == 'full'
+        shell: pwsh
+        run: ./tools/ci/apply-patches.ps1
+
       - uses: actions/setup-dotnet@v4
+        if: needs.gate.outputs.osx == 'full'
         with:
           dotnet-version: "11.0.x"
           dotnet-quality: preview
 
-      - name: Build native payload
-        shell: pwsh
-        run: ./tools/build-native.ps1 -Rid osx-arm64 -Configuration Release
-
       - name: Build managed
+        if: needs.gate.outputs.osx == 'full'
         run: dotnet build PrismNRI.slnx -c Release
 
       # Detailed: every skip and its reason in the log, which is what this leg is measured by.
       - name: Test
+        if: needs.gate.outputs.osx == 'full'
         run: dotnet test --solution PrismNRI.slnx -c Release --no-build --output Detailed
-
-  # The checked-in L0 layer must be exactly what the pinned headers generate. The generator writes
-  # LF whatever the host, so any runner compares equal; Windows is where ClangSharp is exercised
-  # for releases.
-  regen:
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          # ClangSharpPInvokeGenerator 21.1.8.4 targets net10.0.
-          dotnet-version: |
-            10.0.x
-            11.0.x
-
-      - name: Install ClangSharpPInvokeGenerator
-        shell: pwsh
-        run: |
-          dotnet tool install --global ClangSharpPInvokeGenerator --version 21.1.8.4
-          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
-
-      - name: Regenerate
-        shell: pwsh
-        run: ./tools/generate-native.ps1
-
-      - name: Fail on drift
-        shell: pwsh
-        run: |
-          # git status alone is not the test: with core.autocrlf on the Windows runner it reports
-          # the regenerated files as modified on line endings while their content is unchanged.
-          # Re-adding runs the clean filter, so diff --cached compares content.
-          git add -A -- dotnet/Native
-          git --no-pager diff --cached --stat -- dotnet/Native
-          git diff --cached --quiet -- dotnet/Native
-          if ($LASTEXITCODE -ne 0) {
-            git --no-pager diff --cached -- dotnet/Native | Select-Object -First 120
-            throw "dotnet/Native is out of date with the pinned NRI headers. Run tools/generate-native.ps1 and commit."
-          }

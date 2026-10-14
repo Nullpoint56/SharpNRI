@@ -11,8 +11,13 @@ name: release
 #      the packages from a folder feed and creates devices on windows, ubuntu and macos) -> release
 #      (GitHub release with the .nupkg files and one zip per native payload; prerelease when the
 #      tag contains '-').
-#   Dry run: Actions > release > Run workflow with tag=v<Version>. Builds, packs, runs consume,
-#   uploads artifacts, creates no release. Nothing is pushed to NuGet.org (see the commented step in the release job).
+#   No dry run before tagging: a tag run that fails publishes nothing (release needs consume), and a
+#   dry run repeats every job of the tag run. After a failure: fix through a pull request, then move
+#   the tag (git tag -f v<Version> <commit>; git push -f origin v<Version>), or use "Re-run failed
+#   jobs" when the cause was outside the repository; it keeps the jobs that passed.
+#   Dry run (Actions > release > Run workflow, tag=v<Version>): only to try a change to this file.
+#   It builds, packs, runs consume, uploads artifacts and creates no release.
+#   Nothing is pushed to NuGet.org (see the commented step in the release job).
 
 on:
   push:
@@ -69,7 +74,7 @@ jobs:
   win-x64:
     needs: version
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -144,8 +149,10 @@ jobs:
   # NRI, NGX is off without -WithDlss (build-native.ps1).
   linux-x64:
     needs: version
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Pinned: ubuntu-latest becomes Ubuntu 26 from 2026-10-19, and libNRI.so built there would need
+    # its newer glibc, silently dropping every older distribution. Raising the floor is a decision.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -228,7 +235,7 @@ jobs:
   osx-arm64:
     needs: version
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -283,7 +290,7 @@ jobs:
   pack:
     needs: [version, win-x64, linux-x64, osx-arm64]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -369,12 +376,12 @@ jobs:
         include:
           - os: windows-latest
             rid: win-x64
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             rid: linux-x64
           - os: macos-latest
             rid: osx-arm64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 10
     env:
       PRISMNRI_FEED: ${{ github.workspace }}/nupkg
       PRISMNRI_VERSION: ${{ needs.version.outputs.version }}
@@ -432,7 +439,7 @@ jobs:
     needs: [version, pack, consume]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
