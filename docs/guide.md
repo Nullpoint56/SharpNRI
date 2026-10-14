@@ -10,6 +10,7 @@ headers do not say. NRI v190.
 - [Memory and resources](#memory-and-resources)
 - [Descriptors and layouts](#descriptors-and-layouts)
 - [Recording and submitting](#recording-and-submitting)
+- [Zero allocation](#zero-allocation)
 - [Queries](#queries)
 - [Extensions](#extensions)
 - [Wrappers and the escape hatch](#wrappers-and-the-escape-hatch)
@@ -32,9 +33,9 @@ headers do not say. NRI v190.
 | `PrismNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll` | D3D12 on the Agility SDK (Windows) |
 
 ```xml
-<PackageReference Include="PrismNRI" Version="0.2.0-alpha" ExcludeAssets="native" />  <!-- only with Upscalers -->
-<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.2.0-alpha" />
-<PackageReference Include="PrismNRI.Native.Agility" Version="0.2.0-alpha" />
+<PackageReference Include="PrismNRI" Version="0.3.0-alpha" ExcludeAssets="native" />  <!-- only with Upscalers -->
+<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.3.0-alpha" />
+<PackageReference Include="PrismNRI.Native.Agility" Version="0.3.0-alpha" />
 ```
 
 - Not on NuGet.org: the `.nupkg` files are GitHub release assets. Folder feed, `nuget.config` beside
@@ -134,8 +135,9 @@ Caveats:
   `device.LiveObjects` is the count.
 - A forgotten `Dispose` leaks until process exit; it never corrupts.
 - Disposal during process shutdown is skipped (the native library may be unloaded).
-- Not disposable: `NriQueue` (the device owns it), `NriDescriptorSet` (the pool owns it;
-  `pool.Reset()` or disposing the pool invalidates every set).
+- Not disposable: `NriQueue` (the device owns it), `NriDescriptorSet` (a struct, not an object:
+  the handle plus its pool; the pool owns the set, and `pool.Reset()` or disposing the pool
+  invalidates every set).
 - Dispose resources before the memory they are bound to: NRI's validation refuses freeing memory
   with a resource still bound.
 - `SetDebugName(string)` on every object.
@@ -244,6 +246,12 @@ set.Update(rangeIndex: 1, descriptorIndex: 0, outputView);
 | Vulkan, non-zero offsets | binding minus the per-class shift; compile shaders with the same shifts (`-fvk-*-shift`) | descriptor set |
 
 - `VkBindingOffsets` must be identical in `NriDeviceOptions` and the shader compiler.
+- `NriDescriptorSet` is a `readonly struct`: handle plus pool, equal by handle, nothing to
+  dispose. `default` is not a set (NRI validation rejects the null handle).
+- Per frame: `pool.Reset()`, then `pool.AllocateDescriptorSets(layout, setIndex, span)` into
+  storage you own (a field array reused every frame) or `pool.AllocateDescriptorSet(...)`; neither
+  allocates. The array-returning `AllocateDescriptorSets(layout, setIndex, count)` allocates the
+  array.
 - `pool.Reset()` invalidates every set. D3D12 heap offsets for three consecutive sets: (0,0),
   (3,1), (6,2); back to (0,0) after `Reset`. Vulkan: (0,0) always.
 - `Nri.FitPipelineLayoutSettingsIntoDeviceLimits(device.Desc, wanted)` clamps counts and sizes in
@@ -276,8 +284,7 @@ fence.Wait(1);
 - One method per `Cmd*`, prefix dropped, NRI's argument order.
 - Arrays naming NRI objects are spans of records: `NriBufferBarrier`, `NriTextureBarrier`,
   `NriAttachment`, `NriVertexBuffer`, `NriFenceSubmit`. Native arrays are built on the stack;
-  recording allocates 0 managed bytes and 0 host allocations per call (measured over 300
-  iterations, every extension's per-frame path included).
+  a whole frame allocates nothing ([Zero allocation](#zero-allocation)).
 - Barriers are never inserted for you. `AccessStage` / `AccessLayoutStage` are NRI's before/after.
 - Fences are timelines on both backends: `fence.Wait(value)`, `fence.Value`, and in a submit
   `NriFenceSubmit(fence, value, stages)`.
@@ -290,6 +297,36 @@ fence.Wait(1);
 - UNORM rounding is the driver's: `0.1 * 255 = 25.5` reads 25 on NVIDIA Vulkan, 26 elsewhere. Allow
   one unit when comparing cleared or rendered pixels. VK and D3D12 readbacks differ at triangle
   edges.
+
+## Zero allocation
+
+The contract, measured on NONE (which does nothing per call, so any allocation is the binding's)
+after one warm-up frame, over 300 frames: 0 managed bytes for both lists below
+(`AllocationTests`, `ExtensionAllocationTests`); for the core frame also 0 host allocations,
+reallocations and frees through `NriCountingAllocator`.
+
+- Core frame: `NriCommandAllocator.Reset`, `cmd.Begin` / `End`, `NriDescriptorPool.Reset`,
+  `AllocateDescriptorSets(layout, setIndex, span)`, `AllocateDescriptorSet`, `set.Update` /
+  `UpdateRange` / `CopyRange`, `SetDescriptorPool`, `SetPipelineLayout`, `SetDescriptorSet`,
+  `Barrier` (global, buffer, texture), `SetViewports`, `SetScissors`, `BeginRendering` /
+  `EndRendering`, `Draw`, `Dispatch`, `CopyBuffer`, `queue.Submit` (spans of command buffers,
+  waits and signals), `fence.Wait`, `fence.Value`, `SwapChain.AcquireNextTexture`,
+  `SwapChain.QueuePresent`.
+- Extension frame: `MeshShader.DrawMeshTasks` / `DrawMeshTasksIndirect`,
+  `DescriptorHeap.WriteResourceDescriptors` / `WriteSamplerDescriptors` / `SetDescriptorHeap`,
+  `Streamer.BeginStreamerCopyBatch` / `StreamBufferData` / `StreamConstantData` /
+  `CopyStreamedData` / `EndStreamerFrame`, `Upscaler.DispatchUpscale`, `Imgui.CopyImguiData` /
+  `DrawImgui`, `Video.DecodeVideo` (H.264 picture desc), `queue.Submit` with a swap chain,
+  `LowLatency.SetLatencyMarker`.
+- Not in the measured frame: `buffer.Map` / `Unmap` (NONE maps nothing; `Map` returns a span over
+  NRI's pointer and allocates nothing itself).
+- Allocate by design: object creation (`Create*`, `AllocateMemory`, `AllocateAndBindMemory`), the
+  desc forms with arrays (`NriPipelineLayoutDesc`, `NriGraphicsPipelineDesc`, ...),
+  `queue.UploadData`, the array-returning `AllocateDescriptorSets(layout, setIndex, count)`.
+- `NriDescriptorSet` is a struct so that resetting the pool and reallocating sets every frame
+  allocates nothing; the span overload is the per-frame path.
+- Build the spans a frame passes (barriers, attachments, submits, writes) once, outside the frame.
+- Exceptions allocate only when thrown.
 
 ## Queries
 

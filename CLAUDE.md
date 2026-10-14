@@ -59,7 +59,11 @@ L0  dotnet/Native/       ClangSharp output. Never referenced above L1 except des
   `GraphicsPipelineDesc`, `ShaderDesc`): arrays, same field names, pinned for the call. Forms that
   name device objects (`NriGraphicsPipelineDesc`) live in L2, the rest in `descs/`. Per-call arrays
   of objects (barriers, attachments, submits) are spans of small records turned into native arrays
-  with `stackalloc`; `AllocationTests` hold recording to zero managed allocations.
+  with `stackalloc`; `AllocationTests` hold a whole frame on NONE (allocator and pool reset, set
+  allocation and writes, recording, submit with fences, wait, acquire and present) to zero managed
+  bytes and zero host allocations. `NriDescriptorSet` is a `readonly struct` (handle + pool, equal
+  by handle) with an `AllocateDescriptorSets(..., Span<NriDescriptorSet>)` overload, because an
+  engine that resets its pool and reallocates sets every frame must not allocate.
 - L2 deliberately does not: hide `GetQueue`'s effect on Vulkan sharing mode, reorder barriers,
   choose memory types, dispose children for a parent, add locks.
 - L3 wrappers (`WrapperVK`, `WrapperD3D12`), `GetNativeObject`, `NriHandle`, `device.Core` /
@@ -104,9 +108,9 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   ```powershell
   dotnet pack PrismNRI.slnx -c Release -o <dir>
   $env:PRISMNRI_FEED = "<dir>"
-  dotnet build tools/consume -c Release -p:PrismNRIPackageVersion=0.2.0-alpha
+  dotnet build tools/consume -c Release -p:PrismNRIPackageVersion=0.3.0-alpha
   dotnet tools/consume/bin/Release/net11.0/PrismNRI.Consume.dll
-  dotnet run --project tools/consume -c Release -r win-x64 -p:PrismNRIPackageVersion=0.2.0-alpha
+  dotnet run --project tools/consume -c Release -r win-x64 -p:PrismNRIPackageVersion=0.3.0-alpha
   ```
   Portable build loads `bin/.../runtimes/win-x64/native/NRI.dll` through the deps.json; `-r`
   loads the flat `NRI.dll`. Delete `tools/consume/obj` after re-packing the same version.
@@ -378,6 +382,9 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   creation defaults to one graphics queue (`NriD3D12DeviceOptions.QueueFamilies` doc).
 - **Adapter uid on Linux**: `deviceLUIDValid` is false, NRI builds `AdapterDesc::uid` from the UUID
   (`ConstructUid`, `SharedExternal.h`). Matching on LUID failed there; tests match as NRI does.
+- Rider flags `?.` on a pointer-returning member ("Unable to lift conditional access expression
+  type 'void*' to nullable type"); Roslyn compiles it, a false positive. The allocator thunks use
+  explicit null checks instead (`dotnet/Interop/AllocatorBridge.cs`).
 
 ### Lifetime
 
@@ -387,8 +394,12 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   it returns (`dotnet/Interop/NriObject.cs`; `DeviceTests` covers both halves).
 - Host allocator live count returns to 0 after device disposal: NONE 2/2, VK 60/60, D3D12 50/50
   allocations/frees, no reallocations.
-- Recording a representative stream 300 times on NONE: 0 managed bytes, 0 host allocations; a
-  300-frame loop over every extension's per-frame path: 0 managed bytes.
+- Recording a representative stream 300 times on NONE: 0 managed bytes, 0 host allocations; 300
+  whole frames (allocator and descriptor pool reset, sets allocated into a reused span plus one
+  single, `Update` / `UpdateRange` / `CopyRange`, recording, submit with wait and signal fences,
+  `fence.Wait` / `Value`, acquire and present): 0 managed bytes, 0 host allocations, reallocations
+  or frees; a 300-frame loop over every extension's per-frame path: 0 managed bytes. `Map` is not
+  in the frame: NONE's `MapBuffer` returns null, which `NriBuffer.Map` reports as a failure.
 
 ### Memory and resources
 
