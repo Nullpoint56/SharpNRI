@@ -22,30 +22,19 @@ public sealed class FlatExportTests
     /// table in a later NRI fails here, which is the point: the guide quotes these.
     /// </summary>
     [Fact]
-    public void Formats_round_trip_through_DXGI_and_Vulkan_except_where_NRI_has_no_entry()
+    public void Formats_round_trip_through_Vulkan_except_where_NRI_has_no_entry()
     {
-        // Spot values from dxgiformat.h and vulkan_core.h.
-        Assert.Equal(28u, Nri.ConvertNRIFormatToDXGI(Format.RGBA8_UNORM));
+        // Spot values from vulkan_core.h.
         Assert.Equal(37u, Nri.ConvertNRIFormatToVK(Format.RGBA8_UNORM));
-        Assert.Equal(87u, Nri.ConvertNRIFormatToDXGI(Format.BGRA8_UNORM));
         Assert.Equal(44u, Nri.ConvertNRIFormatToVK(Format.BGRA8_UNORM));
-        Assert.Equal(40u, Nri.ConvertNRIFormatToDXGI(Format.D32_SFLOAT));
         Assert.Equal(126u, Nri.ConvertNRIFormatToVK(Format.D32_SFLOAT));
-        Assert.Equal(98u, Nri.ConvertNRIFormatToDXGI(Format.BC7_RGBA_UNORM));
         Assert.Equal(145u, Nri.ConvertNRIFormatToVK(Format.BC7_RGBA_UNORM));
-        Assert.Equal(Format.UNKNOWN, Nri.ConvertDXGIFormatToNRI(9999));
         Assert.Equal(Format.UNKNOWN, Nri.ConvertVKFormatToNRI(999999));
         Assert.Throws<ArgumentOutOfRangeException>(() => Nri.ConvertNRIFormatToVK(Format.MAX_NUM));
 
-        var dxgiMissing = new List<Format>();
         var vkLost = new List<Format>();
         foreach (var f in AllFormats())
         {
-            var dxgi = Nri.ConvertNRIFormatToDXGI(f);
-            if (dxgi == 0) dxgiMissing.Add(f);
-            else if (f == Format.RG32_SINT) Assert.Equal(Format.RGB32_SINT, Nri.ConvertDXGIFormatToNRI(dxgi));
-            else Assert.Equal(f, Nri.ConvertDXGIFormatToNRI(dxgi));
-
             var vk = Nri.ConvertNRIFormatToVK(f);
             Assert.NotEqual(0u, vk); // every NRI format has a VkFormat
             var back = Nri.ConvertVKFormatToNRI(vk);
@@ -53,10 +42,46 @@ public sealed class FlatExportTests
             else Assert.Equal(f, back);
         }
 
-        Record($"no DXGI format: {string.Join(", ", dxgiMissing)}");
         Record($"VkFormat not mapped back: {string.Join(", ", vkLost)}");
-        Assert.All(dxgiMissing, f => Assert.True(f.ToString().StartsWith("ETC2_") || f.ToString().StartsWith("ASTC_"), $"{f} has no DXGI format"));
         Assert.Equal(AllFormats().Where(IsBlockCompressed), vkLost);
+    }
+
+    /// <summary>
+    /// The DXGI table is compiled only into a payload with a D3D backend (NRI's Creation.cpp guards
+    /// nriConvertNRIFormatToDXGI with NRI_ENABLE_D3D11_SUPPORT || NRI_ENABLE_D3D12_SUPPORT and
+    /// returns 0 otherwise). The Linux and macOS payloads have none, so there the measured contract
+    /// is "0 and UNKNOWN for everything", not a skip.
+    /// </summary>
+    [Fact]
+    public void Formats_round_trip_through_DXGI_except_where_NRI_has_no_entry()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Equal(0u, Nri.ConvertNRIFormatToDXGI(Format.RGBA8_UNORM));
+            Assert.Equal(Format.UNKNOWN, Nri.ConvertDXGIFormatToNRI(28));
+            Assert.All(AllFormats(), f => Assert.Equal(0u, Nri.ConvertNRIFormatToDXGI(f)));
+            Record("payload without a D3D backend: every DXGI conversion is 0 / UNKNOWN");
+            return;
+        }
+
+        // Spot values from dxgiformat.h.
+        Assert.Equal(28u, Nri.ConvertNRIFormatToDXGI(Format.RGBA8_UNORM));
+        Assert.Equal(87u, Nri.ConvertNRIFormatToDXGI(Format.BGRA8_UNORM));
+        Assert.Equal(40u, Nri.ConvertNRIFormatToDXGI(Format.D32_SFLOAT));
+        Assert.Equal(98u, Nri.ConvertNRIFormatToDXGI(Format.BC7_RGBA_UNORM));
+        Assert.Equal(Format.UNKNOWN, Nri.ConvertDXGIFormatToNRI(9999));
+
+        var dxgiMissing = new List<Format>();
+        foreach (var f in AllFormats())
+        {
+            var dxgi = Nri.ConvertNRIFormatToDXGI(f);
+            if (dxgi == 0) dxgiMissing.Add(f);
+            else if (f == Format.RG32_SINT) Assert.Equal(Format.RGB32_SINT, Nri.ConvertDXGIFormatToNRI(dxgi));
+            else Assert.Equal(f, Nri.ConvertDXGIFormatToNRI(dxgi));
+        }
+
+        Record($"no DXGI format: {string.Join(", ", dxgiMissing)}");
+        Assert.All(dxgiMissing, f => Assert.True(f.ToString().StartsWith("ETC2_") || f.ToString().StartsWith("ASTC_"), $"{f} has no DXGI format"));
     }
 
     [Fact]

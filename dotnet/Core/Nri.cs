@@ -29,7 +29,11 @@ public static unsafe class Nri
     /// </summary>
     public static Format ConvertVKFormatToNRI(uint vkFormat) => NriApi.nriConvertVKFormatToNRI(vkFormat);
 
-    /// <summary>NRI's format as a <c>DXGI_FORMAT</c>; 0 (<c>DXGI_FORMAT_UNKNOWN</c>) when DXGI has none.</summary>
+    /// <summary>
+    /// NRI's format as a <c>DXGI_FORMAT</c>; 0 (<c>DXGI_FORMAT_UNKNOWN</c>) when DXGI has none. A payload
+    /// built without a D3D backend (Linux, macOS) answers 0 for every format and <c>UNKNOWN</c> the other
+    /// way: NRI compiles its DXGI table only with D3D support.
+    /// </summary>
     public static uint ConvertNRIFormatToDXGI(Format format) => NriApi.nriConvertNRIFormatToDXGI(Valid(format));
 
     /// <summary>NRI's format as a <c>VkFormat</c>; 0 (<c>VK_FORMAT_UNDEFINED</c>) when Vulkan has none.</summary>

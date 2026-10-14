@@ -810,11 +810,14 @@ Measured on RTX 4070 SUPER (VK, D3D12, Agility 1.619) and WARP:
   the debug layer (NRI validation on). Without the layer, the BLAS build linking the micromap fails
   `Close` with `E_INVALIDARG`: skipped on D3D12 naming that.
 - Import wrappers (all twelve) carry a dispatch, copies, a texture upload and readback, and
-  timestamps, byte-exact. `CreateMemoryVK` without a mapping: NRI maps it itself. Under NRI
+  timestamps, byte-exact. On the paravirtual Mac the imported timestamps read 0 like §9.6; the
+  test skips there after the copies have passed. `CreateMemoryVK` without a mapping: NRI maps it itself. Under NRI
   validation a wrapped command buffer counts as recording from creation, so `Begin` is refused.
   `CreateBufferVK` records usage NONE, so a buffer barrier with storage access is refused; a global
   barrier passes.
-- Formats (108): round trips hold except DXGI has none for the 38 ETC2/ASTC formats, VK to NRI gives
+- Formats (108): on the Linux and macOS payloads every DXGI conversion is 0 and `ConvertDXGIFormatToNRI`
+  is UNKNOWN (`Creation.cpp` guards the table with `NRI_ENABLE_D3D11_SUPPORT || NRI_ENABLE_D3D12_SUPPORT`);
+  the test measures that there. On Windows: round trips hold except DXGI has none for the 38 ETC2/ASTC formats, VK to NRI gives
   UNKNOWN for all 52 block-compressed formats (table ends at 130), and DXGI 18 maps to RGB32_SINT.
 - UploadData: buffer plus 2 layers x 2 mips RGBA8 exact, layer-major, on VK, D3D12 and WARP. NV12:
   VK VUID-VkCopyBufferToImageInfo2-dstImage-07981; D3D12 error 1417.
