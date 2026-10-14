@@ -132,7 +132,7 @@ public sealed class TriangleTests(ITestOutputHelper output)
             target,
             new TextureRegionDesc { x = 0, y = 0, z = 0, width = Size, height = Size, depth = 1, mipOffset = 0, layerOffset = 0, planes = PlaneBits.COLOR });
         // No host barrier on the readback buffer: NRI's validation rejects HOST_READ access on a
-        // buffer whose usage is NONE (measured, docs/findings.md); the fence wait is what makes
+        // buffer whose usage is NONE (measured, CLAUDE.md: Memory and resources); the fence wait is what makes
         // the copy visible to the host, as on D3D12.
         commandBuffer.End();
 

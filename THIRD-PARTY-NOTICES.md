@@ -2,7 +2,7 @@
 
 PrismNRI's own code is MIT. Its native payloads are built by `tools/build-native.ps1` from the NRI
 submodule at the tag pinned in `Directory.Build.props` (versions below are those pinned by NRI v190's
-`CMakeLists.txt`) and ship as three packages (`docs/design.md` §3.6). Each package stages the
+`CMakeLists.txt`) and ship as three packages (`CLAUDE.md`: Native packages). Each package stages the
 licence of every component inside it beside its binaries, in `licenses/<Component>/`, copied from the
 exact archive the build fetched. This file is staged with the two NRI packages as
 `licenses/THIRD-PARTY-NOTICES.md`; its licence texts section also keeps the texts of the vendor SDKs
@@ -17,7 +17,7 @@ NRI with no upscaler SDK compiled in. MIT throughout, plus Apache-2.0 alternativ
 
 | Component | Version | In the package as | Licence | Platforms |
 |---|---|---|---|---|
-| [NRI](https://github.com/NVIDIA-RTX/NRI) (NVIDIA Render Interface) | v190 + `patches/` | `NRI.dll` / `libNRI.so` | MIT | all |
+| [NRI](https://github.com/NVIDIA-RTX/NRI) (NVIDIA Render Interface) | v190 + `patches/` | `NRI.dll` / `libNRI.so` / `libNRI.dylib` | MIT | all |
 | [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | commit 3aa9212 | compiled into NRI | MIT | all |
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | v1.4.365 | compiled into NRI (headers only; no Vulkan runtime is shipped) | Apache-2.0 OR MIT | all |
 | [NVTX](https://github.com/NVIDIA/NVTX) | v3.6.0 | compiled into NRI (header-only) | Apache-2.0 with LLVM exceptions | all |
@@ -49,7 +49,7 @@ Not in it: the runtimes those SDKs need. The application ships them beside its e
 
 `NriUpscalerExtension.IsRuntimeInstalled` reports whether they are beside the application, and
 `CreateUpscaler` refuses with `NriUnsupportedException` naming the missing file rather than calling
-into NRI without it (findings §7.9).
+into NRI without it (`CLAUDE.md`: Upscalers and vendor runtimes).
 
 ## `PrismNRI.Native.Agility` (`runtimes-agility/<rid>/native/AgilitySDK/`)
 
@@ -88,8 +88,9 @@ Agility SDK's `D3D12StateObjectCompiler.*` (not in its `distributable files.txt`
 `libxess_dx11.dll`), DLSS frame generation (`nvngx_dlssg`), and the other FidelityFX effect DLLs.
 
 Not shipped but required on the target machine: the Microsoft Visual C++ 2015-2022 runtime
-(`NRI.dll` imports `MSVCP140.dll` / `VCRUNTIME140.dll`), a GPU driver, and on Linux the Vulkan loader
-(`libvulkan.so.1`).
+(`NRI.dll` imports `MSVCP140.dll` / `VCRUNTIME140.dll`), a GPU driver, on Linux the Vulkan loader
+(`libvulkan.so.1`), and on macOS the Vulkan loader (`libvulkan.1.dylib`) and MoltenVK for the
+Vulkan backend.
 
 ## Obligations
 

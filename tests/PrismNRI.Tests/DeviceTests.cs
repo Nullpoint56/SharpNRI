@@ -4,7 +4,7 @@
 // well as the GPU backends: what they measure is the binding's bookkeeping, which NONE exercises
 // without a GPU. Everything that asks NRI or its validation layer a question runs on VK and D3D12
 // only, because NRI never wraps NONE in its validation layer and NONE answers success for every
-// call (docs/findings.md 6.6, 7.3).
+// call (CLAUDE.md: Device creation and callbacks).
 
 using PrismNRI.Native;
 using Xunit;
@@ -142,7 +142,7 @@ public sealed class DeviceTests
 
         // NRI.h documents GetQueue: INVALID_ARGUMENT when the index is out of bounds. Measured:
         // the result comes back without a message through the callback, and NONE answers SUCCESS
-        // for any index because it answers SUCCESS for everything (docs/findings.md).
+        // for any index because it answers SUCCESS for everything (CLAUDE.md: Device creation and callbacks).
         var e = Assert.Throws<NriException>(() => device.GetQueue(QueueType.GRAPHICS, 1000));
         Assert.Equal(Result.INVALID_ARGUMENT, e.Result);
         Assert.Equal("GetQueue", e.Call);

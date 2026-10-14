@@ -13,6 +13,9 @@
         csMain      cs_6_5  <Name>.cs.spv  <Name>.cs.dxil
         msMain      ms_6_5  <Name>.ms.spv  <Name>.ms.dxil   (mesh shader; SPIR-V uses SPV_EXT_mesh_shader)
         main        cs_6_0  <Name>.cs.spv  <Name>.cs.dxil   (only with [numthreads], i.e. compute)
+        rayGen      lib_6_3 <Name>.lib.spv <Name>.<export>.dxil  (ray tracing library: one SPIR-V module with
+                                                              every entry point; one DXIL library per
+                                                              [shader("...")] function, -exports <export>)
 
     The exact command lines (with <T> the target profile and <E> the entry point):
 
@@ -56,7 +59,8 @@ $entries = @(
     @{ Name = 'psMain'; Profile = 'ps_6_0'; Stage = 'ps' },
     @{ Name = 'csMain'; Profile = 'cs_6_5'; Stage = 'cs' },  # 6.5: RayQuery.hlsl needs inline ray tracing
     @{ Name = 'msMain'; Profile = 'ms_6_5'; Stage = 'ms' },  # mesh shader; SPIR-V gets SPV_EXT_mesh_shader
-    @{ Name = 'main';   Profile = 'cs_6_0'; Stage = 'cs'; RequiresNumThreads = $true }
+    @{ Name = 'main';   Profile = 'cs_6_0'; Stage = 'cs'; RequiresNumThreads = $true },
+    @{ Name = 'rayGen'; Profile = 'lib_6_3'; Stage = 'lib' } # ray tracing pipeline: raygen, miss and hit shaders in one library
 )
 
 $compiled = 0
@@ -73,6 +77,26 @@ foreach ($source in Get-ChildItem -Path $shaderDir -Filter '*.hlsl' -File | Sort
         $spv = Join-Path $shaderDir "$base.$($e.Stage).spv"
         $dxil = Join-Path $shaderDir "$base.$($e.Stage).dxil"
 
+        if ($e.Stage -eq 'lib') {
+            # One SPIR-V module holds every entry point. DXIL gets one library per [shader("...")]
+            # function (-exports): NRI's D3D12 backend adds each ShaderDesc as a DXIL library
+            # subobject exporting everything in it, so one shared library would export each name
+            # three times.
+            Write-Host "$($source.Name): library -> $(Split-Path -Leaf $spv)"
+            & $Dxc -T $e.Profile -spirv '-fspv-target-env=vulkan1.2' -Fo $spv $source.FullName
+            if ($LASTEXITCODE -ne 0) { throw "dxc failed (SPIR-V) for $($source.Name)" }
+            $compiled++
+            foreach ($m in [regex]::Matches($text, '\[shader\("\w+"\)\]\s*void\s+(\w+)\s*\(')) {
+                $export = $m.Groups[1].Value
+                $exportDxil = Join-Path $shaderDir "$base.$export.dxil"
+                Write-Host "$($source.Name): $export -> $(Split-Path -Leaf $exportDxil)"
+                & $Dxc -T $e.Profile -exports $export -Fo $exportDxil $source.FullName
+                if ($LASTEXITCODE -ne 0) { throw "dxc failed (DXIL) for $($source.Name):$export" }
+                $compiled++
+            }
+            continue
+        }
+
         Write-Host "$($source.Name): $($e.Name) -> $(Split-Path -Leaf $spv), $(Split-Path -Leaf $dxil)"
         & $Dxc -T $e.Profile -E $e.Name -spirv '-fspv-target-env=vulkan1.2' -Fo $spv $source.FullName
         if ($LASTEXITCODE -ne 0) { throw "dxc failed (SPIR-V) for $($source.Name):$($e.Name)" }
@@ -81,7 +105,7 @@ foreach ($source in Get-ChildItem -Path $shaderDir -Filter '*.hlsl' -File | Sort
         $compiled += 2
     }
 
-    if (-not $found) { throw "$($source.Name): no known entry point (vsMain, psMain, csMain, msMain, or main with [numthreads])" }
+    if (-not $found) { throw "$($source.Name): no known entry point (vsMain, psMain, csMain, msMain, rayGen, or main with [numthreads])" }
 }
 
 Write-Host "compiled $compiled binaries"

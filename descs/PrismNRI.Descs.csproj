@@ -5,7 +5,7 @@
 
     Every enum, descriptor struct, function table and opaque handle type the generator emits lives
     here: everything in dotnet/Native except NriApi.cs, which is the only file that names the native
-    library. A project that builds pipeline layouts from shader reflection (PrismSlang.NRI) needs
+    library. A project that builds pipeline layouts from shader reflection needs
     PipelineLayoutDesc and DescriptorRangeDesc and must not carry NRI.dll to name them. This is the
     assembly it references.
 

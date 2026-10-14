@@ -25,8 +25,8 @@ public sealed class TestingPackageTests
         TestDevice.RequireAvailable(backend);
         using var fixture = NriTestDevice.Create(backend.Api);
 
-        // NRI's validation rejects a HOST_READ access in a buffer barrier (findings §6.8); it
-        // reports, returns, and the process keeps running (findings §7.2).
+        // NRI's validation rejects a HOST_READ access in a buffer barrier (CLAUDE.md: Memory and resources); it
+        // reports, returns, and the process keeps running (CLAUDE.md: Device creation and callbacks).
         var queue = fixture.Device.GetQueue(QueueType.GRAPHICS);
         using var allocator = queue.CreateCommandAllocator();
         using var commandBuffer = allocator.CreateCommandBuffer();

@@ -27,7 +27,7 @@ public interface INriAllocator
 
 /// <summary>
 /// An <see cref="INriAllocator"/> over <see cref="NativeMemory"/> that counts what it hands out.
-/// The counters are the instrument the allocation tests read; they are also what an engine reads
+/// The counters are the instrument the allocation tests read; they are also what an application reads
 /// to know how much NRI is allocating on its behalf.
 /// </summary>
 public sealed unsafe class NriCountingAllocator : INriAllocator

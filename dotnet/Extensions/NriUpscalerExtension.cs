@@ -18,11 +18,11 @@
 // The dispatch "changes descriptor pool, pipeline layout and pipeline"; barriers are the caller's.
 // Threadsafe per NRI.
 //
-// Vendor runtimes. No PrismNRI package ships them (docs/design.md §3.6): the PrismNRI.Native.Upscalers
+// Vendor runtimes. No PrismNRI package ships them (CLAUDE.md: Native packages): the PrismNRI.Native.Upscalers
 // build of NRI compiles FSR and XeSS in, and the application puts the vendor's DLLs beside its
 // executable. NRI loads FSR by name and fails with a Result when it is absent, but XeSS is a
 // delay-loaded import whose absence is a native SEH exception inside xessD3D12CreateContext
-// (docs/findings.md §7.9). So CreateUpscaler checks the files first, for every type that needs one,
+// (CLAUDE.md: Upscalers and vendor runtimes). So CreateUpscaler checks the files first, for every type that needs one,
 // and loads them by full path so NRI's bare-name LoadLibrary finds them under any host;
 // IsRuntimeInstalled lets a caller ask before trying.
 
@@ -351,7 +351,7 @@ public sealed unsafe class NriUpscalerExtension
 
     // NRI (and the XeSS delay-load stub) load these with LoadLibrary by bare name, which searches the
     // directory of the process executable: right for an apphost, wrong for "dotnet app.dll", where
-    // FSR then fails and XeSS raises an unhandled 0xC06D007E (docs/findings.md §7.9). Loading each
+    // FSR then fails and XeSS raises an unhandled 0xC06D007E (CLAUDE.md: Upscalers and vendor runtimes). Loading each
     // file by full path from beside the application first makes the bare-name load resolve to the
     // module already in the process, under any host. Never unloaded.
     private static readonly HashSet<string> s_preloaded = new(StringComparer.OrdinalIgnoreCase);

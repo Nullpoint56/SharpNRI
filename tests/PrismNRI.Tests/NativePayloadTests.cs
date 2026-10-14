@@ -1,5 +1,5 @@
 // The staged native payloads (tools/build-native.ps1) are part of the package contract
-// (docs/design.md §3.6): every file below ships, and nothing else does. The lists mirror the summary
+// (CLAUDE.md: Native packages): every file below ships, and nothing else does. The lists mirror the summary
 // tables build-native.ps1 prints; change both together. osx-arm64 has a Base contract only: the
 // script builds no other variant there.
 //

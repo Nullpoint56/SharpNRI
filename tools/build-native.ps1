@@ -15,7 +15,7 @@
   5. On Windows, also stages the Agility package (runtimes-agility/<rid>/native/AgilitySDK/).
   6. Prints a table of what was staged.
 
-  Variants (docs/design.md §3.6). Both produce a library named NRI.dll / libNRI.so / libNRI.dylib,
+  Variants (CLAUDE.md: Native packages). Both produce a library named NRI.dll / libNRI.so / libNRI.dylib,
   so a consumer takes exactly one of them:
 
     Base       runtimes/<rid>/native/             no upscaler SDK compiled in. NRI, AMD AGS, licences.
@@ -247,7 +247,7 @@ if ($targetLinux -and -not $env:CXX -and (Get-Command clang++ -ErrorAction Silen
 if ($targetMac) { $cmakeArgs += "-DCMAKE_OSX_ARCHITECTURES=$(if ($targetArm64) { 'arm64' } else { 'x86_64' })" }
 # The loader is loaded at runtime like everywhere else (patch 0007), never linked: a library that
 # links Homebrew's loader by absolute path does not load on a Mac without it. The deployment
-# target is .NET 11's oldest macOS (15); MoltenVK asks for 12, NRI pins nothing (findings 9.9).
+# target is .NET 11's oldest macOS (15); MoltenVK asks for 12, NRI pins nothing (CLAUDE.md: Decisions).
 if ($targetMac) { $cmakeArgs += @("-DNRI_ENABLE_VULKAN_LOADER_LINKING=OFF", "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0") }
 if (-not $targetWindows -or $Generator) { $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Configuration" }  # single-config generators
 $cmakeArgs += @(
@@ -340,7 +340,7 @@ if ($targetWindows) {
     }
 }
 # macOS: NRI's CMakeLists would link the Vulkan loader into the library on Apple by the absolute
-# install name of whatever loader the build machine had (findings 9.1); patch 0007 turns that off
+# install name of whatever loader the build machine had (CLAUDE.md: MoltenVK and the paravirtual Mac); patch 0007 turns that off
 # and the loader is dlopened at device creation as on Linux. So the library may link nothing but
 # the system: a loader link means the option was lost, MoltenVK linked directly would bypass the
 # loader and with it the validation layer. The minimum macOS version stamped into the library is

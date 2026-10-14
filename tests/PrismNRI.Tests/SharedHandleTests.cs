@@ -26,8 +26,8 @@ public sealed class SharedHandleTests
     /// <summary>
     /// Skips when NRI's Vulkan backend could not fill the interface. It needs both the external
     /// memory and the external semaphore extension of the platform; lavapipe (Mesa 25) advertises
-    /// VK_KHR_external_memory_fd but not VK_KHR_external_semaphore_fd (docs/findings.md 8.5), and
-    /// MoltenVK neither (findings 9.7).
+    /// VK_KHR_external_memory_fd but not VK_KHR_external_semaphore_fd (CLAUDE.md: Lavapipe), and
+    /// MoltenVK neither (CLAUDE.md: MoltenVK and the paravirtual Mac).
     /// </summary>
     private static void RequireSharedHandles(NriDevice device) =>
         Assert.SkipWhen(device.GraphicsApi == GraphicsAPI.VK && device.TrySharedHandles is null,
@@ -71,7 +71,7 @@ public sealed class SharedHandleTests
 
         // A second call also succeeds. Whether its value differs is the driver's business: NVIDIA's
         // Vulkan driver returned the same NT handle value for the same memory on 2026-10-13
-        // (docs/findings.md §7.4), so nothing here asserts on distinctness.
+        // (CLAUDE.md: Shared handles), so nothing here asserts on distinctness.
         using var second = device.SharedHandles.GetSharedHandle(texture);
         Assert.True(second.IsValid);
 

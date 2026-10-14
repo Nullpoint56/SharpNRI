@@ -1,0 +1,392 @@
+name: release
+
+# How a release is made:
+#   1. Bump <Version> in dotnet/PrismNRI.csproj and, to the same value, in descs/PrismNRI.Descs.csproj,
+#      testing/PrismNRI.Testing.csproj, native/PrismNRI.Native.Upscalers.csproj and
+#      native/PrismNRI.Native.Agility.csproj. Merge to master and let ci go green.
+#   2. git tag v<Version> && git push origin v<Version>     (e.g. v0.1.0-alpha)
+#   3. This workflow: version (tag == v<Version> in all five csprojs, else fail) -> win-x64, linux-x64,
+#      osx-arm64 (native payloads, same setup and build-native.ps1 calls as ci.yml) -> pack (all RIDs
+#      into one set of .nupkg files, contents listed and checked) -> release (GitHub release with the
+#      .nupkg files and one zip per native payload; prerelease when the tag contains '-').
+#   Dry run: Actions > release > Run workflow with tag=v<Version>. Builds, packs, uploads artifacts,
+#   creates no release. Nothing is pushed to NuGet.org (see the commented step in the release job).
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to name the build after (v + <Version> in dotnet/PrismNRI.csproj). Dry run: no release is created."
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+jobs:
+  # Fails in seconds, before the native builds, when the tag and the package versions disagree.
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag equals v<Version>
+        id: check
+        shell: pwsh
+        run: |
+          $projects = "dotnet/PrismNRI.csproj", "descs/PrismNRI.Descs.csproj", "testing/PrismNRI.Testing.csproj",
+                      "native/PrismNRI.Native.Upscalers.csproj", "native/PrismNRI.Native.Agility.csproj"
+          $versions = foreach ($p in $projects) {
+            if ((Get-Content $p -Raw) -notmatch '<Version>([^<]+)</Version>') { throw "<Version> not found in $p" }
+            [pscustomobject]@{ Project = $p; Version = $Matches[1].Trim() }
+          }
+          $versions | Format-Table -AutoSize | Out-String | Write-Host
+          $version = $versions[0].Version
+          $odd = @($versions | Where-Object Version -ne $version)
+          if ($odd) { throw "package versions disagree: $(($odd | ForEach-Object { "$($_.Project)=$($_.Version)" }) -join ', ') vs dotnet/PrismNRI.csproj=$version" }
+          if ($env:RELEASE_TAG -cne "v$version") { throw "tag '$env:RELEASE_TAG' is not 'v$version' (<Version> in dotnet/PrismNRI.csproj)" }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "release $env:RELEASE_TAG, packages $version"
+
+  # Base + Upscalers, and the Agility package (staged by either run, identical bytes).
+  win-x64:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Read NRI pin
+        id: pin
+        shell: pwsh
+        run: |
+          if ((Get-Content Directory.Build.props -Raw) -notmatch '<NriVersion>([^<]+)</NriVersion>') { throw "NriVersion not found" }
+          "nri=$($Matches[1].Trim())" >> $env:GITHUB_OUTPUT
+
+      - name: Cache NRI dependencies (Base)
+        uses: actions/cache@v4
+        with:
+          path: _build/win-x64-base/_deps
+          key: nri-deps-win-x64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      - name: Cache NRI dependencies (Upscalers)
+        uses: actions/cache@v4
+        with:
+          path: _build/win-x64-upscalers/_deps
+          key: nri-deps-win-x64-upscalers-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Build native payload (Base)
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid win-x64 -Configuration Release
+
+      - name: Build native payload (Upscalers)
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid win-x64 -Variant Upscalers -Configuration Release
+
+      - name: Zip payloads
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          foreach ($v in @(@{ Name = "base"; Dir = "runtimes" }, @{ Name = "upscalers"; Dir = "runtimes-upscalers" }, @{ Name = "agility"; Dir = "runtimes-agility" })) {
+            $src = "$($v.Dir)/win-x64/native"
+            if (-not (Test-Path $src)) { throw "$src was not staged" }
+            # ZipFile writes '/' separators; the zip unpacks the same on every OS.
+            [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $src).Path, "$PWD/dist/PrismNRI-native-$($v.Name)-win-x64-$env:RELEASE_TAG.zip")
+          }
+          Get-ChildItem dist | Format-Table Name, Length -AutoSize | Out-String | Write-Host
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-win-x64
+          path: runtimes/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-upscalers-win-x64
+          path: runtimes-upscalers/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-agility-win-x64
+          path: runtimes-agility/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zips-win-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # Base + Upscalers. On Linux the Upscalers variant is NIS only: FFX and XeSS are Windows-only in
+  # NRI, NGX is off without -WithDlss (build-native.ps1).
+  linux-x64:
+    needs: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # As ci.yml. libx11-dev / libwayland-dev decide NRI's X11 / Wayland swapchain paths, so the
+      # release payload is the one CI tested. The test-only validation layer fetch is not needed.
+      - name: Install system packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            ninja-build clang libvulkan1 mesa-vulkan-drivers vulkan-validationlayers vulkan-tools \
+            libx11-dev libwayland-dev
+
+      - name: Read NRI pin
+        id: pin
+        shell: pwsh
+        run: |
+          if ((Get-Content Directory.Build.props -Raw) -notmatch '<NriVersion>([^<]+)</NriVersion>') { throw "NriVersion not found" }
+          "nri=$($Matches[1].Trim())" >> $env:GITHUB_OUTPUT
+
+      - name: Cache NRI dependencies (Base)
+        uses: actions/cache@v4
+        with:
+          path: _build/linux-x64-base/_deps
+          key: nri-deps-linux-x64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      - name: Cache NRI dependencies (Upscalers)
+        uses: actions/cache@v4
+        with:
+          path: _build/linux-x64-upscalers/_deps
+          key: nri-deps-linux-x64-upscalers-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Build native payload (Base)
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid linux-x64 -Configuration Release
+
+      - name: Build native payload (Upscalers)
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid linux-x64 -Variant Upscalers -Configuration Release
+
+      # Log only: what the shipped libraries need from the system at load time.
+      - name: Library dependencies
+        run: |
+          for f in runtimes/linux-x64/native/libNRI.so runtimes-upscalers/linux-x64/native/libNRI.so; do
+            echo "== $f"
+            readelf -d "$f" | grep -E "NEEDED|SONAME|RUNPATH|RPATH" || true
+          done
+
+      - name: Zip payloads
+        run: |
+          mkdir -p dist
+          (cd runtimes/linux-x64/native && zip -r -X "$GITHUB_WORKSPACE/dist/PrismNRI-native-base-linux-x64-$RELEASE_TAG.zip" .)
+          (cd runtimes-upscalers/linux-x64/native && zip -r -X "$GITHUB_WORKSPACE/dist/PrismNRI-native-upscalers-linux-x64-$RELEASE_TAG.zip" .)
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-linux-x64
+          path: runtimes/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-upscalers-linux-x64
+          path: runtimes-upscalers/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zips-linux-x64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # Base only: build-native.ps1 refuses Upscalers on macOS. Metal OFF, loader not linked, deployment
+  # target 15.0, all passed by the script; its otool check fails the build on a foreign link.
+  osx-arm64:
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install system packages
+        run: brew install ninja molten-vk vulkan-loader vulkan-validationlayers vulkan-tools
+
+      - name: Read NRI pin
+        id: pin
+        shell: pwsh
+        run: |
+          if ((Get-Content Directory.Build.props -Raw) -notmatch '<NriVersion>([^<]+)</NriVersion>') { throw "NriVersion not found" }
+          "nri=$($Matches[1].Trim())" >> $env:GITHUB_OUTPUT
+
+      - name: Cache NRI dependencies
+        uses: actions/cache@v4
+        with:
+          path: _build/osx-arm64-base/_deps
+          key: nri-deps-osx-arm64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Build native payload
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid osx-arm64 -Configuration Release
+
+      - name: Zip payload
+        run: |
+          mkdir -p dist
+          (cd runtimes/osx-arm64/native && zip -r -X "$GITHUB_WORKSPACE/dist/PrismNRI-native-base-osx-arm64-$RELEASE_TAG.zip" .)
+          ls -l dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-osx-arm64
+          path: runtimes/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zips-osx-arm64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # One pack with every RID present. dotnet/PrismNRI.csproj packs runtimes/<host rid>/native through
+  # its Content item and every other runtimes/** file through its None item (the host RID excluded),
+  # both under runtimes/<rid>/native, so the host OS does not matter. The native/ packaging projects
+  # pack runtimes-upscalers/** and runtimes-agility/** whole.
+  pack:
+    needs: [version, win-x64, linux-x64, osx-arm64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: runtimes-*
+          path: _artifacts
+
+      # Artifact runtimes[-upscalers|-agility]-<rid> holds <rid>/native/...; it goes back under the
+      # staging root it was uploaded from.
+      - name: Lay out the staging directories
+        shell: pwsh
+        run: |
+          $rids = "win-x64", "linux-x64", "osx-arm64"
+          foreach ($a in Get-ChildItem _artifacts -Directory) {
+            $rid = $rids | Where-Object { $a.Name.EndsWith("-$_") } | Select-Object -First 1
+            if (-not $rid) { throw "unexpected artifact $($a.Name)" }
+            $root = $a.Name.Substring(0, $a.Name.Length - $rid.Length - 1)
+            if ($root -notin "runtimes", "runtimes-upscalers", "runtimes-agility") { throw "unexpected artifact $($a.Name)" }
+            if (-not (Test-Path "$($a.FullName)/$rid/native")) { throw "$($a.Name) has no $rid/native" }
+            New-Item -ItemType Directory -Force $root | Out-Null
+            Copy-Item "$($a.FullName)/$rid" $root -Recurse
+            Write-Host "$($a.Name) -> $root/$rid/native"
+          }
+          $expected = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/osx-arm64/native/libNRI.dylib",
+                      "runtimes-upscalers/win-x64/native/NRI.dll", "runtimes-upscalers/linux-x64/native/libNRI.so",
+                      "runtimes-agility/win-x64/native/AgilitySDK/D3D12Core.dll"
+          $missing = @($expected | Where-Object { -not (Test-Path $_) })
+          if ($missing) { throw "missing after download: $($missing -join ', ')" }
+
+      - name: Pack
+        run: dotnet pack PrismNRI.slnx -c Release -p:PackageOutputPath="$GITHUB_WORKSPACE/nupkg"
+
+      - name: Package contents
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $must = @{
+            "PrismNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/osx-arm64/native/libNRI.dylib", "lib/net11.0/PrismNRI.dll"
+            "PrismNRI.Descs"            = @("lib/net11.0/PrismNRI.Descs.dll")
+            "PrismNRI.Testing"          = @("lib/net11.0/PrismNRI.Testing.dll")
+            "PrismNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so"
+            "PrismNRI.Native.Agility"   = "runtimes/win-x64/native/AgilitySDK/D3D12Core.dll", "runtimes/win-x64/native/AgilitySDK/d3d12SDKLayers.dll"
+          }
+          $version = "${{ needs.version.outputs.version }}"
+          $failed = @()
+          foreach ($id in $must.Keys | Sort-Object) {
+            $pkg = "nupkg/$id.$version.nupkg"
+            if (-not (Test-Path $pkg)) { $failed += "$pkg not produced"; continue }
+            $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $pkg))
+            try {
+              $entries = @($zip.Entries | ForEach-Object { $_.FullName })
+              Write-Host "`n==> $pkg ($([math]::Round((Get-Item $pkg).Length / 1KB)) KB)"
+              $zip.Entries | Sort-Object FullName | ForEach-Object { Write-Host ("    {0,12}  {1}" -f $_.Length, $_.FullName) }
+              foreach ($e in $must[$id]) { if ($entries -notcontains $e) { $failed += "$pkg lacks $e" } }
+            } finally { $zip.Dispose() }
+          }
+          $extra = @(Get-ChildItem nupkg -Filter *.nupkg | Where-Object { $_.Name -notin ($must.Keys | ForEach-Object { "$_.$version.nupkg" }) })
+          foreach ($x in $extra) { Write-Warning "unexpected package $($x.Name)" }
+          if ($failed) { throw "package check failed:`n  $($failed -join "`n  ")" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: nupkg/*.nupkg
+          if-no-files-found: error
+
+  release:
+    needs: [version, pack]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: dist
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: zips-*
+          path: dist
+          merge-multiple: true
+
+      - name: Release assets
+        run: ls -l dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: PrismNRI ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.nupkg
+            dist/*.zip
+
+      # NuGet.org: not yet. With an API key stored as the NUGET_API_KEY secret this is the step:
+      # - name: Push to NuGet.org
+      #   run: dotnet nuget push "dist/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate

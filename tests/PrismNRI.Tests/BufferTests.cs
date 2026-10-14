@@ -71,7 +71,7 @@ public sealed class BufferTests
 
     /// <summary>
     /// Records NONE's dummy behaviour, not a feature: NONE answers GetBufferDesc with one static
-    /// "{ size = 1 }" for every buffer, everything else zero (ImplNONE.cpp; docs/findings.md 7.3).
+    /// "{ size = 1 }" for every buffer, everything else zero (ImplNONE.cpp; CLAUDE.md: Device creation and callbacks).
     /// NONE has no validation layer, so there are no messages to check.
     /// </summary>
     [Fact]

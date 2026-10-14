@@ -84,9 +84,9 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         using var infoQueue = d3d11.QueryInterfaceOrNull<V11Debug.ID3D11InfoQueue>();
         Assert.NotNull(infoQueue);
 
-        // The measured limitation (findings §7.8): NRI creates every texture TYPELESS, and D3D11's
+        // The measured limitation (CLAUDE.md: Shared handles): NRI creates every texture TYPELESS, and D3D11's
         // OpenSharedResource1 refuses a typeless shared resource with E_INVALIDARG while a D3D12
-        // device opens the same handle. The editor imports through Vulkan, so shared D3D12 textures
+        // device opens the same handle. Import into D3D12 or Vulkan instead; shared D3D12 textures
         // stay typeless like every other NRI texture; this test pins the refusal so a change in
         // either NRI or D3D11 shows up as a failure here rather than as a surprise downstream.
         using var handle = device.SharedHandles.GetSharedHandle(texture);
@@ -95,7 +95,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
 
         var openResult = d3d11Device1.OpenSharedResource1(handle.Handle, out V11.ID3D11Texture2D? opened);
         using var ___ = opened;
-        Assert.True(openResult.Failure, "D3D11 opened NRI's typeless shared resource; the limitation recorded in findings §7.8 no longer holds and the header comment in NRISharedHandle.h should be revisited");
+        Assert.True(openResult.Failure, "D3D11 opened NRI's typeless shared resource; the limitation recorded in CLAUDE.md (Shared handles) no longer holds and the header comment in NRISharedHandle.h should be revisited");
         Assert.Equal(unchecked((int)0x80070057), openResult.Code); // E_INVALIDARG
 
         var hr12 = V12.D3D12.D3D12CreateDevice(adapter, VD3D.FeatureLevel.Level_12_0, out V12.ID3D12Device? second);

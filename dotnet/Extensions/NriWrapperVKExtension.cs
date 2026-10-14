@@ -7,9 +7,10 @@
 // VKHandle) and ulong (non-dispatchable, VKNonDispatchableHandle); VkEnum is int, VkFlags uint.
 // Available on Vulkan devices only; UNSUPPORTED elsewhere. Threadsafe per NRI.
 //
-// Not wrapped: CreateAccelerationStructureVK, which belongs with the RayTracing extension's
-// NriAccelerationStructure (it records the structure type, which AccelerationStructureVKDesc does
-// not carry). Device creation from a VkDevice is NriDevice.CreateFromVulkan.
+// CreateAccelerationStructureVK returns the RayTracing extension's NriAccelerationStructure, which
+// is destroyed through that extension's table, so it needs the extension; the caller names the
+// structure type, which AccelerationStructureVKDesc does not carry. Device creation from a
+// VkDevice is NriDevice.CreateFromVulkan.
 
 using PrismNRI.Interop;
 using PrismNRI.Native;
@@ -53,7 +54,12 @@ public sealed unsafe class NriWrapperVKExtension
         return new NriCommandAllocator(queue, handle);
     }
 
-    /// <summary>Wraps a <c>VkCommandBuffer</c> for a queue of <paramref name="queueType"/>. No NRI allocator backs it.</summary>
+    /// <summary>
+    /// Wraps a <c>VkCommandBuffer</c> for a queue of <paramref name="queueType"/>. No NRI allocator
+    /// backs it. NRI's validation counts it as recording from the start and refuses
+    /// <see cref="NriCommandBuffer.Begin"/>: begin it with <c>vkBeginCommandBuffer</c>, then record and
+    /// <see cref="NriCommandBuffer.End"/> through NRI.
+    /// </summary>
     public NriCommandBuffer CreateCommandBufferVK(nint vkCommandBuffer, QueueType queueType)
     {
         var desc = new CommandBufferVKDesc { vkCommandBuffer = (void*)vkCommandBuffer, queueType = queueType };
@@ -74,7 +80,9 @@ public sealed unsafe class NriWrapperVKExtension
     /// Wraps a <c>VkBuffer</c>. <paramref name="structureStride"/> must be given if it is used as a
     /// structured or raw buffer; <paramref name="mappedMemory"/> if its memory is mapped;
     /// <paramref name="vkDeviceMemory"/> only if that mapped memory is not HOST_COHERENT;
-    /// <paramref name="deviceAddress"/> for ray tracing.
+    /// <paramref name="deviceAddress"/> for ray tracing. NRI records no usage for it
+    /// (<c>Desc.usage</c> is <c>NONE</c>), so its validation refuses buffer barriers on it that name
+    /// shader access; use a global barrier.
     /// </summary>
     public NriBuffer CreateBufferVK(ulong vkBuffer, ulong size, uint structureStride = 0, nint mappedMemory = 0, ulong vkDeviceMemory = 0, ulong deviceAddress = 0)
     {
@@ -152,6 +160,21 @@ public sealed unsafe class NriWrapperVKExtension
             _ => QueryType.TIMESTAMP,                                  // VK_QUERY_TYPE_TIMESTAMP (2)
         };
         return new NriQueryPool(Device, handle, type, capacity);
+    }
+
+    /// <summary>
+    /// Wraps a <c>VkAccelerationStructureKHR</c> and the <c>VkBuffer</c> it lives in as an
+    /// acceleration structure of <paramref name="type"/>. NRI queries the device address itself;
+    /// the scratch sizes are what it reports back. Needs the device's RayTracing extension, which
+    /// destroys the wrapper (never the Vulkan objects).
+    /// </summary>
+    /// <exception cref="NriUnsupportedException">When the device has no RayTracing extension.</exception>
+    public NriAccelerationStructure CreateAccelerationStructureVK(in AccelerationStructureVKDesc accelerationStructureVKDesc, AccelerationStructureType type)
+    {
+        var rayTracing = Device.RayTracing;
+        AccelerationStructure* handle = null;
+        fixed (AccelerationStructureVKDesc* p = &accelerationStructureVKDesc) Device.Check(_table.CreateAccelerationStructureVK(Device.Raw, p, &handle), "CreateAccelerationStructureVK");
+        return new NriAccelerationStructure(rayTracing, handle, type);
     }
 
     /// <summary>Wraps a timeline <c>VkSemaphore</c> as a fence.</summary>

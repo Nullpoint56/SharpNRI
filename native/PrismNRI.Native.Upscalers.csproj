@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    PrismNRI.Native.Upscalers - NRI built with NIS, FSR and XeSS compiled in (docs/design.md §3.6).
+    PrismNRI.Native.Upscalers - NRI built with NIS, FSR and XeSS compiled in (CLAUDE.md: Native packages).
 
     A packaging project: no code. Packs runtimes-upscalers/<rid>/native (staged by
     pwsh tools/build-native.ps1 -Variant Upscalers) under runtimes/<rid>/native, where NuGet copies

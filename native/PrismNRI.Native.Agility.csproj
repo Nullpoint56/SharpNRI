@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    PrismNRI.Native.Agility - the DirectX 12 Agility SDK runtime for PrismNRI (docs/design.md §3.6).
+    PrismNRI.Native.Agility - the DirectX 12 Agility SDK runtime for PrismNRI (CLAUDE.md: Native packages).
 
     A packaging project: no code. Packs runtimes-agility/<rid>/native (staged by
     pwsh tools/build-native.ps1 on Windows, either variant) under runtimes/<rid>/native:

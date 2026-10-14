@@ -18,8 +18,8 @@ namespace PrismNRI;
 /// <summary>An NRI device on one backend. Create with <see cref="Create"/>; dispose last.</summary>
 public sealed unsafe partial class NriDevice : NriObject
 {
-    internal readonly CoreInterface Core;
-    internal readonly HelperInterface Helper;
+    private readonly CoreInterface _core;
+    private readonly HelperInterface _helper;
 
     private readonly DeviceDesc _desc;
     private readonly MessageBridge _messages;
@@ -36,9 +36,9 @@ public sealed unsafe partial class NriDevice : NriObject
         _allocator = allocator;
         _allocatorInstance = allocatorInstance;
 
-        Core = InterfaceTable.Acquire<CoreInterface>(handle, "CoreInterface");
-        Helper = InterfaceTable.Acquire<HelperInterface>(handle, "HelperInterface");
-        _desc = *Core.GetDeviceDesc(handle);
+        _core = InterfaceTable.Acquire<CoreInterface>(handle, "CoreInterface");
+        _helper = InterfaceTable.Acquire<HelperInterface>(handle, "HelperInterface");
+        _desc = *_core.GetDeviceDesc(handle);
 
         _queues = new NriQueue?[(int)QueueType.MAX_NUM][];
         for (var i = 0; i < _queues.Length; i++) _queues[i] = new NriQueue?[_desc.adapterDesc.queueNum[i]];
@@ -165,6 +165,16 @@ public sealed unsafe partial class NriDevice : NriObject
 
     /// <summary>The native device pointer, for the wrapper extensions and native-object escape hatches.</summary>
     internal Device* Raw => (Device*)Handle;
+
+    /// <summary>
+    /// NRI's <c>CoreInterface</c> for this device, as acquired at creation. Its entries take NRI
+    /// handles (<see cref="NriObject.NriHandle"/>); the binding does not see calls made through it.
+    /// Last resort.
+    /// </summary>
+    public ref readonly CoreInterface Core => ref _core;
+
+    /// <summary>NRI's <c>HelperInterface</c> for this device. As <see cref="Core"/>: last resort.</summary>
+    public ref readonly HelperInterface Helper => ref _helper;
 
     /// <summary>Capabilities, limits and the adapter, as NRI filled them at creation.</summary>
     public ref readonly DeviceDesc Desc => ref _desc;

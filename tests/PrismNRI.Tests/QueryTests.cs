@@ -59,7 +59,7 @@ public sealed class QueryTests
         Record($"{backend}: timestamps {ticks[0]} -> {ticks[1]} ({ticks[1] - ticks[0]} ticks at {frequency} Hz = {(ticks[1] - ticks[0]) * 1e9 / frequency:F0} ns)");
 
         // MoltenVK on the paravirtual Apple GPU reports timestampValidBits and writes zeros when
-        // the copy is recorded in the same submission as the writes (findings 9.6). Measured here
+        // the copy is recorded in the same submission as the writes (CLAUDE.md: MoltenVK and the paravirtual Mac). Measured here
         // rather than assumed: the same queries copied again by a later submission are recorded,
         // and the test skips only while the in-submission copy still reads zero there.
         if (TestDevice.IsAppleParavirtualVK(backend.Api) && ticks[0] == 0 && ticks[1] == 0)

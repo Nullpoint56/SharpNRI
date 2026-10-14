@@ -133,7 +133,7 @@ public sealed class RayTracingTests
         device.WaitIdle();
 
         // One picture of the whole field in the failure message: a software ray tracer that misses
-        // on one runner host and hits on another (findings 8.8) is diagnosed from the map, not from
+        // on one runner host and hits on another (CLAUDE.md: CI runners and flakes) is diagnosed from the map, not from
         // "expected 1, got 0".
         var hitCount = hits.Count(h => h == 1);
         var map = string.Join("\n", Enumerable.Range(0, Width).Select(y =>
@@ -141,7 +141,7 @@ public sealed class RayTracingTests
         GpuWork.Record($"{backend}: {hitCount} hits\n{map}");
         // A software ray tracer is a measurement of the build-and-dispatch path, not of the hits:
         // lavapipe 25.2 misses the whole triangle on some CI runs and hits it on others, with the
-        // same packages and the same CPU model (findings 8.8). Validation errors still fail the
+        // same packages and the same CPU model (CLAUDE.md: CI runners and flakes). Validation errors still fail the
         // test there; a wrong map is recorded and skipped, named as such.
         var software = device.Desc.adapterDesc.architecture == PrismNRI.Native.Architecture.SOFTWARE;
         void Expect(uint value, int x, int y, string where)

@@ -6,8 +6,8 @@
     The fourth oracle, packaged: a device per backend with NRI's own validation and the backend
     validation layer on, every message recorded, the software adapter (WARP, lavapipe) picked under
     CI, and a reason string when a backend is not available on the machine. This repository's own
-    tests use it through a thin xunit wrapper; a downstream project (PrismSlang's NRI projection,
-    the engine's renderer tests) references this package and gets the same device.
+    tests use it through a thin xunit wrapper; a downstream project references
+    this package and gets the same device.
 
     No test framework dependency on purpose: it answers "is this backend available" and "did
     anything report an error" as values, and the consumer turns them into skips and assertions
