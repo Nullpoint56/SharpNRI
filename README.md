@@ -19,9 +19,10 @@ the suite with NRI's validation and the backend validation layer on: D3D12 on WA
 lavapipe and MoltenVK, NONE everywhere. A fourth job regenerates the interop layer and fails on
 drift. Windows is also verified on NVIDIA hardware.
 
-Linux CI runs on lavapipe (software Vulkan) only and is not stable: an intermittent ray-query miss
-and one unexplained test-host crash are open, so a red Linux job can be either. No hardware Linux
-driver has run this code.
+Linux CI runs on lavapipe (software Vulkan) only. Its two intermittent failures, a ray-query
+"miss" (a readback after NRI's 5 s fence-wait timeout) and a test-host crash (a stale Vortice
+function table), were test bugs and are fixed in the tests. No hardware Linux driver has run this
+code.
 
 ## Packages
 

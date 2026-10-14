@@ -103,6 +103,7 @@ jobs:
         run: |
           vulkaninfo --summary 2>/dev/null | grep -E "deviceName|driverInfo|driverVersion|apiVersion" || true
           lscpu | grep -m1 "Model name"
+          echo "nproc: $(nproc)"
           grep -o -m1 -w avx512f /proc/cpuinfo || echo "no avx512f"
 
       - name: Read NRI pin
@@ -130,19 +131,22 @@ jobs:
       - name: Build managed
         run: dotnet build PrismNRI.slnx -c Release
 
-      # lavapipe's ray query misses the triangle on some runs and hits it on others, same packages,
-      # same CPU model, cause unknown (CLAUDE.md: CI runners and flakes, Unsolved). The test fails on
-      # a miss, so the Test step below turns the job red when it happens. This step is a diagnostic
-      # only: it runs the test on its own five times first so the run leaves its hit maps in the log.
-      - name: Ray query probe
-        continue-on-error: true
+      # The "intermittent ray query miss" was NRI's 5 s fence-wait timeout: lavapipe JIT-compiles
+      # its shaders while it executes the command buffer, which with a cold Mesa shader cache on a
+      # loaded runner can pass 5 s; Wait then returns with only an ERROR message, and the test read a
+      # readback nothing had written yet (CLAUDE.md: CI runners and flakes, item 1). The tests now wait
+      # on the fence value (GpuWork.Wait). This step runs the ray tracing classes with the shader
+      # cache off, so every run JIT-compiles everything, and prints how long each wait took.
+      # Synchronization validation is on here and in the Test step: a hazard is a layer ERROR,
+      # which the tests' message assertions fail on.
+      - name: Ray tracing, cold shader cache
+        env:
+          MESA_SHADER_CACHE_DISABLE: "true"
+          VK_KHRONOS_VALIDATION_VALIDATE_SYNC: "1"
+          VK_KHRONOS_VALIDATION_SYNCVAL_SHADER_ACCESSES_HEURISTIC: "1"
         run: |
           t=tests/PrismNRI.Tests/bin/Release/net11.0/PrismNRI.Tests
-          pass=0
-          for i in 1 2 3 4 5; do
-            if $t -method "PrismNRI.Tests.RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS" > /tmp/rq.log 2>&1; then pass=$((pass+1)); else grep -v "^\s*$" /tmp/rq.log | head -60; fi
-          done
-          echo "ray query: $pass of 5 runs passed"
+          $t -noColor -showLiveOutput -class PrismNRI.Tests.RayTracingTests -class PrismNRI.Tests.RayTracingPipelineTests
 
       # A SIGSEGV in the test host (seen once, exit 139 after 106 tests, 0 failed) loses the buffered
       # test list, so the crashing test cannot be read from the log (CLAUDE.md: CI runners and
@@ -153,6 +157,8 @@ jobs:
           DOTNET_DbgEnableMiniDump: "1"
           DOTNET_DbgMiniDumpType: "1"
           DOTNET_DbgMiniDumpName: /tmp/dumps/testhost-%p.dmp
+          VK_KHRONOS_VALIDATION_VALIDATE_SYNC: "1"
+          VK_KHRONOS_VALIDATION_SYNCVAL_SHADER_ACCESSES_HEURISTIC: "1"
         run: |
           mkdir -p /tmp/dumps
           # Detailed output lists passed tests as they finish; the default lists only skips and
