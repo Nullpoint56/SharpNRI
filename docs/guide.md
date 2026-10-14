@@ -14,6 +14,7 @@ real API; the traps at the end are the ones that bit somebody, with the section 
 - [Resources and memory](#resources-and-memory)
 - [Descriptors and pipeline layouts](#descriptors-and-pipeline-layouts)
 - [Recording and submitting](#recording-and-submitting)
+- [Without a device](#without-a-device)
 - [Extensions](#extensions)
 - [Threads](#threads)
 - [The validated device for your own tests](#the-validated-device-for-your-own-tests)
@@ -117,6 +118,20 @@ Dispose resources before the memory they are bound into; NRI's validation refuse
 order. Views are descriptors: `texture.CreateView(TextureView.COLOR_ATTACHMENT, Format.RGBA8_UNORM)`,
 `buffer.CreateView(BufferView.STORAGE_STRUCTURED_BUFFER)`, `device.CreateSampler(in samplerDesc)`.
 
+Initial contents in one call: NRI's `UploadData` stages through a temporary buffer, submits on the
+queue, waits, and leaves each resource in its `After` state. Rows are as tight as you have them;
+NRI realigns. A texture's subresources are all of them, layer-major (`layer * mipNum + mip`).
+
+```csharp
+queue.UploadData(
+    [new NriTextureUpload(texture, [new NriTextureSubresourceUpload(pixels, SliceNum: 1, RowPitch: 256 * 4, SlicePitch: 256 * 256 * 4)],
+        new AccessLayoutStage { access = AccessBits.SHADER_RESOURCE, layout = Layout.SHADER_RESOURCE, stages = StageBits.FRAGMENT_SHADER })],
+    [new NriBufferUpload(vertices, vertexBytes, new AccessStage { access = AccessBits.VERTEX_BUFFER, stages = StageBits.VERTEX_SHADER })]);
+```
+
+Data shorter than NRI will read throws `ArgumentException` here instead of reading past it.
+Two-plane formats (NV12) do not go through it; see the traps.
+
 ## Descriptors and pipeline layouts
 
 A pipeline layout is NRI's desc with arrays where NRI has pointers; the field names are the same.
@@ -178,6 +193,23 @@ Fences are timelines on both backends: wait and signal by value, from the host o
 (`NriFenceSubmit`). Barriers are explicit and never inserted for you; `AccessLayoutStage` is NRI's
 before/after triple.
 
+## Without a device
+
+NRI's flat exports are on the static class `Nri`, same names without the `nri` prefix:
+
+```csharp
+uint vkFormat = Nri.ConvertNRIFormatToVK(Format.RGBA8_UNORM);         // 37; ConvertNRIFormatToDXGI, ConvertVKFormatToNRI, ConvertDXGIFormatToNRI
+ref readonly FormatProps props = ref Nri.GetFormatProps(Format.BC7_RGBA_UNORM);   // stride 16, block 4x4
+string api = Nri.GetGraphicsAPIString(device.GraphicsApi);              // "VK", "D3D12", "NONE"
+var fitted = Nri.FitPipelineLayoutSettingsIntoDeviceLimits(device.Desc, wanted);  // clamps counts and sizes, NRI's priority order
+
+Nri.SetThreadName("render");
+using (Nri.Annotate("upload")) { /* ... */ }                          // NVTX range on this thread; BeginAnnotation, EndAnnotation, Annotation
+Nri.ReportLiveObjects();                                                 // DXGI debug report, to the debugger
+```
+
+The annotations are host-side and per thread; `NriCommandBuffer` and `NriQueue` have their own.
+
 ## Extensions
 
 Each NRI extension is acquired once per device on first use. `TryX` is null when the backend
@@ -200,7 +232,22 @@ using var handle = device.SharedHandles.GetSharedHandle(shared);                
 
 Available: `RayTracing`, `SharedHandles`, `MeshShader`, `DescriptorHeap`, `Streamer`, `SwapChain`,
 `LowLatency`, `Upscaler`, `Imgui`, `Video`, `WrapperVK`, `WrapperD3D12`. The two wrappers and the
-`GetNativeObject` accessors on every object are the native escape hatch; use them last.
+`GetNativeObject` accessors on every object are the native escape hatch; use them last. The
+wrappers import every NRI object kind, acceleration structures included
+(`CreateAccelerationStructureVK(desc, type)`, which needs the device's `RayTracing`).
+
+Below that is NRI itself: `NriHandle` on every object (and on `NriQueue`, `NriDescriptorSet`) is
+NRI's own pointer, `device.Core` and `device.Helper` are NRI's tables, and `PrismNRI.Native.NriApi`
+has every export, so anything without a managed form can be called directly:
+
+```csharp
+ref readonly var core = ref device.Core;
+var size = core.GetQuerySize((QueryPool*)pool.NriHandle);
+```
+
+The binding sees none of it. Its argument checks, its child counting and its marshalling are
+bypassed; a native `Destroy*` leaves the wrapper dangling. NRI's validation still runs when the
+device has it on, and nothing else does.
 
 ## Threads
 
@@ -246,3 +293,8 @@ survives a native crash.
 | `mipBias` rejected on MoltenVK | the portability subset may forbid any bias; keep `mipBias` within `samplerLodBiasMax`, which is 0 there with patch 0006 | §9.4 |
 | `libNRI.dylib` and the Vulkan loader | the library links nothing but the system (patch 0007) and `dlopen`s `libvulkan.1.dylib` at device creation, and needs macOS 15 or newer; put the loader and MoltenVK (Homebrew `vulkan-loader` and `molten-vk`, or the LunarG SDK) where dyld looks. Homebrew's `/opt/homebrew/lib` is not on dyld's default path: add it to `DYLD_FALLBACK_LIBRARY_PATH`. NRI has no loader-path field outside the wrapper route | §9.1, §9.2, §9.9 |
 | Timestamps read 0 on MoltenVK without GPU counter sampling | they are written when the command buffer completes; copy them in a later submission | §9.6 |
+| `Begin` on a command buffer from `CreateCommandBufferVK` / `D3D12` | NRI's validation counts it as recording from the start: "already in the recording state". Begin it natively (or pass the D3D12 list open), set the pool with `SetDescriptorPool`, record, `End` | §10.3 |
+| A buffer barrier on a `CreateBufferVK` import | NRI records usage `NONE` for it, and its validation refuses shader access in the barrier; use a global barrier | §10.3 |
+| One DXIL library for a D3D12 ray tracing pipeline | NRI adds each `NriShaderDesc` as a library exporting everything in it, so a shared library exports each name repeatedly and pipeline creation faults; compile one library per entry point (`-exports`). Vulkan takes one SPIR-V module for all | §10.3 |
+| `Nri.ConvertVKFormatToNRI` on a compressed format | `UNKNOWN` for every BC, ETC2 and ASTC `VkFormat`: NRI's table stops at 130. `ConvertDXGIFormatToNRI(18)` answers `RGB32_SINT`, not `RG32_SINT` | §10.3 |
+| `UploadData` on NV12 | it does not take two-plane textures: Vulkan copies both planes in one region (validation error), D3D12 refuses the second plane's barrier | §10.3 |

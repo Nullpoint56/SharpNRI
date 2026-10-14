@@ -4,9 +4,10 @@
 // (ID3D12Resource*, ID3D12Heap*, ...); DXGI_FORMAT is int. Available on D3D12 devices only;
 // UNSUPPORTED elsewhere. Threadsafe per NRI.
 //
-// Not wrapped: CreateAccelerationStructureD3D12, which belongs with the RayTracing extension's
-// NriAccelerationStructure (it records the structure type, which AccelerationStructureD3D12Desc
-// does not carry). Device creation from an ID3D12Device is NriDevice.CreateFromD3D12.
+// CreateAccelerationStructureD3D12 returns the RayTracing extension's NriAccelerationStructure,
+// which is destroyed through that extension's table, so it needs the extension; the caller names
+// the structure type, which AccelerationStructureD3D12Desc does not carry. Device creation from an
+// ID3D12Device is NriDevice.CreateFromD3D12.
 
 using PrismNRI.Interop;
 using PrismNRI.Native;
@@ -41,7 +42,9 @@ public sealed unsafe class NriWrapperD3D12Extension
     /// <summary>
     /// Wraps an <c>ID3D12CommandList*</c>. <paramref name="d3d12CommandAllocator"/>
     /// (<c>ID3D12CommandAllocator*</c>) is needed only for <c>BeginCommandBuffer</c>. No NRI
-    /// allocator backs the result.
+    /// allocator backs the result. NRI's validation counts it as recording from the start and
+    /// refuses <see cref="NriCommandBuffer.Begin"/>: pass it open, set the descriptor pool with
+    /// <see cref="NriCommandBuffer.SetDescriptorPool"/>, record, <see cref="NriCommandBuffer.End"/>.
     /// </summary>
     public NriCommandBuffer CreateCommandBufferD3D12(nint d3d12CommandList, nint d3d12CommandAllocator = 0)
     {
@@ -111,6 +114,20 @@ public sealed unsafe class NriWrapperD3D12Extension
         Memory* handle = null;
         Device.Check(_table.CreateMemoryD3D12(Device.Raw, &desc, &handle), "CreateMemoryD3D12");
         return new NriMemory(Device, handle);
+    }
+
+    /// <summary>
+    /// Wraps an <c>ID3D12Resource*</c> holding an acceleration structure of <paramref name="type"/>.
+    /// <c>size</c>, <c>buildScratchSize</c> and <c>updateScratchSize</c> are what NRI reports back;
+    /// it does not query them. Needs the device's RayTracing extension, which destroys it.
+    /// </summary>
+    /// <exception cref="NriUnsupportedException">When the device has no RayTracing extension.</exception>
+    public NriAccelerationStructure CreateAccelerationStructureD3D12(in AccelerationStructureD3D12Desc accelerationStructureD3D12Desc, AccelerationStructureType type)
+    {
+        var rayTracing = Device.RayTracing;
+        AccelerationStructure* handle = null;
+        fixed (AccelerationStructureD3D12Desc* p = &accelerationStructureD3D12Desc) Device.Check(_table.CreateAccelerationStructureD3D12(Device.Raw, p, &handle), "CreateAccelerationStructureD3D12");
+        return new NriAccelerationStructure(rayTracing, handle, type);
     }
 
     /// <summary>Wraps an <c>ID3D12Fence*</c>.</summary>

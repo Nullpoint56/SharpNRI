@@ -59,6 +59,17 @@ public abstract unsafe class NriObject : IDisposable
         }
     }
 
+    /// <summary>
+    /// NRI's own handle for this object (<c>nri::Buffer*</c>, <c>nri::Device*</c>, ...), not the
+    /// backend's, which is <c>GetNativeObject</c>. For calling <see cref="NriApi"/>, the
+    /// <see cref="NriDevice.Core"/> and <see cref="NriDevice.Helper"/> tables, or an extension table
+    /// acquired with <c>nriGetInterface</c>, where the binding has no managed form. Valid while this
+    /// object lives; throws after disposal. The binding sees none of those calls: nothing here
+    /// checks their arguments, and a native <c>Destroy*</c> through it leaves this wrapper
+    /// dangling. NRI's validation still checks them when the device has it on. Last resort.
+    /// </summary>
+    public nint NriHandle => (nint)Handle;
+
     /// <summary>Calls the right <c>Destroy*</c> for this object. The pointer is still valid.</summary>
     private protected abstract void Destroy(void* handle);
 

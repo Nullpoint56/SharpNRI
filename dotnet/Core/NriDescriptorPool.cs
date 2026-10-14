@@ -63,6 +63,9 @@ public sealed unsafe class NriDescriptorSet
 
     internal DescriptorSet* Raw => _handle;
 
+    /// <summary>NRI's <c>nri::DescriptorSet*</c>; see <see cref="NriObject.NriHandle"/>. Last resort.</summary>
+    public nint NriHandle => (nint)_handle;
+
     /// <summary>
     /// Writes <paramref name="descriptors"/> into range <paramref name="rangeIndex"/> starting at
     /// <paramref name="baseDescriptor"/>. All descriptors must be of the range's type.
