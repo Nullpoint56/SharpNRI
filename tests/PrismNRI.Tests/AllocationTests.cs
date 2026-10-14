@@ -189,6 +189,7 @@ public sealed class AllocationTests
                 signals[0] = new NriFenceSubmit(release, 0);
                 signals[1] = new NriFenceSubmit(fence, frameValue);
                 queue.Submit(commandBuffers, waits, signals);
+                queue.Submit(cmd, fence, frameValue); // the single-buffer convenience overload, as the guide shows it
                 device.SwapChain.QueuePresent(swapChain, release, frameValue);
 
                 fence.Wait(frameValue); // NONE: returns at once, the fence never advances

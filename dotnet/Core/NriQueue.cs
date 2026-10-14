@@ -110,7 +110,10 @@ public sealed unsafe class NriQueue
     /// <summary>One command buffer, optionally signalling one fence.</summary>
     public void Submit(NriCommandBuffer commandBuffer, NriFence? signal = null, ulong signalValue = 0)
     {
-        var signals = signal is null ? default : new ReadOnlySpan<NriFenceSubmit>([new NriFenceSubmit(signal, signalValue)]);
+        // A span over the local, not a one-element array: this overload is per frame too (48 bytes
+        // per call before, measured by AllocationTests' whole frame).
+        var one = signal is null ? default : new NriFenceSubmit(signal, signalValue);
+        var signals = signal is null ? default : new ReadOnlySpan<NriFenceSubmit>(in one);
         Submit([commandBuffer], default, signals);
     }
 
