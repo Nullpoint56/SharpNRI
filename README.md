@@ -16,8 +16,9 @@ MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
 
 CI builds the native library from the pinned tag and the patch set on all three platforms and runs
 the suite with NRI's validation and the backend validation layer on: D3D12 on WARP, Vulkan on
-lavapipe and MoltenVK, NONE everywhere. A fourth job regenerates the interop layer and fails on
-drift. Windows is also verified on NVIDIA hardware.
+lavapipe and MoltenVK, NONE everywhere. A separate workflow regenerates the interop layer when the
+headers, patches or generator change, and fails on drift. Windows is also verified on NVIDIA
+hardware.
 
 Linux CI runs on lavapipe (software Vulkan) only. Its two intermittent failures, a ray-query
 "miss" (a readback after NRI's 5 s fence-wait timeout) and a test-host crash (a stale Vortice
