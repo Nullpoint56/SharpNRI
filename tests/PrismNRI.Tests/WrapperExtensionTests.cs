@@ -184,10 +184,10 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
 
     /// <summary>
     /// A VkInstance and VkDevice the test owns: Vulkan 1.3 (or what the driver has, at least 1.2),
-    /// every supported core feature enabled, no extensions, one graphics queue, and the Khronos
-    /// validation layer with an error-collecting messenger when installed.
+    /// every supported core feature enabled, no extensions beyond the ones asked for, one graphics
+    /// queue, and the Khronos validation layer with an error-collecting messenger when installed.
     /// </summary>
-    private sealed class RawVulkanDevice : IDisposable
+    internal sealed class RawVulkanDevice : IDisposable
     {
         private readonly List<string> _errors = [];
         private GCHandle _self;
@@ -208,12 +208,15 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
             get { lock (_errors) return [.. _errors]; }
         }
 
-        public static RawVulkanDevice Create(NriAdapter adapter)
+        /// <param name="adapter">NRI's adapter; the physical device is matched by its uid.</param>
+        /// <param name="instanceExtensions">Instance extensions enabled besides the ones this class needs.</param>
+        /// <param name="deviceExtensions">Device extensions enabled besides VK_KHR_portability_subset.</param>
+        public static RawVulkanDevice Create(NriAdapter adapter, string[]? instanceExtensions = null, string[]? deviceExtensions = null)
         {
             var result = new RawVulkanDevice();
             try
             {
-                result.Initialize(adapter);
+                result.Initialize(adapter, instanceExtensions ?? [], deviceExtensions ?? []);
                 return result;
             }
             catch
@@ -223,7 +226,7 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
             }
         }
 
-        private void Initialize(NriAdapter adapter)
+        private void Initialize(NriAdapter adapter, string[] extraInstanceExtensions, string[] extraDeviceExtensions)
         {
             VulkanApi.RequireLoader();
             _self = GCHandle.Alloc(this);
@@ -247,7 +250,7 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
             fixed (VkExtensionProperties* p = availableExtensions) vkEnumerateInstanceExtensionProperties(null, &extensionCount, p);
             var portability = availableExtensions.Any(e => Marshal.PtrToStringUTF8((nint)e.extensionName) == "VK_KHR_portability_enumeration");
 
-            List<string> extensionList = [];
+            List<string> extensionList = [.. extraInstanceExtensions];
             if (Validated) extensionList.Add("VK_EXT_debug_utils");
             if (portability) extensionList.Add("VK_KHR_portability_enumeration");
             using var layerNames = new VkStringArray(Validated ? ["VK_LAYER_KHRONOS_validation"] : Array.Empty<string>());
@@ -322,13 +325,13 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
             _instanceApi.vkGetPhysicalDeviceFeatures2(PhysicalDevice, &features);
 
             // A device that advertises VK_KHR_portability_subset must have it enabled
-            // (VUID-VkDeviceCreateInfo-pProperties-04451); that is the only extension enabled here.
+            // (VUID-VkDeviceCreateInfo-pProperties-04451); that and the caller's are the only extensions enabled here.
             uint deviceExtensionCount = 0;
             _instanceApi.vkEnumerateDeviceExtensionProperties(PhysicalDevice, null, &deviceExtensionCount, null);
             var deviceExtensions = new VkExtensionProperties[deviceExtensionCount];
             fixed (VkExtensionProperties* p = deviceExtensions) _instanceApi.vkEnumerateDeviceExtensionProperties(PhysicalDevice, null, &deviceExtensionCount, p);
             var subset = deviceExtensions.Any(e => Marshal.PtrToStringUTF8((nint)e.extensionName) == "VK_KHR_portability_subset");
-            using var enabledDeviceExtensions = new VkStringArray(subset ? ["VK_KHR_portability_subset"] : Array.Empty<string>());
+            using var enabledDeviceExtensions = new VkStringArray([.. extraDeviceExtensions, .. (subset ? ["VK_KHR_portability_subset"] : Array.Empty<string>())]);
 
             var priority = 1.0f;
             var queueInfo = new VkDeviceQueueCreateInfo { queueFamilyIndex = QueueFamily, queueCount = 1, pQueuePriorities = &priority };

@@ -12,7 +12,7 @@
 
   <PropertyGroup>
     <PackageId>PrismNRI.Native.Agility</PackageId>
-    <Version>0.3.0-alpha</Version>
+    <Version>0.4.0-alpha</Version>
     <Description>DirectX 12 Agility SDK runtime (D3D12Core.dll, d3d12SDKLayers.dll) staged where PrismNRI looks for it. Optional: without it PrismNRI's D3D12 backend runs on the inbox D3D12 runtime. Microsoft Software License Terms apply.</Description>
     <PackageTags>nri;d3d12;agility;native</PackageTags>
     <IncludeBuildOutput>false</IncludeBuildOutput>

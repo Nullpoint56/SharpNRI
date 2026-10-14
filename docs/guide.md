@@ -33,9 +33,9 @@ headers do not say. NRI v190.
 | `PrismNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll` | D3D12 on the Agility SDK (Windows) |
 
 ```xml
-<PackageReference Include="PrismNRI" Version="0.3.0-alpha" ExcludeAssets="native" />  <!-- only with Upscalers -->
-<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.3.0-alpha" />
-<PackageReference Include="PrismNRI.Native.Agility" Version="0.3.0-alpha" />
+<PackageReference Include="PrismNRI" Version="0.4.0-alpha" ExcludeAssets="native" />  <!-- only with Upscalers -->
+<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.4.0-alpha" />
+<PackageReference Include="PrismNRI.Native.Agility" Version="0.4.0-alpha" />
 ```
 
 - Not on NuGet.org: the `.nupkg` files are GitHub release assets. Folder feed, `nuget.config` beside
@@ -311,7 +311,7 @@ reallocations and frees through `NriCountingAllocator`.
   `Barrier` (global, buffer, texture), `SetViewports`, `SetScissors`, `BeginRendering` /
   `EndRendering`, `Draw`, `Dispatch`, `CopyBuffer`, `queue.Submit` (spans of command buffers,
   waits and signals), `fence.Wait`, `fence.Value`, `SwapChain.AcquireNextTexture`,
-  `SwapChain.QueuePresent`.
+  `SwapChain.QueuePresent` (the `OutOfDate` path allocates nothing either).
 - Extension frame: `MeshShader.DrawMeshTasks` / `DrawMeshTasksIndirect`,
   `DescriptorHeap.WriteResourceDescriptors` / `WriteSamplerDescriptors` / `SetDescriptorHeap`,
   `Streamer.BeginStreamerCopyBatch` / `StreamBufferData` / `StreamConstantData` /
@@ -413,11 +413,13 @@ using var shared = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVIC
 using var handle = device.SharedHandles.GetSharedHandle(shared);   // NriSharedHandle: Handle, Type, Size, Offset; Dispose closes it
 using var sharedFence = device.SharedHandles.CreateSharedFence();
 using var fenceHandle = device.SharedHandles.GetSharedHandle(sharedFence);
+using var binary = device.SharedHandles.CreateSharedBinaryFence();     // Vulkan only: binary semaphore
+using var binaryHandle = device.SharedHandles.GetSharedHandle(binary);
 ```
 
 | Backend | Texture handle | Fence handle |
 |---|---|---|
-| Vulkan, Windows | `OPAQUE_WIN32` NT handle | `OPAQUE_WIN32` NT handle (timeline semaphore) |
+| Vulkan, Windows | `OPAQUE_WIN32` NT handle | `OPAQUE_WIN32` NT handle (timeline or binary semaphore) |
 | Vulkan, Linux | opaque fd | opaque fd |
 | D3D12 | `D3D12_RESOURCE` NT handle | `D3D12_FENCE` NT handle |
 | NONE | 0 | 0 |
@@ -429,8 +431,16 @@ using var fenceHandle = device.SharedHandles.GetSharedHandle(sharedFence);
   exports of the same memory: do not assume distinct values.
 - A non-shared texture asked for a handle: `INVALID_ARGUMENT` (through the validation layer).
 - A shared fence still works as a normal fence.
+- **Binary shared fence** (`CreateSharedBinaryFence()`, i.e. `CreateSharedFence(SwapChainSemaphore)`):
+  the signal-once/wait-once semaphore external compositors import as an opaque NT handle or fd.
+  Vulkan only; D3D12 has no binary fences and throws `NriUnsupportedException` (no error message).
+  The handshake rule is the binary semaphore's: every signal is followed by exactly one wait
+  before the next signal, counting both sides of the export (yours signals, theirs waits, theirs
+  signals, yours waits). In `NriFenceSubmit` the value is ignored (pass 0); never call `Value` or
+  `Wait` on it. Import it into a binary `VkSemaphore` (an import replaces the payload, not the type).
 - Verified imports: Vulkan texture into a second Vulkan device (byte-exact), Vulkan timeline
-  semaphore both ways, D3D12 fence and texture into a second D3D12 device.
+  semaphore both ways, Vulkan binary semaphore both ways (queue signal and queue wait on each side,
+  validation clean), D3D12 fence and texture into a second D3D12 device.
 - **D3D11 cannot open D3D12 shared textures**: NRI creates every D3D12 texture `TYPELESS`, and
   `ID3D11Device1::OpenSharedResource1` refuses it with `E_INVALIDARG`. Import into D3D12 or Vulkan.
 - Exclusive Vulkan images need a release barrier with `DstQueue = NriQueue.External` before
@@ -494,6 +504,21 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 
 - `NriWindow` (NRI's `Window`) is a struct of five platform members side by side, not a union. NRI
   reads the member of the running OS (`Windows` only on Windows).
+- **`OUT_OF_DATE` is a value, not an exception.** `AcquireNextTexture(swapChain, semaphore, out
+  index)` and `QueuePresent(swapChain, semaphore, presentId)` return `NriSwapChainStatus`: `Ok`, or
+  `OutOfDate` (Vulkan only: the window changed under a swap chain that cannot follow it); recreate
+  the swap chain. After `OutOfDate` from acquire nothing was acquired and the semaphore is not
+  signalled; after `OutOfDate` from present the semaphore wait still happened. It is an enum so a
+  further outcome can be added later; switch with a default branch. Every other failure throws. With patch 0009
+  NRI reports no ERROR message for it (upstream v190 reports one on every resize).
+- When it happens: NRI creates the swap chain with present scaling where the device has
+  `swapchain_maintenance1` (`features.resizableSwapChain`), and then the driver keeps presenting
+  through resizes. Measured on NVIDIA (RTX 4070 SUPER, Windows): an NRI-created device saw no
+  `OUT_OF_DATE` across 8 resizes including a 0x0 client area; a wrapped device with only
+  `VK_KHR_swapchain` got `OUT_OF_DATE` from present 6 times over the same 8 resizes, never from acquire.
+- A wrapped Vulkan device that uses the swap chain needs `VK_KHR_surface`, the platform surface
+  extension and `VK_KHR_get_surface_capabilities2` on its instance: NRI calls
+  `vkGetPhysicalDeviceSurfaceCapabilities2KHR` unconditionally (an access violation without it).
 
 ### MeshShader, DescriptorHeap, Imgui
 
@@ -563,8 +588,9 @@ Nri.ReportLiveObjects();                                             // DXGI deb
 
 - `Format.MAX_NUM` and beyond throw `ArgumentOutOfRangeException`: NRI indexes its tables
   unchecked (`nriGetFormatProps(MAX_NUM)` returned another format's entry).
-- **`ConvertVKFormatToNRI`** returns `UNKNOWN` for all 52 block-compressed `VkFormat`s (BC, ETC2,
-  ASTC): NRI's table ends at 130.
+- **`ConvertVKFormatToNRI`** is the inverse of `ConvertNRIFormatToVK` for all 108 formats,
+  block-compressed ones included (patch 0008; NRI v190's table ended at 130 and returned `UNKNOWN`
+  for all 52 BC, ETC2 and ASTC formats). BC1's RGB `VkFormat`s (131, 132) stay `UNKNOWN`.
 - **`ConvertDXGIFormatToNRI(18)`** returns `RGB32_SINT`.
 - `ConvertNRIFormatToDXGI` has no value for the 38 ETC2 / ASTC formats.
 - **Linux and macOS: every DXGI conversion returns 0 / `UNKNOWN`**: the table is compiled only with
@@ -699,7 +725,9 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Buffer barrier on a `CreateBufferVK` import | refused (usage NONE); use a global barrier | Wrappers |
 | Raw `VkInstance` on macOS | MoltenVK hidden without portability enumeration | Wrappers |
 | Raw `NriApi` device creation with null `AbortExecution` | `DebugBreak()` kills the process on any error | Wrappers |
-| `ConvertVKFormatToNRI` on compressed formats | `UNKNOWN` | Flat exports |
+| `ConvertVKFormatToNRI` on BC1 RGB (131, 132) | `UNKNOWN` (NRI has BC1 RGBA only; other compressed formats map, patch 0008) | Flat exports |
+| Wrapped VK device without `VK_KHR_get_surface_capabilities2` | access violation in `CreateSwapChain` | SwapChain |
+| Expecting `OUT_OF_DATE` on resize | none with present scaling (`features.resizableSwapChain`) | SwapChain |
 | DXGI conversions on Linux / macOS | 0 / `UNKNOWN` | Flat exports |
 | `Format.MAX_NUM` to a flat export | `ArgumentOutOfRangeException` | Flat exports |
 | Khronos layer older than NRI's headers | "unknown VkStructureType" errors | Test device |

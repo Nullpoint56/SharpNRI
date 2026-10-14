@@ -16,37 +16,43 @@ public sealed class FlatExportTests
     private static bool IsBlockCompressed(Format f) => Nri.GetFormatProps(f).isCompressed != 0;
 
     /// <summary>
-    /// NRI → DXGI → NRI and NRI → Vulkan → NRI for every format, with the exceptions measured on
-    /// NRI v190 named: DXGI has no ETC2 or ASTC; NRI's Vulkan-to-NRI table ends before the
-    /// block-compressed VkFormats; NRI's DXGI table maps R32G32_SINT (18) to RGB32_SINT. A fixed
-    /// table in a later NRI fails here, which is the point: the guide quotes these.
+    /// NRI → Vulkan → NRI is the identity for every format: every NRI format has a VkFormat and
+    /// nriConvertVKFormatToNRI maps it back, the block-compressed ones included (patch 0008; on
+    /// NRI v190 without it the table ended at VkFormat 130 and all 52 came back UNKNOWN). The
+    /// VkFormats NRI never produces stay UNKNOWN, among them BC1's RGB variants (131, 132).
     /// </summary>
     [Fact]
-    public void Formats_round_trip_through_Vulkan_except_where_NRI_has_no_entry()
+    public void Formats_round_trip_through_Vulkan()
     {
         // Spot values from vulkan_core.h.
         Assert.Equal(37u, Nri.ConvertNRIFormatToVK(Format.RGBA8_UNORM));
         Assert.Equal(44u, Nri.ConvertNRIFormatToVK(Format.BGRA8_UNORM));
         Assert.Equal(126u, Nri.ConvertNRIFormatToVK(Format.D32_SFLOAT));
         Assert.Equal(145u, Nri.ConvertNRIFormatToVK(Format.BC7_RGBA_UNORM));
+        Assert.Equal(Format.BC7_RGBA_UNORM, Nri.ConvertVKFormatToNRI(145));
+        Assert.Equal(Format.ASTC_12X12_SRGB, Nri.ConvertVKFormatToNRI(184));
+        Assert.Equal(Format.UNKNOWN, Nri.ConvertVKFormatToNRI(131)); // VK_FORMAT_BC1_RGB_UNORM_BLOCK: NRI has only BC1 RGBA
+        Assert.Equal(Format.UNKNOWN, Nri.ConvertVKFormatToNRI(132)); // VK_FORMAT_BC1_RGB_SRGB_BLOCK
+        Assert.Equal(Format.UNKNOWN, Nri.ConvertVKFormatToNRI(185)); // past the table (the next core VkFormats start at 1000156000)
         Assert.Equal(Format.UNKNOWN, Nri.ConvertVKFormatToNRI(999999));
         Assert.Throws<ArgumentOutOfRangeException>(() => Nri.ConvertNRIFormatToVK(Format.MAX_NUM));
 
-        var vkLost = new List<Format>();
+        var compressed = 0;
         foreach (var f in AllFormats())
         {
             var vk = Nri.ConvertNRIFormatToVK(f);
             Assert.NotEqual(0u, vk); // every NRI format has a VkFormat
-            var back = Nri.ConvertVKFormatToNRI(vk);
-            if (back == Format.UNKNOWN) vkLost.Add(f);
-            else Assert.Equal(f, back);
+            Assert.Equal(f, Nri.ConvertVKFormatToNRI(vk));
+            if (IsBlockCompressed(f)) compressed++;
         }
 
-        Record($"VkFormat not mapped back: {string.Join(", ", vkLost)}");
-        Assert.Equal(AllFormats().Where(IsBlockCompressed), vkLost);
+        Record($"NRI -> VK -> NRI holds for all {AllFormats().Count()} formats, {compressed} of them block-compressed");
+        Assert.Equal(52, compressed);
     }
 
     /// <summary>
+    /// NRI → DXGI → NRI for every format, with the exceptions measured on NRI v190 named: DXGI has
+    /// no ETC2 or ASTC; NRI's DXGI table maps R32G32_SINT (18) to RGB32_SINT.
     /// The DXGI table is compiled only into a payload with a D3D backend (NRI's Creation.cpp guards
     /// nriConvertNRIFormatToDXGI with NRI_ENABLE_D3D11_SUPPORT || NRI_ENABLE_D3D12_SUPPORT and
     /// returns 0 otherwise). The Linux and macOS payloads have none, so there the measured contract
