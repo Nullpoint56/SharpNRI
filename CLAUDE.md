@@ -652,6 +652,11 @@ extensions.
 - `CreateMemoryVK` with no mapping: NRI maps it itself.
 - `CreateAccelerationStructureVK` / `D3D12`: caller names the type, needs `RayTracing`.
 - Raw VK devices on macOS: portability opt-in, see MoltenVK.
+- **Never Vortice's `Vulkan.GetApi` in tests**: 3.3.0 caches tables in static dictionaries keyed by
+  handle value (`Vulkan.cs` `s_instanceTables` / `s_deviceTables`), dropped only by
+  `vkDestroyInstance` / `vkDestroyDevice` through that table. NRI destroys its own objects, so the
+  entry outlives the device and a later device at the same address gets dead pointers.
+  `tests/PrismNRI.Tests/VulkanApi.cs` builds a fresh table per object (`new VkDeviceApi(...)`).
 
 ### Flat exports and formats
 
@@ -684,8 +689,9 @@ extensions.
 
 ### CI runners and flakes
 
-**Unsolved.** Both are on the Linux leg (lavapipe on GitHub hosts of varying CPU); the Windows and
-macOS legs have no intermittent failures. Nothing masks either: a red Linux job can be either one.
+Both were on the Linux leg (lavapipe on GitHub hosts of varying CPU); the Windows and macOS legs
+have no intermittent failures. Item 1 is **unsolved** and nothing masks it; item 2 is identified
+and fixed in the tests.
 
 1. **lavapipe ray query intermittent miss.**
    `RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS(VK)` on the Linux runner sometimes
@@ -699,17 +705,25 @@ macOS legs have no intermittent failures. Nothing masks either: a red Linux job 
    "Linux: the ray-query miss fails the job again" (it was a skip before); Linux CI is red when it
    happens. The hit map is in the log (`GpuWork.Record`) and in the failure message. The same
    assertions in `RayScene.ExpectTriangle` (RT pipeline, micromap, import tests) fail likewise.
-2. **Linux test host SIGSEGV, seen twice** (runs 38546336866 on EPYC 9V74 and 38551840987 on EPYC
-   7763, no code change in between that touches the suite): exit 139 both times after exactly 106
-   of 239 tests, 58 passed, 48 skipped, 0 failed, so it is one test, intermittent, not a random
-   point. Not reproduced in 41 local runs. The default `dotnet test` output lists only skips and
-   failures, so the log could not place it; the Linux `Test` step now runs `--output Detailed`,
-   which lists passed tests as they finish. In the second run the ray-query probe also recorded a
-   zero-hit map (4 of 5), so both issues fired on the same host. The `Test` step runs with
-   `DOTNET_DbgEnableMiniDump`; the first dump was lost to a wrong `dotnet-dump` flag (`-c` per
-   command is right), fixed; the "Crash stacks" step prints `clrstack -all -f` and the dump is kept
-   as the `linux-x64-minidumps` artifact for 14 days. Read the stack to name the test and the native
-   module (`libNRI.so`, `libvulkan_lvp.so`, `libvulkan.so`, the layer, `libcoreclr.so`).
+2. **Linux test host SIGSEGV: a stale Vortice function table. Fixed in the tests.** Runs
+   38546336866 (EPYC 9V74) and 38551840987 (EPYC 7763) died with exit 139 after exactly 106 of 239
+   tests (58 passed, 48 skipped). In the fixed order of a detailed green run the 107th test is
+   `WrapperExtensionTests.WrapperVK_hands_out_the_native_instance_device_and_loader`; the 99th is
+   `Imported_Vulkan_objects_dispatch_copy_and_time_through_NRI`. Both called Vortice's
+   `Vulkan.GetApi(instance, device)` on NRI's own VkDevice. Vortice 3.3.0 caches that table in a
+   static dictionary keyed by the handle value and drops it only on `vkDestroyDevice` through the
+   table; NRI destroys the device itself, so the entry survives. The loader unloads the validation
+   layer library on `vkDestroyInstance` and loads it again for the next instance (`VK_LOADER_DEBUG`
+   shows "Unloading/Loading layer library" per instance). When a later NRI device lands at the same
+   address, `GetApi` returns the dead table, whose `vkCreate*` pointers point into the old layer
+   mapping. Same address: harmless. Moved: SIGSEGV or SIGILL on the first call.
+   Measured in WSL by printing the cache state: 6 stale hits in 300 runs of the class, 2 of them
+   with the layer moved, and those 2 crashed (SIGSEGV, SIGILL) at the first device call. No other
+   run crashed. The dump showed the managed frame on `api.vkCreateBuffer`. In CI the 107th test hit
+   the 99th's entry; that ordering is inferred from the count, not from a CI dump.
+   Fix: `tests/PrismNRI.Tests/VulkanApi.cs` builds a fresh table from the public constructors for
+   every object, and no test calls `GetApi` any more (Wrappers caveat). The minidump and
+   "Crash stacks" CI steps stay in place for the next host crash.
 
 - Four jobs in `.github/workflows/ci.yml`: `win-x64` (WARP + NONE), `linux-x64` (lavapipe, stock 1.3
   loader, 1.4.363 layer), `osx-arm64` (MoltenVK), `regen` (ClangSharp drift). `_deps` cached per

@@ -22,11 +22,6 @@ namespace PrismNRI.Tests;
 
 public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper output)
 {
-    // Vortice's vkGetInstanceProcAddr / vkGetDeviceProcAddr are null until vkInitialize has run; GetApi
-    // calls them. Lazy, process-wide, so the test that runs first pays for it (measured: a null
-    // call from GetApi on Linux when this test ran before the raw-device one).
-    private static readonly Lazy<VkResult> VulkanLoader = new(() => vkInitialize());
-
     [Theory]
     [MemberData(nameof(TestDevice.AllBackends), MemberType = typeof(TestDevice))]
     public void Each_wrapper_exists_only_on_its_own_backend(Backend backend)
@@ -58,8 +53,9 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
         output.WriteLine($"graphics queue family {family}");
 
         // A timeline semaphore made on NRI's own VkDevice, wrapped back as a fence. NRI does not own it.
-        Assert.True(VulkanLoader.Value == VkResult.Success, $"vkInitialize returned {VulkanLoader.Value}");
-        var api = GetApi(new VkInstance(vk.GetInstanceVK()), new VkDevice(device.GetNativeObject()));
+        // Resolved against this device now, not taken from Vortice's GetApi cache (VulkanApi.cs: a dead
+        // earlier device with the same handle value was the Linux SIGSEGV).
+        var api = VulkanApi.For(new VkInstance(vk.GetInstanceVK()), new VkDevice(device.GetNativeObject()));
         var typeInfo = new VkSemaphoreTypeCreateInfo { semaphoreType = VkSemaphoreType.Timeline, initialValue = 7 };
         var info = new VkSemaphoreCreateInfo { pNext = &typeInfo };
         VkSemaphore semaphore;
@@ -229,7 +225,7 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
 
         private void Initialize(NriAdapter adapter)
         {
-            Assert.True(VulkanLoader.Value == VkResult.Success, $"vkInitialize returned {VulkanLoader.Value}");
+            VulkanApi.RequireLoader();
             _self = GCHandle.Alloc(this);
 
             uint layerCount = 0;
@@ -277,7 +273,7 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
             VkInstance instance;
             Check(vkCreateInstance(&instanceInfo, null, &instance), "vkCreateInstance");
             Instance = instance;
-            _instanceApi = GetApi(instance);
+            _instanceApi = VulkanApi.For(instance);
             if (Validated)
             {
                 VkDebugUtilsMessengerEXT messenger;
@@ -347,7 +343,7 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
             VkDevice device;
             Check(_instanceApi.vkCreateDevice(PhysicalDevice, &deviceInfo, null, &device), "vkCreateDevice");
             Device = device;
-            Api = GetApi(Instance, device);
+            Api = VulkanApi.For(Instance, device);
         }
 
         [UnmanagedCallersOnly]

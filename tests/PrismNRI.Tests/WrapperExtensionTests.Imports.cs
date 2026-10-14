@@ -35,10 +35,9 @@ public sealed unsafe partial class WrapperExtensionTests
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
         var vk = device.WrapperVK;
-        Assert.True(VulkanLoader.Value == VkResult.Success, $"vkInitialize returned {VulkanLoader.Value}");
         var instance = new VkInstance(vk.GetInstanceVK());
-        var instanceApi = GetApi(instance);
-        var api = GetApi(instance, new VkDevice(device.GetNativeObject()));
+        var instanceApi = VulkanApi.For(instance);
+        var api = VulkanApi.For(instance, new VkDevice(device.GetNativeObject()));
         var physicalDevice = new VkPhysicalDevice(vk.GetPhysicalDeviceVK());
         VkPhysicalDeviceMemoryProperties memoryProperties = default;
         instanceApi.vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memoryProperties);

@@ -445,8 +445,6 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
     /// </summary>
     private sealed class SecondVulkanDevice : IDisposable
     {
-        private static readonly Lazy<VkResult> Loader = new(() => vkInitialize());
-
         private readonly List<string> _errors = [];
         private GCHandle _self;
         private VkInstance _instance;
@@ -484,7 +482,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
 
         private void Initialize(NriAdapter adapter)
         {
-            Assert.True(Loader.Value == VkResult.Success, $"vkInitialize returned {Loader.Value}");
+            VulkanApi.RequireLoader();
             _self = GCHandle.Alloc(this);
 
             // Instance, with the validation layer and a messenger when the layer is installed.
@@ -523,7 +521,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
                 VkInstance instance;
                 Check(vkCreateInstance(&instanceInfo, null, &instance), "vkCreateInstance");
                 _instance = instance;
-                _instanceApi = GetApi(instance);
+                _instanceApi = VulkanApi.For(instance);
                 if (Validated)
                 {
                     VkDebugUtilsMessengerEXT messenger;
@@ -579,7 +577,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
             VkDevice device;
             Check(_instanceApi.vkCreateDevice(_physicalDevice, &deviceInfo, null, &device), "vkCreateDevice");
             _device = device;
-            Api = GetApi(_instance, device);
+            Api = VulkanApi.For(_instance, device);
 
             VkQueue queue;
             Api.vkGetDeviceQueue(_queueFamily, 0, &queue);
