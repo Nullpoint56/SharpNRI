@@ -699,13 +699,17 @@ macOS legs have no intermittent failures. Nothing masks either: a red Linux job 
    "Linux: the ray-query miss fails the job again" (it was a skip before); Linux CI is red when it
    happens. The hit map is in the log (`GpuWork.Record`) and in the failure message. The same
    assertions in `RayScene.ExpectTriangle` (RT pipeline, micromap, import tests) fail likewise.
-2. **Linux test host SIGSEGV, seen once** (run 38546336866, a branch with no code changes): exit 139
-   after 106 of 239 tests, 58 passed, 48 skipped, 0 failed. Not reproduced in 41 local runs. The log
-   ends after the `WrapperExtensionTests` D3D12 skips; the classes that had not reported yet were
-   MeshShader, RayTracing, Query, SharedHandle, Video and others on lavapipe, and stdout buffering
-   means the crashing test is not the last printed one. The `Test` step runs with
-   `DOTNET_DbgEnableMiniDump`, so the next crash prints every stack (`clrstack -all -f`, "Crash
-   stacks" step): read that to name the test and the native frame.
+2. **Linux test host SIGSEGV, seen twice** (runs 38546336866 on EPYC 9V74 and 38551840987 on EPYC
+   7763, no code change in between that touches the suite): exit 139 both times after exactly 106
+   of 239 tests, 58 passed, 48 skipped, 0 failed, so it is one test, intermittent, not a random
+   point. Not reproduced in 41 local runs. The default `dotnet test` output lists only skips and
+   failures, so the log could not place it; the Linux `Test` step now runs `--output Detailed`,
+   which lists passed tests as they finish. In the second run the ray-query probe also recorded a
+   zero-hit map (4 of 5), so both issues fired on the same host. The `Test` step runs with
+   `DOTNET_DbgEnableMiniDump`; the first dump was lost to a wrong `dotnet-dump` flag (`-c` per
+   command is right), fixed; the "Crash stacks" step prints `clrstack -all -f` and the dump is kept
+   as the `linux-x64-minidumps` artifact for 14 days. Read the stack to name the test and the native
+   module (`libNRI.so`, `libvulkan_lvp.so`, `libvulkan.so`, the layer, `libcoreclr.so`).
 
 - Four jobs in `.github/workflows/ci.yml`: `win-x64` (WARP + NONE), `linux-x64` (lavapipe, stock 1.3
   loader, 1.4.363 layer), `osx-arm64` (MoltenVK), `regen` (ClangSharp drift). `_deps` cached per

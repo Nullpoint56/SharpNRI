@@ -155,7 +155,9 @@ jobs:
           DOTNET_DbgMiniDumpName: /tmp/dumps/testhost-%p.dmp
         run: |
           mkdir -p /tmp/dumps
-          dotnet test --solution PrismNRI.slnx -c Release --no-build
+          # Detailed output lists passed tests as they finish; the default lists only skips and
+          # failures, which is why two crashes at "106 completed" could not be placed.
+          dotnet test --solution PrismNRI.slnx -c Release --no-build --output Detailed
 
       - name: Crash stacks
         if: failure()
@@ -164,8 +166,17 @@ jobs:
           dotnet tool install -g dotnet-dump >/dev/null
           for d in /tmp/dumps/*.dmp; do
             echo "== $d"
-            "$HOME/.dotnet/tools/dotnet-dump" analyze "$d" --command "clrstack -all -f" "exit" | head -300
+            "$HOME/.dotnet/tools/dotnet-dump" analyze "$d" -c "clrstack -all -f" -c "exit" | head -400
           done
+
+      - name: Keep the minidumps
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-minidumps
+          path: /tmp/dumps/*.dmp
+          if-no-files-found: ignore
+          retention-days: 14
 
   osx-arm64:
     runs-on: macos-latest
