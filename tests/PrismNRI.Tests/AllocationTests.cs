@@ -125,7 +125,15 @@ public sealed class AllocationTests
             using var layout = device.CreatePipelineLayout(new NriPipelineLayoutDesc
             {
                 DescriptorSets = [new NriDescriptorSetDesc(0, [new DescriptorRangeDesc { descriptorNum = 2, descriptorType = DescriptorType.CONSTANT_BUFFER, shaderStages = StageBits.ALL }])],
+                RootConstants = [new RootConstantDesc { registerIndex = 0, size = 16, shaderStages = StageBits.ALL }],
             });
+            // NONE accepts any bytecode; the frame binds the pipeline and sets root constants through both overloads.
+            using var pipeline = device.CreateComputePipeline(new NriComputePipelineDesc
+            {
+                PipelineLayout = layout,
+                Shader = new NriShaderDesc(StageBits.COMPUTE_SHADER, PipelineTests.Bytecode(device, "Fill.cs"), "main"),
+            });
+            byte[] rootBytes = new byte[16];
             using var pool = device.CreateDescriptorPool(new DescriptorPoolDesc { descriptorSetMaxNum = 4, constantBufferMaxNum = 8 });
             using var copySourcePool = device.CreateDescriptorPool(new DescriptorPoolDesc { descriptorSetMaxNum = 1, constantBufferMaxNum = 2, flags = DescriptorPoolBits.COPY_SOURCE });
             using var swapChain = device.SwapChain.CreateSwapChain(new NriSwapChainDesc
@@ -181,6 +189,9 @@ public sealed class AllocationTests
                 cmd.Draw(3);
                 cmd.EndRendering();
                 cmd.SetPipelineLayout(BindPoint.COMPUTE, layout);
+                cmd.SetPipeline(pipeline);
+                cmd.SetRootConstants(0, rootBytes, 0, BindPoint.COMPUTE);   // span overload
+                cmd.SetRootConstants(0, frameValue, 0, BindPoint.COMPUTE);  // struct overload, 8 bytes
                 cmd.SetDescriptorSet(0, extra, BindPoint.COMPUTE);
                 cmd.Dispatch(1);
                 cmd.CopyBuffer(destination, 0, source, 0, 256);

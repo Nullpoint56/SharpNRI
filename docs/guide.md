@@ -307,7 +307,7 @@ reallocations and frees through `NriCountingAllocator`.
 
 - Core frame: `NriCommandAllocator.Reset`, `cmd.Begin` / `End`, `NriDescriptorPool.Reset`,
   `AllocateDescriptorSets(layout, setIndex, span)`, `AllocateDescriptorSet`, `set.Update` /
-  `UpdateRange` / `CopyRange`, `SetDescriptorPool`, `SetPipelineLayout`, `SetDescriptorSet`,
+  `UpdateRange` / `CopyRange`, `SetDescriptorPool`, `SetPipelineLayout`, `SetPipeline`, `SetDescriptorSet`, `SetRootConstants` (span and struct overloads),
   `Barrier` (global, buffer, texture), `SetViewports`, `SetScissors`, `BeginRendering` /
   `EndRendering`, `Draw`, `Dispatch`, `CopyBuffer`, `queue.Submit` (spans of command buffers,
   waits and signals, and the one-buffer `Submit(cmd, fence, value)`), `fence.Wait`, `fence.Value`, `SwapChain.AcquireNextTexture`,
