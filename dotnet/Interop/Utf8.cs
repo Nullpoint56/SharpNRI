@@ -2,7 +2,7 @@
 //
 // NRI takes `const char*` for debug names, annotations, interface names and extension names, and
 // returns it from nriGetGraphicsAPIString and FormatProps.name. Nothing in the generated layer
-// converts; this does, the same way PrismSlang does.
+// converts; this does.
 
 using System.Runtime.InteropServices;
 using System.Text;

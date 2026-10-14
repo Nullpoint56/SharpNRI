@@ -131,7 +131,7 @@ jobs:
         run: dotnet build PrismNRI.slnx -c Release
 
       # lavapipe's ray query misses the triangle on some runs and hits it on others, same packages,
-      # same CPU model (findings 8.8). The test records and skips on a software adapter; this step
+      # same CPU model (CLAUDE.md: CI runners and flakes). The test records and skips on a software adapter; this step
       # runs it on its own five times first so the run leaves its hit maps in the log.
       - name: Ray query probe
         continue-on-error: true

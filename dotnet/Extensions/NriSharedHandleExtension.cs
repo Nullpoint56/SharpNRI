@@ -1,8 +1,8 @@
 // L3 — the SharedHandle extension (patches/0002).
 //
-// Exporting a texture's memory and a fence to another API or process: a compositor importing the
-// engine's viewport, an editor hosting the renderer. The extension is NRI-shaped and lives in the
-// patch set because upstream NRI has no export path at all (docs/design.md §5).
+// Exporting a texture's memory and a fence to another API, device or process. The extension is
+// NRI-shaped and lives in the patch set because upstream NRI has no export path at all
+// (CLAUDE.md: Patches).
 
 using System.Runtime.InteropServices;
 using PrismNRI.Interop;

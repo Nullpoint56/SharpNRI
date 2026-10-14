@@ -184,8 +184,8 @@ public sealed class MemoryTests
 
     /// <summary>
     /// Records NONE's dummy behaviour, not a feature: NONE's CalculateAllocationNumber answers 0, so
-    /// AllocateAndBindMemory returns no allocations for any group (ImplNONE.cpp; docs/findings.md
-    /// 7.3). NONE has no validation layer, so there are no messages to check.
+    /// AllocateAndBindMemory returns no allocations for any group (ImplNONE.cpp; CLAUDE.md: Device
+    /// creation and callbacks). NONE has no validation layer, so there are no messages to check.
     /// </summary>
     [Fact]
     public void NONE_AllocateAndBindMemory_returns_no_allocations()

@@ -188,7 +188,7 @@ internal sealed class RayScene : IDisposable
     /// <summary>
     /// The triangle's footprint: <paramref name="hit"/> at the centre and inside, <paramref name="miss"/>
     /// in the corners, 30 to 130 hits. On a software adapter a wrong map skips rather than fails,
-    /// as in RayTracingTests (findings 8.8: lavapipe misses the triangle on some hosts).
+    /// as in RayTracingTests (CLAUDE.md: CI runners and flakes; lavapipe misses the triangle on some runs).
     /// </summary>
     public void ExpectTriangle(uint[] values, uint hit, uint miss, string what)
     {
@@ -200,7 +200,7 @@ internal sealed class RayScene : IDisposable
             var got = values[y * Width + x];
             if (got == value) return;
             var text = $"{what}: ({x},{y}) expected {value}, got {got}; {hitCount} hits of {Width * Width}\n{map}";
-            Assert.SkipWhen(IsSoftware, $"{Device.GraphicsApi}: software ray tracer gives the wrong answer on this host (findings 8.8); the dispatch itself validated. {text}");
+            Assert.SkipWhen(IsSoftware, $"{Device.GraphicsApi}: software ray tracer gives the wrong answer on this host (CLAUDE.md: CI runners and flakes); the dispatch itself validated. {text}");
             Assert.Fail(text);
         }
         Expect(hit, 8, 8);
@@ -210,7 +210,7 @@ internal sealed class RayScene : IDisposable
         Expect(miss, 0, Width - 1);
         Expect(miss, Width - 1, Width - 1);
         Assert.All(values, v => Assert.True(v == hit || v == miss, $"{what}: value {v} is neither hit {hit} nor miss {miss}\n{map}"));
-        if (IsSoftware) Assert.SkipWhen(hitCount < 30 || hitCount > 130, $"{Device.GraphicsApi}: software ray tracer gives {hitCount} hits (findings 8.8).\n{map}");
+        if (IsSoftware) Assert.SkipWhen(hitCount < 30 || hitCount > 130, $"{Device.GraphicsApi}: software ray tracer gives {hitCount} hits (CLAUDE.md: CI runners and flakes).\n{map}");
         Assert.InRange(hitCount, 30, 130);
     }
 

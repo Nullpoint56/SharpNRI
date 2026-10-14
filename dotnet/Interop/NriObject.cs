@@ -4,8 +4,7 @@
 // other, Destroy* is not thread safe, and the header says nothing about order beyond the obvious:
 // a device must outlive everything created from it. That is an ownership hierarchy, and the GC
 // finalizes in arbitrary order, so a finalizer that called Destroy* could destroy a buffer after
-// its device — a use-after-free that presents as heap corruption, not a clean crash. PrismSlang
-// learned this on its Linux leg; here it is a design decision from the first line.
+// its device — a use-after-free that presents as heap corruption, not a clean crash.
 //
 // So: no finalizer. Each wrapper holds a managed reference to its device, so the device wrapper
 // cannot be collected while a child exists; the device counts its live children and refuses to

@@ -189,7 +189,7 @@ public sealed class VideoExtensionTests
         // error, but its feedback query never becomes available: the resolve's
         // vkCmdCopyQueryPoolResults with WAIT never completes (NRI's fence wait times out), the
         // feedback reads 0 bytes, and the device is left with work pending. Not run until understood.
-        Assert.SkipWhen(backend.Api == GraphicsAPI.VK, "VK: the H.264 encode feedback query never becomes available and the resolve hangs (measured, findings 10.3)");
+        Assert.SkipWhen(backend.Api == GraphicsAPI.VK, "VK: the H.264 encode feedback query never becomes available and the resolve hangs (measured, CLAUDE.md: Extensions)");
 
         TextureDesc Picture(TextureUsageBits usage) => new()
         {

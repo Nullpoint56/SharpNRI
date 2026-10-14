@@ -34,7 +34,7 @@ public sealed partial class LowLatencyExtensionTests
         // failing unrelated D3D12 tests, with or without ALLOW_LOW_LATENCY and VSYNC. Until that is
         // understood the Vulkan case does not run in the shared test process.
         Assert.SkipWhen(backend.Api == GraphicsAPI.VK,
-            "VK: presenting from Vulkan in the test process makes later D3D12CreateDevice calls fail with DXGI_ERROR_DEVICE_RESET (measured, findings 10.3)");
+            "VK: presenting from Vulkan in the test process makes later D3D12CreateDevice calls fail with DXGI_ERROR_DEVICE_RESET (measured, CLAUDE.md: Extensions)");
 
         var hwnd = CreateWindowExW(0, "STATIC", "PrismNRI low latency", WS_POPUP, 0, 0, 64, 64, 0, 0, 0, 0);
         Assert.SkipWhen(hwnd == 0, $"no desktop to create a window on (CreateWindowEx error {Marshal.GetLastPInvokeError()})");
