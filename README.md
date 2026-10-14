@@ -17,7 +17,8 @@ MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
 CI builds the native library from the pinned tag and the patch set on all three platforms and runs
 the suite with NRI's validation and the backend validation layer on: D3D12 on WARP, Vulkan on
 lavapipe and MoltenVK, NONE everywhere. A fourth job regenerates the interop layer and fails on
-drift.
+drift. Windows is also verified on NVIDIA hardware. Linux is verified on lavapipe (software Vulkan)
+only; no hardware Linux driver has run this code.
 
 ## Packages
 

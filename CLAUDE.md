@@ -150,6 +150,10 @@ From the owner. Do not relitigate.
     weeks before v190. macOS is Vulkan through MoltenVK.
   - WebGPU: links a prebuilt `wgpu-native` binary this repo would have to ship; NRI calls its
     limitations "similar to D3D11".
+- **Linux is verified on lavapipe only, by decision.** Hardware Linux validation (NVIDIA driver on
+  metal, a cloud GPU runner, Mesa's dozen in WSL) is out of scope: Linux is not the primary target.
+  WSL and Hyper-V expose the GPU only as D3D12/CUDA through dxg, with no Vulkan ICD. The README says
+  so; do not claim more.
 - `nri/` and `patches/` are not edited as a side effect of other work. Stage by path; never `git add
   nri`.
 
