@@ -281,10 +281,10 @@ fence.Wait(1);
 - Barriers are never inserted for you. `AccessStage` / `AccessLayoutStage` are NRI's before/after.
 - Fences are timelines on both backends: `fence.Wait(value)`, `fence.Value`, and in a submit
   `NriFenceSubmit(fence, value, stages)`.
-- **`fence.Wait` gives up after 5 s** (NRI's `NRI_TIMEOUT_FENCE`, Vulkan and D3D12): it reports an
-  ERROR message ("WaitSemaphores() timed out!" on Vulkan) and returns normally, with the fence still
-  short of the value. Check `fence.Value >= value` before reading the results of long work (a first
-  submit on lavapipe JIT-compiles its shaders and can take seconds).
+- **`fence.Wait` throws `TimeoutException` after 5 s** (NRI's `NRI_TIMEOUT_FENCE`, Vulkan and
+  D3D12): NRI reports an ERROR message ("WaitSemaphores() timed out!" on Vulkan) and returns with
+  the fence still short of the value; the binding checks `fence.Value` and throws. For work that
+  may take longer (a first submit on lavapipe JIT-compiles its shaders), poll `fence.Value`.
 - Queue ownership transfer to or from another API / process: `SrcQueue` / `DstQueue` =
   `NriQueue.External` (patch 0002; `VK_QUEUE_FAMILY_EXTERNAL` on Vulkan).
 - UNORM rounding is the driver's: `0.1 * 255 = 25.5` reads 25 on NVIDIA Vulkan, 26 elsewhere. Allow
@@ -348,9 +348,10 @@ if (device.TryRayTracing is { } rt)
 - **Ray query loop**: loop `while (q.Proceed())`, not a single call. One `Proceed()` is enough for
   opaque geometry on hardware but is one thing a software traversal may disagree on.
 - **lavapipe ray tracing is slow to start**: shaders are JIT-compiled when the command buffer runs,
-  so a first build-and-trace submit with a cold Mesa shader cache can pass `fence.Wait`'s 5 s
-  timeout. Reading back after that timeout gives an all-miss map; that was the intermittent CI
-  "ray query miss", not a lavapipe traversal bug. Wait for `fence.Value` before reading back.
+  so a first build-and-trace submit with a cold Mesa shader cache can exceed `fence.Wait`'s 5 s
+  limit (6.1 s measured on a 2-vCPU CI runner). `fence.Wait` throws `TimeoutException` then; poll
+  `fence.Value` for such work. Reading back after the old, silent timeout gave an all-miss map;
+  that was the intermittent CI "ray query miss", not a lavapipe traversal bug.
 - **Ray tracing pipelines**: shader group identifier 32 B, SBT alignment 64 (NVIDIA VK, D3D12, WARP).
   `DispatchRays` and `DispatchRaysIndirect` give the same result as a ray query.
 - **D3D12 RT library per export.** NRI adds each `NriShaderDesc` as a DXIL library exporting
@@ -642,7 +643,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Same-submission timestamp copy on MoltenVK | reads 0 | Queries |
 | One DXIL library for a D3D12 RT pipeline | `CreateRayTracingPipeline` faults | RayTracing |
 | Single `Proceed()` in a ray query | software traversal may disagree | RayTracing |
-| Reading back after `fence.Wait` timed out (5 s) | all-zero results, e.g. an all-miss ray query map | RayTracing |
+| GPU work longer than 5 s behind `fence.Wait` | `TimeoutException` (NRI's `NRI_TIMEOUT_FENCE`); poll `fence.Value` | RayTracing |
 | D3D12 micromaps | debug error 1162; `Close` fails `E_INVALIDARG` | RayTracing |
 | Index-less OMM on Vulkan | VUID-...-pInfos-10904 (likely false positive) | RayTracing |
 | `TrySharedHandles` null | lavapipe (no external semaphore fd), MoltenVK (no fd handles) | SharedHandles |

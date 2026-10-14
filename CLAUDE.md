@@ -694,7 +694,7 @@ Both were on the Linux leg (lavapipe on GitHub hosts of varying CPU); the Window
 have no intermittent failures. Both are identified and fixed in the tests; neither was a driver
 bug.
 
-1. **"lavapipe ray query miss": a fence wait that gave up after 5 s. Fixed in the tests.**
+1. **"lavapipe ray query miss": a fence wait that gave up after 5 s. Fixed in the tests and the binding.**
    `RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS(VK)` on the Linux runner sometimes
    reported a miss; the last one (run 38551840987, EPYC 7763, probe step, 1 of 5) was a total miss,
    "(8,8) centre ... expected 1, got 0; 0 hits of 256". Cause: NRI's `Wait(fence, value)` is
@@ -710,17 +710,21 @@ bug.
    `MESA_SHADER_CACHE_DISABLE=true`, 1.0-1.3 s cold on 4 CPUs shared with 8 busy loops. Cold on one
    CPU shared with 14 busy loops: 5112 ms, "WaitSemaphores() timed out!", and exactly the CI failure,
    "(8,8) centre, inside the triangle: expected 1, got 0; 0 hits of 256", 3 runs of 3. A fresh GitHub
-   runner has a cold cache and 4 vCPUs, and `dotnet test` runs classes in parallel; that it crossed
-   5 s there is inferred from the identical symptom, not measured on a runner (the CI log did not
-   carry the messages). Why "never locally": the WSL cache was warm after the first run.
+   runner has a cold cache and 2 vCPUs (`nproc` in the CI log), and `dotnet test` runs classes in
+   parallel. First inferred from the identical symptom, then measured on the runner: with the fix in
+   place the cold-cache probe step recorded "GPU work took 6098 ms to reach fence" on the
+   placed/updated BLAS test. Why "never locally": the WSL cache was warm after the first run.
    Fix: `GpuWork.Wait(fence, value)` polls `NriFence.Value` until it is reached (fails the test after
    `GpuWork.GpuTimeout`, 2 min) and records any wait of 250 ms or more; every test that reads GPU
    results waits through it (`GpuWork.Run` too). With the fix the same one-CPU setup passes 3 of 3
    (13-15 s per run), and cold on 4 CPUs with 10 busy loops both ray tracing classes pass 40 of 40;
    the full suite with sync validation passes. `DeviceTests.Fence_*` keeps `NriFence.Wait` (it
    asserts `Value` after) and so does `AllocationTests` (it runs on NONE, whose fence never advances).
-   Open for the owner: the binding's `NriFence.Wait` says "blocks until the fence reaches value"
-   and does not; it could check `Value` after NRI's Wait and throw `TimeoutException` (dotnet/Core/NriFence.cs).
+   Binding fix (owner, 2026-10-14): `NriFence.Wait` reads `Value` after NRI's Wait and throws
+   `TimeoutException` when it is short (`dotnet/Core/NriFence.cs`; not on NONE, whose fence never
+   advances and whose Wait is a no-op). `DeviceTests.Fence_wait_throws_when_NRI_gives_up_before_the_value_is_reached`
+   waits on a never-signalled fence per GPU backend (about 5 s each; D3D12 times out the same way,
+   `WaitForSingleObjectEx(m_Event, NRI_TIMEOUT_FENCE)` in `FenceD3D12.hpp`).
    Ruled out on the way, with evidence: barriers and synchronization. The NRI barriers map to
    `ACCELERATION_STRUCTURE_BUILD` / `ACCELERATION_STRUCTURE_WRITE` -> `ACCELERATION_STRUCTURE_READ`
    at `BUILD | COMPUTE_SHADER | RAY_TRACING_SHADER` (`ConversionVK.h:418-446`,

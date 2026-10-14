@@ -24,7 +24,19 @@ public sealed unsafe class NriFence : NriObject
     public ulong Value => Device.Core.GetFenceValue(Raw);
 
     /// <summary>Blocks the calling thread until the fence reaches <paramref name="value"/>.</summary>
-    public void Wait(ulong value) => Device.Core.Wait(Raw, value);
+    /// <remarks>NRI waits at most 5 s (<c>NRI_TIMEOUT_FENCE</c>, Vulkan and D3D12), reports an ERROR
+    /// message and returns; this method then throws instead of returning with the fence still short
+    /// of the value. For work that may legitimately take longer, poll <see cref="Value"/>. On NONE
+    /// the fence never advances and the wait returns at once.</remarks>
+    /// <exception cref="TimeoutException">NRI gave up before the fence reached <paramref name="value"/>.</exception>
+    public void Wait(ulong value)
+    {
+        Device.Core.Wait(Raw, value);
+        if (Device.GraphicsApi == GraphicsAPI.NONE) return;
+        var reached = Value;
+        if (reached < value)
+            throw new TimeoutException($"the fence did not reach {value} within NRI's wait limit (NRI_TIMEOUT_FENCE, 5 s); it is at {reached}. Poll NriFence.Value for work that takes longer.");
+    }
 
     private protected override void Destroy(void* handle) => Device.Core.DestroyFence((Fence*)handle);
 }
