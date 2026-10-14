@@ -143,8 +143,28 @@ jobs:
           done
           echo "ray query: $pass of 5 runs passed"
 
+      # A SIGSEGV in the test host (seen once, exit 139 after 106 tests, 0 failed) loses the buffered
+      # test list, so the crashing test cannot be read from the log (CLAUDE.md: CI runners and
+      # flakes). createdump writes a minidump on the signal; the step after prints every thread's
+      # managed and native stack from it, which names the test and the native frame.
       - name: Test
-        run: dotnet test --solution PrismNRI.slnx -c Release --no-build
+        env:
+          DOTNET_DbgEnableMiniDump: "1"
+          DOTNET_DbgMiniDumpType: "1"
+          DOTNET_DbgMiniDumpName: /tmp/dumps/testhost-%p.dmp
+        run: |
+          mkdir -p /tmp/dumps
+          dotnet test --solution PrismNRI.slnx -c Release --no-build
+
+      - name: Crash stacks
+        if: failure()
+        run: |
+          ls /tmp/dumps/*.dmp >/dev/null 2>&1 || { echo "no minidump: the test host did not crash"; exit 0; }
+          dotnet tool install -g dotnet-dump >/dev/null
+          for d in /tmp/dumps/*.dmp; do
+            echo "== $d"
+            "$HOME/.dotnet/tools/dotnet-dump" analyze "$d" --command "clrstack -all -f" "exit" | head -300
+          done
 
   osx-arm64:
     runs-on: macos-latest

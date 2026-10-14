@@ -695,6 +695,13 @@ extensions.
   the test executable before the suite and prints the map on failure plus "ray query: N of 5 runs
   passed". The "Vulkan device and host CPU" step prints `vulkaninfo --summary`, the CPU model and
   `avx512f`. On the next miss, read those first.
+- **Linux test host SIGSEGV, seen once** (run 38546336866, a branch with no code changes): exit 139
+  after 106 of 239 tests, 58 passed, 48 skipped, 0 failed. The log ends after the
+  `WrapperExtensionTests` D3D12 skips; the classes that had not reported yet were MeshShader,
+  RayTracing, Query, SharedHandle, Video and others on lavapipe, and stdout buffering means the
+  crashing test is not the last printed one. The `Test` step now runs with `DOTNET_DbgEnableMiniDump`
+  and a failing job prints `clrstack -all -f` from the dump ("Crash stacks" step): read that to name
+  the test and the native frame. Re-run of the same commit: see the run's second attempt.
 - macOS job prints CPU, `sw_vers`, brew versions, the ICD, the layer manifest, and
   `maxSamplerLodBias|samplerMipLodBias|hostImageCopy|timestamp*|external_*` from `vulkaninfo`.
 - Windows runner: WARP for D3D12, no Vulkan ICD; Developer Mode off (the Agility measurement).
