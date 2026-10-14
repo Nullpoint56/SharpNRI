@@ -26,8 +26,9 @@ rest skip naming what is missing), and a triangle rendered offscreen and read ba
 and Vulkan on lavapipe and MoltenVK. A fourth job regenerates the interop layer and fails on drift.
 See [docs/findings.md](docs/findings.md) for what was measured along the way.
 
-On macOS this binding is Vulkan through MoltenVK: only the Base package exists there, NRI's Metal
-backend is not built, and the application provides the Vulkan loader and MoltenVK (findings §9).
+On macOS this binding is Vulkan through MoltenVK; NRI's Metal backend is not built (design §4.7).
+Only the Base package exists there, and the application provides the Vulkan loader and MoltenVK
+(findings §9).
 The library needs macOS 15 or newer, which is .NET 11's own floor.
 
 ### Coverage
@@ -35,17 +36,22 @@ The library needs macOS 15 or newer, which is .NET 11's own floor.
 All 114 functions of NRI's `CoreInterface` have a hand-written counterpart, and so do 12 of the 16
 headers in `Include/Extensions`: `DescriptorHeap`, `Imgui`, `LowLatency`, `MeshShader`,
 `RayTracing`, `SharedHandle` (patch 0002), `Streamer`, `SwapChain`, `Upscaler`, `Video`,
-`WrapperD3D12`, `WrapperVK`. `DeviceCreation` is `NriDevice.Create` and `NriAdapter`; `Helper` is
-`AllocateAndBindMemory` (over `CalculateAllocationNumber`) and `QueryVideoMemoryInfo`. Not wrapped:
+`WrapperD3D12`, `WrapperVK`. `DeviceCreation` and `Helper` are wrapped in full, `UploadData`
+included; so are `CreateAccelerationStructureVK` and `CreateAccelerationStructureD3D12` in the two
+wrappers. The twelve flat exports (`nriConvert*Format*`, `nriGetFormatProps`,
+`nriGetGraphicsAPIString`, `nriFitPipelineLayoutSettingsIntoDeviceLimits`, `nriReportLiveObjects`,
+the three annotation calls and `nriSetThreadName`) are managed static helpers. Every object also
+exposes its raw NRI handle, as an escape hatch to `PrismNRI.Native.NriApi`. The audit behind this
+is findings §10.
 
-- `NRIWrapperD3D11.h` and `NRIWrapperMetal.h`: those backends are not built (Vulkan and D3D12 are
-  the scope; Metal is passed OFF so macOS is Vulkan through MoltenVK).
-- Raw only, public in `PrismNRI.Native.NriApi`: `nriConvertDXGIFormatToNRI`, `nriConvertVKFormatToNRI`,
-  `nriConvertNRIFormatToDXGI`, `nriConvertNRIFormatToVK`, `nriGetFormatProps`,
-  `nriGetGraphicsAPIString`, `nriFitPipelineLayoutSettingsIntoDeviceLimits`, `nriReportLiveObjects`,
-  `nriBeginAnnotation`, `nriEndAnnotation`, `nriAnnotation`, `nriSetThreadName`.
-- Not reachable, since they take NRI handles the binding does not expose: `HelperInterface::UploadData`,
-  `CreateAccelerationStructureVK` and `CreateAccelerationStructureD3D12` in the two wrappers.
+Not bound, by decision (design §4.7, findings §10):
+
+- **D3D11** (`NRIWrapperD3D11.h`): a compatibility backend in which much of NRI's explicit model is
+  emulated or does nothing, with DXBC shaders and no ray tracing, mesh shaders or bindless.
+- **Metal** (`NRIWrapperMetal.h`): requires macOS 26 and a Metal 4 GPU, and cannot be tested on
+  the CI runner; macOS is Vulkan through MoltenVK.
+- **WebGPU**: NRI builds it on a prebuilt `wgpu-native` binary this repository would have to ship,
+  and NRI describes its limitations as similar to D3D11's.
 
 ## What you get
 

@@ -44,7 +44,7 @@ and to integer typedefs in C. There are no reference counts: one Create, one Des
 ownership hierarchy that lives in prose.
 
 Measured surface at v190 (`Include/NRI.h`, `NRIDescs.h`, `Extensions/*.h`, excluding D3D11, Metal
-and WebGPU wrappers, which are not built):
+and WebGPU wrappers, which are not built (§4.7)):
 
 | Kind | Count |
 |---|---:|
@@ -193,7 +193,8 @@ names, and are compiled against the Agility headers (`NRI_ENABLE_AGILITY_SDK_SUP
 contains the Agility runtime.
 
 On osx-arm64 only Base exists: `libNRI.dylib` with Vulkan (through MoltenVK), NONE, validation,
-ImGui and debug names, Metal passed OFF so the contents do not depend on the build machine's Xcode.
+ImGui and debug names; Metal is passed OFF (§4.7), which also keeps the contents independent of the
+build machine's Xcode.
 NRI would link the Vulkan loader into it on Apple; patch 0007 turns that off, so the library links
 only system libraries and `dlopen`s `libvulkan.1.dylib` at device creation, as on Linux (findings
 §9.1, §9.9; §5, row 0007).
@@ -246,7 +247,7 @@ Agility SDK the way an application with the Agility package does.
 ### 4.1 Pure managed, zero native code in this repository beyond `patches/`
 
 NRI has no prebuilt releases, so the native library is built from the pinned submodule by
-`tools/build-native.ps1` with Vulkan and D3D12 on, D3D11, Metal and WebGPU off, NRI's own
+`tools/build-native.ps1` with Vulkan and D3D12 on, D3D11, Metal and WebGPU off (§4.7), NRI's own
 validation and the NONE backend on, and no upscaler SDK in the default package (§3.6). The output is
 a per-RID payload under `runtimes/`, packed as the NuGet convention expects and copied flat beside a
 `ProjectReference` consumer; the upscaler build and the Agility runtime are separate packages. The repository contains no C++ of its own; what it contains is a set
@@ -314,6 +315,26 @@ bit predicts either, the device advertises both features, and a failing job on e
 everything else. So those two skip on the adapter name (`TestDevice.IsAppleParavirtualVK`), with
 the defect and the backtrace as the reason, and the timestamp test still records what a later
 submission reads. They are the only name-keyed skips; a physical Mac is not covered by them.
+
+### 4.7 Backends: Vulkan and D3D12 only; macOS is Vulkan through MoltenVK
+
+NRI v190 has five GPU backends. This binding builds two, plus NONE, and passes the other three OFF
+explicitly, so the library's contents never depend on the build machine. Decided 2026-10-14 after
+reading the D3D11 and Metal sources (findings §10.1, §10.2).
+
+- **D3D11.** A compatibility backend: NRI's own README promises it "as much as possible", and in
+  it memory objects, barriers, queues, register spaces and pipeline caches are emulated or do
+  nothing. It would add DXBC as a third shader bytecode to the engine's and the tests' shader
+  pipelines, and it has no ray tracing, mesh shaders, bindless, shared handles or DLSS. Nothing in
+  the engine needs it.
+- **Metal.** Merged into NRI three weeks before this decision. It requires macOS 26 and a
+  Metal 4 GPU family, against this library's macOS 15 floor (findings §9.9); testing it in CI
+  needs Apple's shader converter, which the runner does not have, or a native Metal copy of every
+  test shader; and the paravirtual CI device may not expose the family at all. macOS is therefore
+  Vulkan through MoltenVK, the configuration findings §9 validated.
+- **WebGPU.** NRI links a prebuilt `wgpu-native` binary that this repository would have to ship,
+  enables the backend by default only in its own CI, and describes it as having limitations
+  similar to D3D11.
 
 ## 5. Patches
 

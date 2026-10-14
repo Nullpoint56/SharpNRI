@@ -671,3 +671,112 @@ two paravirtual-device defects (9.5, 9.6). The tests take about 4 seconds.
   version that can matter and is what the script passes.
 - **The sampler bias adaptation stays.** The test asks for `min(0.5, samplerLodBiasMax)` and
   records both numbers (§9.4); the guide's traps table carries the consumer-facing rule.
+
+## 10. Surface audit
+
+With three platforms green, the question was what of NRI's surface the binding does not reach,
+and which of the backends it does not build it should. An audit of the managed layer against the
+headers found every function of every in-scope interface wrapped except three:
+`HelperInterface::UploadData`, `CreateAccelerationStructureVK` and
+`CreateAccelerationStructureD3D12`, which take NRI handles the binding did not expose. Twelve
+flat exports were reachable only raw, through `PrismNRI.Native.NriApi`. All fifteen are closed in
+§10.3.
+
+The backends NRI has and this library does not build are D3D11, Metal and WebGPU. WebGPU needs no
+source reading: NRI links a prebuilt `wgpu-native` binary that this repository would have to ship,
+enables the backend by default only under GitHub Actions (`CMakeLists.txt:130`, `${GITHUB_CI}`),
+and describes it as having "limitations similar to D3D11" (`Include/NRIDescs.h:103`). It is out.
+D3D11 and Metal were read in full before deciding.
+
+Paths below are relative to `nri/`. Line numbers are of the tree the build sees, with `patches/`
+applied; patch 0007 inserts three lines at `CMakeLists.txt:126`, so upstream's numbers past that
+point are three lower.
+
+### 10.1 NRI's Metal backend, assessed
+
+`Source/Metal`: 40 files, 11,066 lines, written by an outside contributor and merged through NRI
+PR #271 on 2026-10-09 as part of v190 (the pinned f991278). Its "Metal:" commits are dated
+2026-09-28, with audit and style fixes on October 8 and 9. NRI's README lists "Metal 4 (native,
+through metal-cpp)" (`README.md:27`) with no experimental label.
+
+- **Build.** "Metal 4 requires Xcode 26 or newer (AppleClang 17 or newer)" (`CMakeLists.txt:77-82`).
+  The internal shaders are precompiled, so the backend also needs the Metal toolchain
+  (`xcrun -sdk macosx metal --version` is probed, `:84-98`). metal-cpp is fetched from
+  apple/metal-cpp, commented "the backend requires macOS 26+" (`:230-240`); `nri_embed_metallib`
+  compiles with `-std=metal4.0 -mmacosx-version-min=26.0` (`:1023-1049`). NRI sets no
+  `CMAKE_OSX_DEPLOYMENT_TARGET`. The Metal Shader Converter (MSC) is optional and defaults ON when
+  found (`:100-120`); the README asks for 4.0.1 (`README.md:87`).
+- **Runtime floor.** macOS 26 (`Include/NRIDescs.h:104`) and `MTL::GPUFamilyMetal4`: an adapter
+  without the family is not enumerated (`Source/Metal/ImplMetal.cpp:62`) and device creation
+  refuses it (`Source/Metal/DeviceMetal.hpp:85`).
+- **Implemented.** Core, Helper, Streamer, SwapChain, DescriptorHeap, MeshShader, RayTracing,
+  Upscaler (MetalFX, `Source/Shared/UpscalerInterface.hpp`), Imgui and WrapperMetal (four
+  functions, `Include/Extensions/NRIWrapperMetal.h:58-66`) (`Source/Metal/DeviceMetal.h:71-80`).
+  LowLatency, Video and SharedHandle are not, and fall back to `UNSUPPORTED` in
+  `Source/Shared/DeviceBase.h`.
+- **Holes inside what is implemented.** All thirteen micromap functions are stubs
+  (`Source/Metal/ImplMetal.cpp:876-925`). `CmdSetShadingRate` records `UNSUPPORTED`
+  (`Source/Metal/CommandBufferMetal.hpp:599-601`). Query pools are timestamp, occlusion and the two
+  acceleration-structure sizes only; pipeline statistics and micromap sizes are `UNSUPPORTED`
+  (`Source/Metal/QueryPoolMetal.hpp:13-52`). `atomicsI64` is false (`DeviceMetal.hpp:559`), border
+  colours are Metal's three fixed ones (`DescriptorMetal.hpp:184-189`), and `CmdResolveTexture`
+  resolves colour only (`CommandBufferMetal.hpp:1575`). `enableGraphicsAPIValidation` is ignored with
+  a warning to use `MTL_DEBUG_LAYER=1` (`DeviceMetal.hpp:55-56`).
+- **Shaders.** Without MSC, DXIL is rejected (`Source/Metal/PipelineMetal.hpp:1031-1034`), ray
+  tracing pipelines do not exist (`:1539-1541`; with MSC they are DXIL-only, `:1169-1180`), and
+  geometry and tessellation, which only MSC emulates (`:535`), are gone. What remains is native
+  `.metallib` written against `Include/NRI.metal`'s ABI, or DXIL converted offline into a ShaderMake
+  bundle (`Include/NRIDescs.h:104`).
+- **CI.** `macos-latest` has Xcode 26 and the Metal toolchain, which is why NRI defaults the
+  backend ON there (§9.1); MSC is not on the image. Whether the Apple Paravirtual GPU reports
+  `GPUFamilyMetal4` was not measured; if it does not, no Metal adapter enumerates. The two
+  paravirtual defects (§9.5, §9.6) are in the same Metal driver this backend would talk to.
+
+The decision: **out.** The backend is three weeks old. Testing it in CI needs either Apple's
+shader converter, which is not on the runner, or a native Metal copy of every test shader. Its
+floor is macOS 26 against the library's 15.0 (§9.9), and the CI device may not expose it at all.
+macOS support in this binding is Vulkan through MoltenVK, which is what §9 validated.
+
+### 10.2 NRI's D3D11 backend, assessed
+
+NRI states its goal as "Generalization and unification of D3D12 and VK" (`README.md:8`), with
+"D3D11 support (as much as possible)" (`:13`); its entity table maps `CommandAllocator`, `Memory`,
+`DescriptorSet`, `DescriptorPool`, `PipelineLayout` and `AccelerationStructure` to N/A on D3D11
+(`:259-268`). The backend targets "feature set 11.1" (`Include/NRIDescs.h:100`) and is ON by
+default on Windows (`CMakeLists.txt:122`).
+
+- **Core is complete in name.** All 114 entries are assigned (`Source/D3D11/ImplD3D11.cpp:768-931`),
+  but queue annotations and `ResetQueries` are empty (`:465-475`), `GetCalibratedTimestamps`
+  returns 0 and 0 (`:481-484`), `GetBufferDeviceAddress` returns 0 (`:534-536`),
+  `GetDescriptorSetOffsets` returns 0 and 0 (`:286-289`), and the pipeline cache is a fake "to
+  honor support" (`PipelineCacheD3D11.h:7`).
+- **Extensions.** Helper, Streamer and Imgui are the generic implementations (`ImplD3D11.cpp:967`,
+  `:1112`, `:1013`). SwapChain is full; `WaitForPresent` is `UNSUPPORTED` without a waitable swap
+  chain (`SwapChainD3D11.hpp:183-193`). LowLatency is NVIDIA only (`DeviceD3D11.hpp:633`).
+  Upscaler offers NIS alone: FSR is D3D12 and Vulkan only, XeSS D3D12 only, DLSS needs
+  `tiers.rayTracing` (`Source/Shared/UpscalerInterface.hpp:672-689`). DescriptorHeap, RayTracing,
+  MeshShader, Video and SharedHandle are not implemented. WrapperD3D11 is full (three functions,
+  `ImplD3D11.cpp:1245`), and `nriCreateDeviceFromD3D11Device` exists (`Source/Creation/Creation.cpp:1018`).
+- **The explicit model is emulated.** `Memory` records a location and a priority and nothing else
+  (`MemoryD3D11.h:36-41`); `Bind*Memory` creates a committed resource per object and ignores the
+  offset (`DeviceD3D11.hpp:1079-1101`), so there is no aliasing (`resourceAliasing`,
+  "unsupported only in D3D11", `Include/NRIDescs.h:2297`). Barriers do nothing except NVAPI or AGS
+  UAV overlap (`CommandBufferD3D11.hpp:728-802`; the AGS path carries "TODO: verify that this code
+  actually works on AMD!"), while `enhancedBarriers` is advertised, "don't care, but advertise
+  support" (`DeviceD3D11.hpp:630`). Command buffers are recorded and replayed on the immediate
+  context unless NVIDIA's deferred contexts are available (`DeviceD3D11.hpp:370-374`). Every queue
+  is the immediate context (NRI's `README.md:257`; queues created at `DeviceD3D11.hpp:384-396`),
+  and every submit takes the device-wide lock (`QueueD3D11.hpp:3-4`). Fences need `ID3D11Device5`, otherwise an EVENT query stands in and
+  `QueueWait` does nothing (`FenceD3D11.hpp:3-51`).
+- **Binding model.** A range's slot is its register index; the register space is not read
+  (`PipelineLayoutD3D11.hpp:74`). Root constants are written whole, the offset is not read
+  (`:178-182`). `variableDescriptorNum` is `UNSUPPORTED` (`DescriptorPoolD3D11.hpp:24-25`), and no
+  bindless tier is reported. Shaders are DXBC, shader model 5.1 (`DeviceD3D11.hpp:472`, `:624`);
+  limits are 16 samplers, 14 constant buffers, 128 SRVs and 64 UAVs, D3D11's slot counts (`:511-514`).
+- **Maturity.** 35 commits have touched `Source/D3D11` since 2026-07-14, still with "fixes"
+  subjects.
+
+The decision: **out.** It is a compatibility backend in which half of the explicit model
+silently does nothing. It would add a third shader bytecode, DXBC, to the engine's and the
+tests' shader pipelines, and it has no ray tracing, mesh shaders, bindless, shared handles or
+DLSS. Nothing in the engine needs it.
