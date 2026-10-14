@@ -288,4 +288,41 @@ public sealed class DescriptorTests
         Assert.Equal(2, device.LiveObjects);
         Assert.DoesNotContain(messages, m => m.IsError);
     }
+
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Sets_allocated_into_a_span_are_values_equal_by_handle(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+
+        using var layout = device.CreatePipelineLayout(LayoutDesc());
+        using var pool = device.CreateDescriptorPool(PoolDesc(4));
+        using var contents = new Contents(device);
+
+        var sets = new NriDescriptorSet[3]; // caller-owned storage, reused per frame in practice
+        pool.AllocateDescriptorSets(layout, 0, sets.AsSpan());
+        var single = pool.AllocateDescriptorSet(layout, 0);
+
+        NriDescriptorSet[] all = [.. sets, single];
+        Assert.All(all, s => Assert.Same(pool, s.Pool));
+        Assert.All(all, s => Assert.NotEqual(0, s.NriHandle));
+        Assert.Equal(4, all.Select(s => s.NriHandle).Distinct().Count());
+
+        var copy = sets[1];
+        Assert.True(copy == sets[1]);
+        Assert.Equal(sets[1].GetHashCode(), copy.GetHashCode());
+        Assert.True(sets[0] != sets[1]);
+        Assert.True(default(NriDescriptorSet) != single);
+
+        foreach (var set in all) contents.WriteInto(set);
+        Run(device, cmd =>
+        {
+            cmd.SetPipelineLayout(BindPoint.COMPUTE, layout);
+            cmd.SetDescriptorSet(0, copy, BindPoint.COMPUTE);
+        }, pool);
+
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
 }

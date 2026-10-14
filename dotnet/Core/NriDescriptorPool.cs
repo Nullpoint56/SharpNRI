@@ -2,7 +2,10 @@
 //
 // Descriptor sets are not destroyed individually: ResetDescriptorPool wipes every set the pool
 // has handed out, and destroying the pool does the same. So NriDescriptorSet is a plain handle
-// that is valid until its pool is reset or disposed, and nothing here tries to track that.
+// that is valid until its pool is reset or disposed, and nothing here tries to track that. It is
+// a struct so that a frame which resets its pool and allocates its sets again allocates nothing
+// on the managed heap: AllocateDescriptorSets(..., Span<NriDescriptorSet>) and
+// AllocateDescriptorSet write into caller-owned or stack storage.
 
 using PrismNRI.Native;
 
@@ -25,21 +28,42 @@ public sealed unsafe class NriDescriptorPool : NriObject
     /// Allocates <paramref name="instanceNum"/> sets with the layout of set
     /// <paramref name="setIndex"/> in <paramref name="pipelineLayout"/>.
     /// <paramref name="variableDescriptorNum"/> sizes a <c>VARIABLE_SIZED_ARRAY</c> range.
+    /// Allocates the returned array; per frame, use
+    /// <see cref="AllocateDescriptorSets(NriPipelineLayout, uint, Span{NriDescriptorSet}, uint)"/>.
     /// </summary>
     public NriDescriptorSet[] AllocateDescriptorSets(NriPipelineLayout pipelineLayout, uint setIndex, uint instanceNum = 1, uint variableDescriptorNum = 0)
     {
-        ArgumentNullException.ThrowIfNull(pipelineLayout);
-        var handles = stackalloc DescriptorSet*[checked((int)instanceNum)];
-        Device.Check(Device.Core.AllocateDescriptorSets(Raw, pipelineLayout.Raw, setIndex, handles, instanceNum, variableDescriptorNum), "AllocateDescriptorSets");
-
-        var sets = new NriDescriptorSet[instanceNum];
-        for (var i = 0; i < instanceNum; i++) sets[i] = new NriDescriptorSet(this, handles[i]);
+        var sets = new NriDescriptorSet[checked((int)instanceNum)];
+        AllocateDescriptorSets(pipelineLayout, setIndex, sets, variableDescriptorNum);
         return sets;
     }
 
-    /// <summary>One set; see <see cref="AllocateDescriptorSets"/>.</summary>
-    public NriDescriptorSet AllocateDescriptorSet(NriPipelineLayout pipelineLayout, uint setIndex, uint variableDescriptorNum = 0) =>
-        AllocateDescriptorSets(pipelineLayout, setIndex, 1, variableDescriptorNum)[0];
+    /// <summary>
+    /// Allocates <c>sets.Length</c> sets with the layout of set <paramref name="setIndex"/> in
+    /// <paramref name="pipelineLayout"/> into <paramref name="sets"/>. No heap allocation: the
+    /// per-frame form. <paramref name="variableDescriptorNum"/> sizes a
+    /// <c>VARIABLE_SIZED_ARRAY</c> range. An empty span calls nothing.
+    /// </summary>
+    public void AllocateDescriptorSets(NriPipelineLayout pipelineLayout, uint setIndex, Span<NriDescriptorSet> sets, uint variableDescriptorNum = 0)
+    {
+        ArgumentNullException.ThrowIfNull(pipelineLayout);
+        if (sets.IsEmpty) return;
+        var handles = stackalloc DescriptorSet*[sets.Length];
+        Device.Check(Device.Core.AllocateDescriptorSets(Raw, pipelineLayout.Raw, setIndex, handles, (uint)sets.Length, variableDescriptorNum), "AllocateDescriptorSets");
+        for (var i = 0; i < sets.Length; i++) sets[i] = new NriDescriptorSet(this, handles[i]);
+    }
+
+    /// <summary>
+    /// One set; see <see cref="AllocateDescriptorSets(NriPipelineLayout, uint, uint, uint)"/>.
+    /// No heap allocation.
+    /// </summary>
+    public NriDescriptorSet AllocateDescriptorSet(NriPipelineLayout pipelineLayout, uint setIndex, uint variableDescriptorNum = 0)
+    {
+        ArgumentNullException.ThrowIfNull(pipelineLayout);
+        var handles = stackalloc DescriptorSet*[1];
+        Device.Check(Device.Core.AllocateDescriptorSets(Raw, pipelineLayout.Raw, setIndex, handles, 1, variableDescriptorNum), "AllocateDescriptorSets");
+        return new NriDescriptorSet(this, handles[0]);
+    }
 
     /// <summary>Invalidates every set allocated from this pool.</summary>
     public void Reset() => Device.Core.ResetDescriptorPool(Raw);
@@ -48,7 +72,12 @@ public sealed unsafe class NriDescriptorPool : NriObject
 }
 
 /// <summary>A descriptor set. Valid until its pool is reset or disposed.</summary>
-public sealed unsafe class NriDescriptorSet
+/// <remarks>
+/// A value: the NRI handle and the pool it came from, nothing to dispose. Equality is by handle
+/// (and pool), so copies of one set are equal. <c>default</c> is not a set: it has no pool, and NRI
+/// validation rejects its null handle wherever it is passed.
+/// </remarks>
+public readonly unsafe struct NriDescriptorSet : IEquatable<NriDescriptorSet>
 {
     private readonly DescriptorSet* _handle;
 
@@ -129,4 +158,15 @@ public sealed unsafe class NriDescriptorSet
         Device.Core.GetDescriptorSetOffsets(_handle, &resource, &sampler);
         return (resource, sampler);
     }
+
+    /// <summary>Same handle from the same pool.</summary>
+    public bool Equals(NriDescriptorSet other) => _handle == other._handle && ReferenceEquals(Pool, other.Pool);
+
+    public override bool Equals(object? obj) => obj is NriDescriptorSet other && Equals(other);
+
+    public override int GetHashCode() => ((nint)_handle).GetHashCode();
+
+    public static bool operator ==(NriDescriptorSet left, NriDescriptorSet right) => left.Equals(right);
+
+    public static bool operator !=(NriDescriptorSet left, NriDescriptorSet right) => !left.Equals(right);
 }

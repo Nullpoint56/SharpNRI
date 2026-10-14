@@ -7,7 +7,7 @@
 // leaf structs are the generated ones. PrismNRI pins and marshals at the create call.
 //
 // They live in PrismNRI.Descs because a library that projects shader reflection into a pipeline
-// layout (PrismSlang.NRI) has to construct them without a device or the native library in hand.
+// layout has to construct them without a device or the native library in hand.
 
 using PrismNRI.Native;
 

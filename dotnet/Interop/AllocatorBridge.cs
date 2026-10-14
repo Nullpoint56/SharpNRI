@@ -109,14 +109,22 @@ internal sealed unsafe class AllocatorBridge : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static void* OnAllocate(void* userArg, nuint size, nuint alignment)
     {
-        try { return FromUserArg(userArg)?.Allocate(size, alignment); }
+        try
+        {
+            var allocator = FromUserArg(userArg);
+            return allocator is null ? null : allocator.Allocate(size, alignment);
+        }
         catch { return null; }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static void* OnReallocate(void* userArg, void* memory, nuint size, nuint alignment)
     {
-        try { return FromUserArg(userArg)?.Reallocate(memory, size, alignment); }
+        try
+        {
+            var allocator = FromUserArg(userArg);
+            return allocator is null ? null : allocator.Reallocate(memory, size, alignment);
+        }
         catch { return null; }
     }
 
