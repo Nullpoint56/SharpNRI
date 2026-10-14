@@ -142,8 +142,9 @@ From the owner. Do not relitigate.
   capable device cannot skip by accident. Nothing runs on NONE unless NONE is what it measures
   (NONE validates nothing). Exceptions keyed on a device name or backend must quote a measured
   defect (see Tests and skips).
-- **Don't flood CI runners.** Test locally first (Windows directly, Linux via WSL), push when green.
-  CI is deliberately small: four jobs, cancel-in-progress.
+- **Don't flood CI runners.** Test locally first (Windows directly, Linux via WSL), push when green,
+  batch commits: every push to a pull request is a full run, billed per job in whole minutes with
+  macOS at about ten times Linux (Actions budget). No release dry runs.
 - **Backends are Vulkan and D3D12 (+ NONE).** Passed OFF explicitly so contents never depend on the
   build machine.
   - D3D11: compatibility backend; memory, barriers, queues, register spaces and pipeline cache are
@@ -777,21 +778,67 @@ bug.
    every object, and no test calls `GetApi` any more (Wrappers caveat). The minidump and
    "Crash stacks" CI steps stay in place for the next host crash.
 
-- Four jobs in `.github/workflows/ci.yml`: `win-x64` (WARP + NONE), `linux-x64` (lavapipe, stock 1.3
-  loader, 1.4.363 layer), `osx-arm64` (MoltenVK), `regen` (ClangSharp drift). `_deps` cached per
-  (NRI version, patches hash).
+- `.github/workflows/ci.yml`: `gate` (Linux, seconds), then `win-x64` (WARP + NONE), `linux-x64`
+  (lavapipe, stock 1.3 loader, 1.4.363 layer, pinned `ubuntu-24.04`), `osx-arm64` (MoltenVK). The
+  ClangSharp drift check is `regen.yml`, run only when `nri`, `patches/`, the generator,
+  `dotnet/Native/` or the pin change. How runs are shaped and what they cost: Actions budget.
 - **GCC 13 rejects NRI**: `-Werror` + `maybe-uninitialized` at `Source/Shared/HelperInterface.h:44`
   (`MemoryHeap`), only at `-O2`+; upstream's Ubuntu job configures without `CMAKE_BUILD_TYPE`, so
   unoptimised, so green. Patch 0005 fixes it (GCC 13.3.0 builds and the suite matches clang's
   numbers). `build-native.ps1` still picks clang on Linux when installed and `CXX` unset; CI installs
   `clang`, not `g++`.
-- **The "Ray query probe" step** (`linux-x64`, `continue-on-error`) is a diagnostic, not the gate:
-  it runs the ray query test five times through the test executable before the suite and prints the
-  map on failure plus "ray query: N of 5 runs passed". The `Test` step is what fails the job. The
-  "Vulkan device and host CPU" step prints `vulkaninfo --summary`, the CPU model and `avx512f`. On
-  the next miss, read those first.
+- **"Ray tracing, cold shader cache"** (`linux-x64`) runs the two ray tracing classes with
+  `MESA_SHADER_CACHE_DISABLE=true` before the suite and prints every fence wait of 250 ms or more;
+  the `Test` step runs the whole suite. The "Vulkan device and host CPU" step prints `vulkaninfo
+  --summary`, the CPU model, `nproc` and `avx512f`.
 - macOS job prints CPU, `sw_vers`, brew versions, the ICD, the layer manifest, and
   `maxSamplerLodBias|samplerMipLodBias|hostImageCopy|timestamp*|external_*` from `vulkaninfo`.
 - Windows runner: WARP for D3D12, no Vulkan ICD; Developer Mode off (the Agility measurement).
-- `regen` installs ClangSharpPInvokeGenerator 21.1.8.4 with .NET 10 + 11 and fails with the first 120
-  diff lines on drift.
+- `regen` installs ClangSharpPInvokeGenerator 21.1.8.4 with .NET 10 + 11 (90 s of its 139 s on the
+  Windows runner) and fails with the first 120 diff lines on drift.
+
+### Actions budget
+
+The repository is private, so hosted minutes come out of the account's monthly allowance, which
+the account's other repositories share. On 2026-10-14 it ran out mid-release: GitHub stopped
+starting jobs ("The job was not started because recent account payments have failed or your
+spending limit needs to be increased"); the v0.3.0-alpha tag run built its native payloads and
+failed at `pack`. That release was published by hand from a complete run of the identical tree:
+its `nupkg` and `zips-*` artifacts downloaded through the API, a draft release created with
+`generate_release_notes`, the eleven assets uploaded, read back and compared by SHA-256, then
+published. Artifacts are kept 90 days.
+
+- Each job is billed in whole minutes, rounded up. Prices from the account's usage report, USD per
+  minute: Linux 0.006, Windows 0.010, macOS 0.062.
+- October 1 to 14, 48 runs, every job measured (`actions/runs/<id>/jobs`): macOS 52% of the cost
+  with 13% of the minutes, Windows 38%, Linux 10%. By trigger: pull request runs 59%, CI on master
+  pushes 23% (each merge repeated its pull request's run on the same tree), release dry runs 11%,
+  tag runs 6%. By job: CI macOS 42%, CI Windows 20%, `regen` 13%, CI Linux 8%.
+- A CI job before the payload cache, seconds: Windows 179 (native build 63, setup-dotnet 33,
+  managed build 31, tests 27), Linux 138 (native 39), macOS 62 (native 13, which made it two billed
+  minutes), `regen` 139.
+- What answers each:
+  - **`gate`** (`tools/ci/ci-gate.ps1`): pull requests and manual runs test everything. A push to
+    master whose tree equals the head of a merged pull request that passed CI as a `pull_request`
+    run is not tested again; a platform then only builds and caches the payload when master has no
+    cache for its key, because a pull request restores master's caches and its own are visible to
+    it alone. A direct push, a merge of a branch behind master, or an API error runs everything.
+    The decision and its reason are in the run summary. Run against October's history: the five
+    pull-request merges come out tested, the one direct push runs everything.
+  - **Native payload cache**: key `native-<rid>-<20 hex>` over the git object ids of `nri`,
+    `patches`, `tools/build-native.ps1`, `tools/cmake`, `Directory.Build.props`,
+    `THIRD-PARTY-NOTICES.md` and `ci.yml`, identical on every OS whatever the line endings
+    (measured: same key from the Windows CRLF and the WSL LF checkout). Saved right after a build,
+    before the tests, so a red test run keeps it. A restored payload gets
+    `tools/ci/apply-patches.ps1`, because NativeAbiTests compile against the patched `nri/Include`.
+    Measured locally: a fresh clone with a restored payload passes the whole suite on NVIDIA
+    Windows (244, 7 skipped: the two extra are the Upscalers contracts, never built in CI) and on
+    lavapipe (244, 122 skipped).
+  - **`paths-ignore`**: Markdown, `docs/`, the other workflows, `tools/consume/`, the generator.
+  - **Timeouts**: gate 5, Windows 25, Linux 20, macOS 15 minutes; release jobs 10 to 45. They were
+    60 to 120: one hung macOS job could bill 60 macOS minutes, 3.72 USD at list price.
+  - **No release dry run**: a tag run that fails publishes nothing; fix, then move the tag or use
+    "Re-run failed jobs".
+- **Ubuntu pinned to 24.04** in the Linux CI leg and the release's Linux build and consume job:
+  `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19. A payload built there needs its newer glibc,
+  and its 1.4 loader would stop exercising patch 0004. Moving is a decision.

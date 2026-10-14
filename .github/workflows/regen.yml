@@ -1,0 +1,78 @@
+name: regen
+
+# The checked-in L0 layer must be exactly what the pinned headers generate. Only the headers (the
+# nri/ submodule and patches/), the generator script, the pin and dotnet/Native itself can make
+# this fail, so it runs only when one of them changes. The generator writes LF whatever the host,
+# so any runner compares equal; Windows is where ClangSharp is exercised for releases.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "nri"
+      - "patches/**"
+      - "tools/generate-native.ps1"
+      - "dotnet/Native/**"
+      - "Directory.Build.props"
+      - ".github/workflows/regen.yml"
+  pull_request:
+    paths:
+      - "nri"
+      - "patches/**"
+      - "tools/generate-native.ps1"
+      - "dotnet/Native/**"
+      - "Directory.Build.props"
+      - ".github/workflows/regen.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: regen-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+
+jobs:
+  regen:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          # ClangSharpPInvokeGenerator 21.1.8.4 targets net10.0.
+          dotnet-version: |
+            10.0.x
+            11.0.x
+
+      - name: Install ClangSharpPInvokeGenerator
+        shell: pwsh
+        run: |
+          dotnet tool install --global ClangSharpPInvokeGenerator --version 21.1.8.4
+          "$env:USERPROFILE\.dotnet\tools" >> $env:GITHUB_PATH
+
+      - name: Regenerate
+        shell: pwsh
+        run: ./tools/generate-native.ps1
+
+      - name: Fail on drift
+        shell: pwsh
+        run: |
+          # git status alone is not the test: with core.autocrlf on the Windows runner it reports
+          # the regenerated files as modified on line endings while their content is unchanged.
+          # Re-adding runs the clean filter, so diff --cached compares content.
+          git add -A -- dotnet/Native
+          git --no-pager diff --cached --stat -- dotnet/Native
+          git diff --cached --quiet -- dotnet/Native
+          if ($LASTEXITCODE -ne 0) {
+            git --no-pager diff --cached -- dotnet/Native | Select-Object -First 120
+            throw "dotnet/Native is out of date with the pinned NRI headers. Run tools/generate-native.ps1 and commit."
+          }
