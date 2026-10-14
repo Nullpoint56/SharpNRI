@@ -102,7 +102,7 @@ native payload.
 
 A device per backend with NRI validation and the backend validation layer on, every message
 recorded, software adapters under CI, and a reason string when a backend is absent. No test
-framework dependency. PrismSlang's NRI projection and the engine's renderer tests build on it.
+framework dependency. PrismSlang's NRI projection and the engine's renderer tests will build on it.
 
 ### Native packages — pick one NRI, optionally add Agility
 

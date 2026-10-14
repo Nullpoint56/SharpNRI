@@ -104,8 +104,13 @@ var requirement = texture.GetMemoryDesc(MemoryLocation.DEVICE);
 using var memory = device.AllocateMemory(new AllocateMemoryDesc { size = requirement.size, type = requirement.type });
 device.BindTextureMemory(texture, memory);
 
-// Or let NRI group a set of resources into as few allocations as it can.
-NriMemory[] allocations = device.AllocateAndBindMemory(MemoryLocation.DEVICE, [texture], [vertices]);
+// Or let NRI group unbound resources into as few allocations as it can.
+using var other = device.CreateTexture(new TextureDesc
+{
+    type = TextureType.TEXTURE_2D, usage = TextureUsageBits.SHADER_RESOURCE,
+    format = Format.RGBA8_UNORM, width = 256, height = 256,
+});
+NriMemory[] allocations = device.AllocateAndBindMemory(MemoryLocation.DEVICE, [other], []);
 ```
 
 Dispose resources before the memory they are bound into; NRI's validation refuses the other

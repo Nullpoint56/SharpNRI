@@ -194,8 +194,9 @@ contains the Agility runtime.
 
 On osx-arm64 only Base exists: `libNRI.dylib` with Vulkan (through MoltenVK), NONE, validation,
 ImGui and debug names, Metal passed OFF so the contents do not depend on the build machine's Xcode.
-NRI links the Vulkan loader into it on Apple, so unlike the other platforms the library needs a
-loader present to load at all (findings §9.1).
+NRI would link the Vulkan loader into it on Apple; patch 0007 turns that off, so the library links
+only system libraries and `dlopen`s `libvulkan.1.dylib` at device creation, as on Linux (findings
+§9.1, §9.9; §5, row 0007).
 
 **A consumer takes exactly one of `PrismNRI`'s native assets and `PrismNRI.Native.Upscalers`.** Both
 contain a file called `NRI.dll` (`libNRI.so`, `libNRI.dylib`) at the same package path, and NuGet's conflict
