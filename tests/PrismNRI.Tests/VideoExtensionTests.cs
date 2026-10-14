@@ -148,6 +148,143 @@ public sealed class VideoExtensionTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// One H.264 IDR frame encoded on the video encode queue at constant QP from an NV12 picture
+    /// (contents left undefined): the feedback must report written bytes, and the bitstream copied back
+    /// on the graphics queue must open with an Annex-B start code and an H.264 NAL unit.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void An_H264_IDR_frame_encodes_into_the_bitstream_buffer(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var adapter = TestDevice.AdapterFor(backend.Api);
+        Assert.SkipWhen(adapter is null || adapter.QueueCount(QueueType.VIDEO_ENCODE) == 0, $"{backend}: the adapter has no video encode queue");
+        var messages = new List<NriMessage>();
+        using var device = CreateWithVideoQueues(backend.Api, messages);
+        Assert.SkipWhen(device.TryVideo is null, $"{backend}: no video (features.video is false)");
+        var video = device.Video;
+        var encodeQueue = device.GetQueue(QueueType.VIDEO_ENCODE);
+        _ = device.GetQueue(QueueType.GRAPHICS); // every queue before any resource, so Vulkan sharing is settled
+
+        var probe = new VideoSessionDesc { type = VideoSessionType.ENCODE, codec = VideoCodec.H264, format = Format.NV12_UNORM, width = 256, height = 256, maxReferenceNum = 1 };
+        VideoCapabilities caps;
+        try
+        {
+            caps = video.GetVideoCapabilities(probe);
+        }
+        catch (NriUnsupportedException)
+        {
+            Assert.Skip($"{backend}: no H.264 NV12 video encode support");
+            return;
+        }
+        var width = (ushort)GpuWork.Align(Math.Max(256u, caps.widthMin), 16);
+        var height = (ushort)GpuWork.Align(Math.Max(256u, caps.heightMin), 16);
+        var sessionDesc = probe with { width = width, height = height };
+        caps = video.GetVideoCapabilities(sessionDesc);
+        GpuWork.Record($"{backend}: H.264 encode {width}x{height}: resolve on {caps.resolvedMetadataQueueType}, min {caps.widthMin}x{caps.heightMin}, bitstream alignment {caps.bitstreamOffsetAlignment}/{caps.bitstreamSizeAlignment}, "
+            + $"metadata {caps.metadataSize} B, resolved {caps.resolvedMetadataSize} B, feedback {caps.encodeFeedbackSupported != 0} (resolve {caps.encodeFeedbackResolveRequired != 0}), DPB array {caps.dpbTextureArrayRequired != 0}");
+        Assert.SkipWhen(caps.encodeFeedbackSupported == 0, $"{backend}: H.264 encode without feedback; the written size cannot be measured");
+        // Measured on the RTX 4070 SUPER: the Vulkan encode records and submits without a validation
+        // error, but its feedback query never becomes available: the resolve's
+        // vkCmdCopyQueryPoolResults with WAIT never completes (NRI's fence wait times out), the
+        // feedback reads 0 bytes, and the device is left with work pending. Not run until understood.
+        Assert.SkipWhen(backend.Api == GraphicsAPI.VK, "VK: the H.264 encode feedback query never becomes available and the resolve hangs (measured, findings 10.3)");
+
+        TextureDesc Picture(TextureUsageBits usage) => new()
+        {
+            type = TextureType.TEXTURE_2D, usage = usage, format = Format.NV12_UNORM, videoCodec = VideoCodec.H264,
+            width = width, height = height, depth = 1, mipNum = 1, layerNum = (ushort)Math.Max(1u, caps.dpbTextureArrayRequired != 0 ? caps.dpbTextureArrayMinLayerNum : 1), sampleNum = 1,
+        };
+        using var source = device.CreateCommittedTexture(MemoryLocation.DEVICE, Picture(TextureUsageBits.VIDEO_ENCODE) with { layerNum = 1 });
+        using var reconstructed = device.CreateCommittedTexture(MemoryLocation.DEVICE, Picture(TextureUsageBits.VIDEO_ENCODE | TextureUsageBits.VIDEO_REFERENCE_ONLY));
+        var bitstreamSize = GpuWork.Align(1 << 20, Math.Max(1u, caps.bitstreamSizeAlignment));
+        using var bitstream = device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = bitstreamSize, usage = BufferUsageBits.VIDEO_ENCODE });
+        using var bitstreamReadback = device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = bitstreamSize });
+        using var metadata = caps.metadataSize == 0 ? null : device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = caps.metadataSize, usage = BufferUsageBits.VIDEO_ENCODE });
+        var resolvedSize = Math.Max(caps.resolvedMetadataSize, 256);
+        using var resolved = device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = resolvedSize, usage = BufferUsageBits.VIDEO_ENCODE });
+
+        using var session = video.CreateVideoSession(sessionDesc);
+        using var parameters = video.CreateVideoSessionParameters(new NriVideoSessionParametersDesc
+        {
+            Session = session,
+            H264Parameters = new NriVideoH264SessionParametersDesc
+            {
+                SequenceParameterSets = [Sps() with { pictureWidthInMbsMinus1 = (ushort)(width / 16 - 1), pictureHeightInMapUnitsMinus1 = (ushort)(height / 16 - 1) }],
+                PictureParameterSets = [new VideoH264PictureParameterSetDesc()],
+            },
+        });
+        using var sourcePicture = video.CreateVideoPicture(new NriVideoPictureDesc { Texture = source, Usage = VideoPictureUsage.ENCODE_INPUT });
+        using var reconstructedPicture = video.CreateVideoPicture(new NriVideoPictureDesc { Texture = reconstructed, Usage = VideoPictureUsage.ENCODE_REFERENCE });
+
+        // The source picture is not filled: NRI's UploadData does not take a two-plane NV12 texture
+        // (Vulkan: one copy region with both plane aspects, VUID-VkCopyBufferToImageInfo2-dstImage-07981;
+        // D3D12: the second plane's barrier has SyncBefore NONE after an access), and the encode does
+        // not depend on what the pixels are.
+
+        var inputState = video.GetVideoPictureState(sourcePicture, VideoPictureRole.ENCODE_INPUT);
+        var reconstructedState = video.GetVideoPictureState(reconstructedPicture, VideoPictureRole.ENCODE_RECONSTRUCTED);
+        using var allocator = encodeQueue.CreateCommandAllocator();
+        using var commandBuffer = allocator.CreateCommandBuffer();
+        using var fence = device.CreateFence();
+        commandBuffer.Begin();
+        commandBuffer.Barrier([], [], [
+            new NriTextureBarrier(source, GpuWork.Undefined, inputState.required),
+            new NriTextureBarrier(reconstructed, GpuWork.Undefined, reconstructedState.required),
+        ]);
+        video.EncodeVideo(commandBuffer, new NriVideoEncodeDesc
+        {
+            Session = session,
+            Parameters = parameters,
+            SrcPicture = sourcePicture,
+            DstBitstream = new NriVideoBitstreamRange { Buffer = bitstream, Offset = 0, Size = bitstreamSize },
+            PictureDesc = new VideoEncodePictureDesc { frameType = VideoFrameType.IDR },
+            RateControlDesc = new VideoEncodeRateControlDesc { mode = VideoEncodeRateControlMode.CQP, qpI = 26, qpP = 26, qpB = 26, frameRateNumerator = 30, frameRateDenominator = 1 },
+            Flags = VideoEncodeBits.FORCE_KEY_FRAME,
+            ReconstructedPicture = reconstructedPicture,
+            Metadata = metadata,
+            ResolvedMetadata = resolved,
+            H264PictureDesc = new NriVideoH264EncodePictureDesc(),
+        });
+        commandBuffer.End();
+        encodeQueue.Submit(commandBuffer, fence, 1);
+        fence.Wait(1);
+
+        // Where the backend needs the feedback resolved, it says on which queue and in which state.
+        if (caps.encodeFeedbackResolveRequired != 0)
+        {
+            var resolveQueue = device.GetQueue(caps.resolvedMetadataQueueType);
+            using var resolveAllocator = resolveQueue.CreateCommandAllocator();
+            using var resolveCommands = resolveAllocator.CreateCommandBuffer();
+            resolveCommands.Begin();
+            resolveCommands.Barrier(new NriBufferBarrier(resolved, GpuWork.Nothing, caps.resolvedMetadataState));
+            video.ResolveVideoEncodeFeedback(resolveCommands, session, resolved, 0);
+            resolveCommands.End();
+            resolveQueue.Submit(resolveCommands, fence, 2);
+            fence.Wait(2);
+        }
+        var feedback = video.GetVideoEncodeFeedback(session, resolved, 0);
+        GpuWork.Record($"{backend}: IDR frame: {feedback.encodedBitstreamWrittenBytes} B at offset {feedback.encodedBitstreamOffset}, average QP {feedback.averageQp}, intra units {feedback.intraCodingUnitNum}, errors 0x{feedback.errorFlags:X}");
+        Assert.Equal(0UL, feedback.errorFlags);
+        Assert.InRange(feedback.encodedBitstreamWrittenBytes, 1UL, bitstreamSize - feedback.encodedBitstreamOffset);
+
+        GpuWork.Run(device, cmd =>
+        {
+            cmd.Barrier([], [new NriBufferBarrier(bitstream, new AccessStage { access = AccessBits.VIDEO_ENCODE_WRITE, stages = StageBits.VIDEO_ENCODE }, GpuWork.CopySource), new NriBufferBarrier(bitstreamReadback, GpuWork.Nothing, GpuWork.CopyDestination)], []);
+            cmd.CopyBuffer(bitstreamReadback, 0, bitstream, 0, bitstreamSize);
+        });
+        var bytes = bitstreamReadback.Map().Slice((int)feedback.encodedBitstreamOffset, (int)feedback.encodedBitstreamWrittenBytes).ToArray();
+        bitstreamReadback.Unmap();
+        GpuWork.Record($"{backend}: first bytes {Convert.ToHexString(bytes.AsSpan(0, Math.Min(16, bytes.Length)))}");
+        // Annex-B: a start code, then the IDR slice (nal_unit_type 5) or the parameter sets NRI may
+        // prepend (7 SPS, 8 PPS). Measured on D3D12: 00 00 00 01 65, the IDR slice first.
+        var start = bytes.AsSpan().IndexOf(new byte[] { 0, 0, 1 });
+        Assert.True(start >= 0 && start + 3 < bytes.Length, $"no Annex-B start code in {bytes.Length} bytes");
+        Assert.Contains(bytes[start + 3] & 0x1F, new[] { 5, 7, 8 });
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
     private static VideoH264SequenceParameterSetDesc Sps() => new()
     {
         profileIdc = 100, // High

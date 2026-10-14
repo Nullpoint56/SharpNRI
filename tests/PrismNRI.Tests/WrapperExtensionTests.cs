@@ -20,7 +20,7 @@ using VDXGI = Vortice.DXGI;
 
 namespace PrismNRI.Tests;
 
-public sealed unsafe class WrapperExtensionTests(ITestOutputHelper output)
+public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper output)
 {
     // Vortice's vkGetInstanceProcAddr / vkGetDeviceProcAddr are null until vkInitialize has run; GetApi
     // calls them. Lazy, process-wide, so the test that runs first pays for it (measured: a null
