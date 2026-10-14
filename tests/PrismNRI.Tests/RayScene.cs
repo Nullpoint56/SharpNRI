@@ -68,8 +68,6 @@ internal sealed class RayScene : IDisposable
     public NriBuffer Readback { get; }
     public List<NriBuffer> Outputs { get; } = [];
 
-    public bool IsSoftware => Device.Desc.adapterDesc.architecture == PrismNRI.Native.Architecture.SOFTWARE;
-
     /// <summary>The scene's bytecode for this backend: <c>Shaders/&lt;name&gt;.spv</c> or <c>.dxil</c>.</summary>
     public static byte[] Shader(NriDevice device, string name) =>
         File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Shaders", name + (device.GraphicsApi == GraphicsAPI.VK ? ".spv" : ".dxil")));
@@ -187,8 +185,8 @@ internal sealed class RayScene : IDisposable
 
     /// <summary>
     /// The triangle's footprint: <paramref name="hit"/> at the centre and inside, <paramref name="miss"/>
-    /// in the corners, 30 to 130 hits. On a software adapter a wrong map skips rather than fails,
-    /// as in RayTracingTests (CLAUDE.md: CI runners and flakes; lavapipe misses the triangle on some runs).
+    /// in the corners, 30 to 130 hits. A wrong map fails on every adapter, software included; the
+    /// map is in the log and in the failure message (CLAUDE.md: CI runners and flakes, Unsolved).
     /// </summary>
     public void ExpectTriangle(uint[] values, uint hit, uint miss, string what)
     {
@@ -199,9 +197,7 @@ internal sealed class RayScene : IDisposable
         {
             var got = values[y * Width + x];
             if (got == value) return;
-            var text = $"{what}: ({x},{y}) expected {value}, got {got}; {hitCount} hits of {Width * Width}\n{map}";
-            Assert.SkipWhen(IsSoftware, $"{Device.GraphicsApi}: software ray tracer gives the wrong answer on this host (CLAUDE.md: CI runners and flakes); the dispatch itself validated. {text}");
-            Assert.Fail(text);
+            Assert.Fail($"{Device.GraphicsApi} {what}: ({x},{y}) expected {value}, got {got}; {hitCount} hits of {Width * Width}\n{map}");
         }
         Expect(hit, 8, 8);
         Expect(hit, 8, 6);
@@ -210,8 +206,7 @@ internal sealed class RayScene : IDisposable
         Expect(miss, 0, Width - 1);
         Expect(miss, Width - 1, Width - 1);
         Assert.All(values, v => Assert.True(v == hit || v == miss, $"{what}: value {v} is neither hit {hit} nor miss {miss}\n{map}"));
-        if (IsSoftware) Assert.SkipWhen(hitCount < 30 || hitCount > 130, $"{Device.GraphicsApi}: software ray tracer gives {hitCount} hits (CLAUDE.md: CI runners and flakes).\n{map}");
-        Assert.InRange(hitCount, 30, 130);
+        Assert.True(hitCount is >= 30 and <= 130, $"{Device.GraphicsApi} {what}: {hitCount} hits of {Width * Width}, expected 30 to 130\n{map}");
     }
 
     public void Dispose()

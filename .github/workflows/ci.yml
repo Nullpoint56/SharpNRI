@@ -131,8 +131,9 @@ jobs:
         run: dotnet build PrismNRI.slnx -c Release
 
       # lavapipe's ray query misses the triangle on some runs and hits it on others, same packages,
-      # same CPU model (CLAUDE.md: CI runners and flakes). The test records and skips on a software adapter; this step
-      # runs it on its own five times first so the run leaves its hit maps in the log.
+      # same CPU model, cause unknown (CLAUDE.md: CI runners and flakes, Unsolved). The test fails on
+      # a miss, so the Test step below turns the job red when it happens. This step is a diagnostic
+      # only: it runs the test on its own five times first so the run leaves its hit maps in the log.
       - name: Ray query probe
         continue-on-error: true
         run: |
@@ -143,8 +144,39 @@ jobs:
           done
           echo "ray query: $pass of 5 runs passed"
 
+      # A SIGSEGV in the test host (seen once, exit 139 after 106 tests, 0 failed) loses the buffered
+      # test list, so the crashing test cannot be read from the log (CLAUDE.md: CI runners and
+      # flakes). createdump writes a minidump on the signal; the step after prints every thread's
+      # managed and native stack from it, which names the test and the native frame.
       - name: Test
-        run: dotnet test --solution PrismNRI.slnx -c Release --no-build
+        env:
+          DOTNET_DbgEnableMiniDump: "1"
+          DOTNET_DbgMiniDumpType: "1"
+          DOTNET_DbgMiniDumpName: /tmp/dumps/testhost-%p.dmp
+        run: |
+          mkdir -p /tmp/dumps
+          # Detailed output lists passed tests as they finish; the default lists only skips and
+          # failures, which is why two crashes at "106 completed" could not be placed.
+          dotnet test --solution PrismNRI.slnx -c Release --no-build --output Detailed
+
+      - name: Crash stacks
+        if: failure()
+        run: |
+          ls /tmp/dumps/*.dmp >/dev/null 2>&1 || { echo "no minidump: the test host did not crash"; exit 0; }
+          dotnet tool install -g dotnet-dump >/dev/null
+          for d in /tmp/dumps/*.dmp; do
+            echo "== $d"
+            "$HOME/.dotnet/tools/dotnet-dump" analyze "$d" -c "clrstack -all -f" -c "exit" | head -400
+          done
+
+      - name: Keep the minidumps
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-minidumps
+          path: /tmp/dumps/*.dmp
+          if-no-files-found: ignore
+          retention-days: 14
 
   osx-arm64:
     runs-on: macos-latest

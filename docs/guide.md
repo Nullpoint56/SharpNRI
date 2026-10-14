@@ -37,6 +37,19 @@ headers do not say. NRI v190.
 <PackageReference Include="PrismNRI.Native.Agility" Version="0.1.0-alpha" />
 ```
 
+- Not on NuGet.org: the `.nupkg` files are GitHub release assets. Folder feed, `nuget.config` beside
+  the project:
+
+  ```xml
+  <configuration>
+    <packageSources>
+      <add key="prismnri" value="path/to/nupkg" />
+    </packageSources>
+  </configuration>
+  ```
+
+- The release workflow's `consume` job restores them that way (`tools/consume`) and creates NONE
+  plus a GPU device on windows, ubuntu and macos before publishing.
 - Base and Upscalers both contain `NRI.dll` / `libNRI.so` at the same path: take exactly one; with
   Upscalers, `ExcludeAssets="native"` on `PrismNRI`.
 - Base: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI, AGS, debug names; no upscaler SDK.
@@ -569,13 +582,21 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 
 ### Linux
 
+- **Unproven and not stable.** Linux is verified on lavapipe (software Vulkan) only; no hardware
+  Linux driver has run this code. Linux CI is flaky, with two open issues: an intermittent
+  lavapipe ray-query miss (wrong hit map, no validation error, varies by CI host) and one
+  unexplained test-host crash (SIGSEGV, not reproduced). A red Linux job can be either. Details:
+  CLAUDE.md, "CI runners and flakes".
+- In practice: ray query results on lavapipe are not trustworthy. Use a hardware driver for
+  anything that matters.
 - NRI `dlopen`s `libvulkan.so.1` at device creation.
 - **Loader older than the driver** (Ubuntu 24.04's stock 1.3.275 loader with Mesa 25's 1.4
   lavapipe): upstream NRI loads core 1.4 entry points the driver returns null for, and
   `CmdSetRootConstants` crashes (SIGSEGV at 0) while `HOST_TRANSFER` textures are rejected. Patch 0004
   clamps NRI's Vulkan version to the instance's; fixed in the shipped library. Such a device reports
   as Vulkan 1.3.
-- lavapipe: no external semaphores (no `SharedHandles`); ray queries unreliable (see RayTracing).
+- lavapipe: no external semaphores (no `SharedHandles`); ray queries miss intermittently (see
+  RayTracing).
 - `NriAdapter.Uid` is built from the device UUID (no LUID on Linux).
 - Building NRI with GCC 13 needs patch 0005 (included); clang is what CI uses.
 

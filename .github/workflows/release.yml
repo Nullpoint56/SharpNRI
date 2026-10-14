@@ -7,10 +7,12 @@ name: release
 #   2. git tag v<Version> && git push origin v<Version>     (e.g. v0.1.0-alpha)
 #   3. This workflow: version (tag == v<Version> in all five csprojs, else fail) -> win-x64, linux-x64,
 #      osx-arm64 (native payloads, same setup and build-native.ps1 calls as ci.yml) -> pack (all RIDs
-#      into one set of .nupkg files, contents listed and checked) -> release (GitHub release with the
-#      .nupkg files and one zip per native payload; prerelease when the tag contains '-').
-#   Dry run: Actions > release > Run workflow with tag=v<Version>. Builds, packs, uploads artifacts,
-#   creates no release. Nothing is pushed to NuGet.org (see the commented step in the release job).
+#      into one set of .nupkg files, contents listed and checked) -> consume (tools/consume restores
+#      the packages from a folder feed and creates devices on windows, ubuntu and macos) -> release
+#      (GitHub release with the .nupkg files and one zip per native payload; prerelease when the
+#      tag contains '-').
+#   Dry run: Actions > release > Run workflow with tag=v<Version>. Builds, packs, runs consume,
+#   uploads artifacts, creates no release. Nothing is pushed to NuGet.org (see the commented step in the release job).
 
 on:
   push:
@@ -354,8 +356,80 @@ jobs:
           path: nupkg/*.nupkg
           if-no-files-found: error
 
-  release:
+  # The packages as an outside project sees them: tools/consume restores PrismNRI and
+  # PrismNRI.Testing from nupkg/ by PackageReference and creates NONE plus a validated GPU device
+  # (WARP, lavapipe, MoltenVK) with a buffer and a fence. Only what a consumer needs for a software
+  # device is installed; no validation layer, no build tools. The first run is the portable build
+  # (runtimes/<rid>/native through the deps.json), the second the RID-specific one (flat copy).
+  consume:
     needs: [version, pack]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PRISMNRI_FEED: ${{ github.workspace }}/nupkg
+      PRISMNRI_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Vulkan loader + lavapipe (software ICD).
+      - name: Install system packages (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends libvulkan1 mesa-vulkan-drivers
+
+      # MoltenVK behind the Khronos loader, found as in ci.yml.
+      - name: Install system packages (macOS)
+        if: runner.os == 'macOS'
+        run: brew install molten-vk vulkan-loader
+
+      - name: Point dyld and the Vulkan loader at Homebrew
+        if: runner.os == 'macOS'
+        run: |
+          icd="$(find "$(brew --prefix molten-vk)/" -name MoltenVK_icd.json | head -n1)"
+          test -n "$icd" || { echo "MoltenVK_icd.json not found under $(brew --prefix molten-vk)"; exit 1; }
+          {
+            echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib:/usr/local/lib:/usr/lib"
+            echo "VK_DRIVER_FILES=$icd"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: nupkg
+
+      # bash on every runner, as ci.yml's test steps: the DYLD_* variable reaches dotnet the same way.
+      - name: Build the consumer
+        shell: bash
+        run: |
+          ls -l nupkg
+          dotnet build tools/consume -c Release -p:PrismNRIPackageVersion="$PRISMNRI_VERSION"
+
+      - name: Run (portable build)
+        shell: bash
+        run: dotnet tools/consume/bin/Release/net11.0/PrismNRI.Consume.dll
+
+      - name: Run (-r ${{ matrix.rid }})
+        shell: bash
+        run: dotnet run --project tools/consume -c Release -r ${{ matrix.rid }} -p:PrismNRIPackageVersion="$PRISMNRI_VERSION"
+
+  release:
+    needs: [version, pack, consume]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 15

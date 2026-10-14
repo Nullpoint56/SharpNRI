@@ -93,6 +93,23 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 - In-repo, `dotnet/PrismNRI.csproj` copies `runtimes/<rid>/native` beside `ProjectReference`
   consumers and also `runtimes-agility/<rid>/native` when staged (never packed;
   `-p:PrismNRIDevAgility=false` turns it off), so tests run D3D12 on Agility.
+- **Consumption smoke test** (`tools/consume`, not in the solution): `PackageReference`s to
+  `PrismNRI` + `PrismNRI.Testing` at `-p:PrismNRIPackageVersion`, from the folder in
+  `PRISMNRI_FEED` (default `nupkg/`), restored into `tools/consume/obj/packages` so the global
+  cache never stands in; the build prints the source NuGet recorded. Prints the loaded NRI path,
+  creates NONE and each available GPU backend's validated device with a buffer and a fence; exit 0
+  only when NONE and one GPU backend worked. The release `consume` job runs it on windows, ubuntu
+  (`libvulkan1 mesa-vulkan-drivers`) and macos (`molten-vk vulkan-loader`, ci.yml's dyld/ICD env),
+  portable build and `-r <rid>`; `release` needs it. Locally (Windows, packs win-x64 only):
+  ```powershell
+  dotnet pack PrismNRI.slnx -c Release -o <dir>
+  $env:PRISMNRI_FEED = "<dir>"
+  dotnet build tools/consume -c Release -p:PrismNRIPackageVersion=0.1.0-alpha
+  dotnet tools/consume/bin/Release/net11.0/PrismNRI.Consume.dll
+  dotnet run --project tools/consume -c Release -r win-x64 -p:PrismNRIPackageVersion=0.1.0-alpha
+  ```
+  Portable build loads `bin/.../runtimes/win-x64/native/NRI.dll` through the deps.json; `-r`
+  loads the flat `NRI.dll`. Delete `tools/consume/obj` after re-packing the same version.
 - `NativePayloadTests` hold the staged files to an allowlist and read the PE import tables.
   `NativeExportTests` resolve every `NriApi` `DllImport` with `NativeLibrary.TryGetExport`.
 - Licence facts that shaped the split: NGX terms attach to `NRI.dll` itself when NGX is linked
@@ -133,6 +150,10 @@ From the owner. Do not relitigate.
     weeks before v190. macOS is Vulkan through MoltenVK.
   - WebGPU: links a prebuilt `wgpu-native` binary this repo would have to ship; NRI calls its
     limitations "similar to D3D11".
+- **Linux is verified on lavapipe only, by decision.** Hardware Linux validation (NVIDIA driver on
+  metal, a cloud GPU runner, Mesa's dozen in WSL) is out of scope: Linux is not the primary target.
+  WSL and Hyper-V expose the GPU only as D3D12/CUDA through dxg, with no Vulkan ICD. The README says
+  so; do not claim more.
 - `nri/` and `patches/` are not edited as a side effect of other work. Stage by path; never `git add
   nri`.
 
@@ -305,8 +326,10 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - **Sampler bias test** asks `min(0.5, samplerLodBiasMax)` and records both.
 - **Shared D3D12 textures stay TYPELESS** like every NRI texture; D3D11 import refusal is a recorded
   limitation, not a patch.
-- **Software ray tracer answers are recorded, not asserted** (lavapipe misses intermittently);
-  validation errors still fail.
+- **Software ray tracer answers are asserted like any other** (owner, 2026-10-14, reversing the
+  earlier record-and-skip): a wrong hit map fails on every adapter. lavapipe's intermittent miss is
+  an unsolved issue (CI runners and flakes), not something a skip makes green; a red Linux job from
+  it is the honest state.
 
 ---
 
@@ -446,7 +469,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - **No external semaphores**: has `VK_KHR_external_memory_fd`, not `VK_KHR_external_semaphore_fd`;
   `SharedHandleInterface` is `UNSUPPORTED`, `TrySharedHandles` null; `SharedHandleTests` skip naming
   both extensions (`SharedHandleTests.cs`).
-- **Ray query misses intermittently**: see CI runners and flakes.
+- **Ray query misses intermittently**, unsolved; the test fails when it does: see CI runners
+  and flakes.
 - `GALLIUM_OVERRIDE_CPU_CAPS=avx` or `sse4.1` makes lavapipe die with an illegal instruction before
   any test runs; not usable for narrowing.
 
@@ -628,6 +652,11 @@ extensions.
 - `CreateMemoryVK` with no mapping: NRI maps it itself.
 - `CreateAccelerationStructureVK` / `D3D12`: caller names the type, needs `RayTracing`.
 - Raw VK devices on macOS: portability opt-in, see MoltenVK.
+- **Never Vortice's `Vulkan.GetApi` in tests**: 3.3.0 caches tables in static dictionaries keyed by
+  handle value (`Vulkan.cs` `s_instanceTables` / `s_deviceTables`), dropped only by
+  `vkDestroyInstance` / `vkDestroyDevice` through that table. NRI destroys its own objects, so the
+  entry outlives the device and a later device at the same address gets dead pointers.
+  `tests/PrismNRI.Tests/VulkanApi.cs` builds a fresh table per object (`new VkDeviceApi(...)`).
 
 ### Flat exports and formats
 
@@ -644,8 +673,12 @@ extensions.
 - Skip strings name the capability: feature bit, extension, file. The exceptions quote a measured
   defect: `TestDevice.IsAppleParavirtualVK` (adapter name "Apple Paravirtual device":
   `HOST_TRANSFER` crash, timestamps), backend-keyed Reflex VK and H.264 encode VK, D3D12 micromap
-  `Close`, and the software ray tracer (records the map in the skip reason; validation errors still
-  fail).
+  `Close`.
+- **No skip turns a wrong result into a pass on a software adapter** (lavapipe, WARP), or on any
+  adapter: a skip names a missing capability only. A wrong answer fails, with enough in the message
+  (the hit map for ray queries) to diagnose it. The two macOS device-name skips are the recorded
+  exception; the backend-keyed ones above skip a case that cannot run to completion (a hang, a
+  failed `Close`, a poisoned test process), not a wrong answer.
 - Timestamp frequency 1 GHz on both GPU backends; result 8 bytes.
 - `PRISMNRI_TRACE=1` when a test host dies: the message stream is the only record.
 - Expected skip shape per platform (counts move as tests are added): Windows hardware skips almost
@@ -656,6 +689,42 @@ extensions.
 
 ### CI runners and flakes
 
+Both were on the Linux leg (lavapipe on GitHub hosts of varying CPU); the Windows and macOS legs
+have no intermittent failures. Item 1 is **unsolved** and nothing masks it; item 2 is identified
+and fixed in the tests.
+
+1. **lavapipe ray query intermittent miss.**
+   `RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS(VK)` on the Linux runner sometimes
+   reports no hit at the centre. Same packages (Mesa 25.2.8, loader 1.3.275, clang 18) pass and fail
+   on different runs. Ruled out: patch 0005 (committed resources only; the field is only copied into
+   VMA), Mesa version (WSL with 25.2.8: 18/18), CPU model / AVX-512 (failed on EPYC 7763 without
+   avx512f and later passed 5/5 on the same model; passed on 9V74 and 9V45 with it; Ryzen 9700X local
+   never fails), `LP_NATIVE_VECTOR_WIDTH=256` (failed with it; removed). Never reproduced locally in
+   more than ninety runs. Known: the shader writes 0 or 1 per ray, geometry opaque, both validation
+   layers clean every run; the shader loops on `Proceed()`. The test fails on a miss since the commit
+   "Linux: the ray-query miss fails the job again" (it was a skip before); Linux CI is red when it
+   happens. The hit map is in the log (`GpuWork.Record`) and in the failure message. The same
+   assertions in `RayScene.ExpectTriangle` (RT pipeline, micromap, import tests) fail likewise.
+2. **Linux test host SIGSEGV: a stale Vortice function table. Fixed in the tests.** Runs
+   38546336866 (EPYC 9V74) and 38551840987 (EPYC 7763) died with exit 139 after exactly 106 of 239
+   tests (58 passed, 48 skipped). In the fixed order of a detailed green run the 107th test is
+   `WrapperExtensionTests.WrapperVK_hands_out_the_native_instance_device_and_loader`; the 99th is
+   `Imported_Vulkan_objects_dispatch_copy_and_time_through_NRI`. Both called Vortice's
+   `Vulkan.GetApi(instance, device)` on NRI's own VkDevice. Vortice 3.3.0 caches that table in a
+   static dictionary keyed by the handle value and drops it only on `vkDestroyDevice` through the
+   table; NRI destroys the device itself, so the entry survives. The loader unloads the validation
+   layer library on `vkDestroyInstance` and loads it again for the next instance (`VK_LOADER_DEBUG`
+   shows "Unloading/Loading layer library" per instance). When a later NRI device lands at the same
+   address, `GetApi` returns the dead table, whose `vkCreate*` pointers point into the old layer
+   mapping. Same address: harmless. Moved: SIGSEGV or SIGILL on the first call.
+   Measured in WSL by printing the cache state: 6 stale hits in 300 runs of the class, 2 of them
+   with the layer moved, and those 2 crashed (SIGSEGV, SIGILL) at the first device call. No other
+   run crashed. The dump showed the managed frame on `api.vkCreateBuffer`. In CI the 107th test hit
+   the 99th's entry; that ordering is inferred from the count, not from a CI dump.
+   Fix: `tests/PrismNRI.Tests/VulkanApi.cs` builds a fresh table from the public constructors for
+   every object, and no test calls `GetApi` any more (Wrappers caveat). The minidump and
+   "Crash stacks" CI steps stay in place for the next host crash.
+
 - Four jobs in `.github/workflows/ci.yml`: `win-x64` (WARP + NONE), `linux-x64` (lavapipe, stock 1.3
   loader, 1.4.363 layer), `osx-arm64` (MoltenVK), `regen` (ClangSharp drift). `_deps` cached per
   (NRI version, patches hash).
@@ -664,20 +733,11 @@ extensions.
   unoptimised, so green. Patch 0005 fixes it (GCC 13.3.0 builds and the suite matches clang's
   numbers). `build-native.ps1` still picks clang on Linux when installed and `CXX` unset; CI installs
   `clang`, not `g++`.
-- **lavapipe ray query intermittent miss.**
-  `RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS(VK)` on the Linux runner sometimes
-  reports no hit at the centre. Same packages (Mesa 25.2.8, loader 1.3.275, clang 18) pass and fail
-  on different runs. Ruled out: patch 0005 (committed resources only; the field is only copied into
-  VMA), Mesa version (WSL with 25.2.8: 18/18), CPU model / AVX-512 (failed on EPYC 7763 without
-  avx512f and later passed 5/5 on the same model; passed on 9V74 and 9V45 with it; Ryzen 9700X local
-  never fails), `LP_NATIVE_VECTOR_WIDTH=256` (failed with it; removed). Never reproduced locally in
-  more than fifty runs. Known: the shader writes 0 or 1 per ray, geometry opaque, both validation
-  layers clean every run. The shader loops on `Proceed()`. The test records the hit map in the skip
-  reason on software adapters (`RayScene.cs`, `RayTracingTests.cs`).
-- **The "Ray query probe" step** (`linux-x64`, `continue-on-error`) runs that test five times through
-  the test executable before the suite and prints the map on failure plus "ray query: N of 5 runs
-  passed". The "Vulkan device and host CPU" step prints `vulkaninfo --summary`, the CPU model and
-  `avx512f`. On the next miss, read those first.
+- **The "Ray query probe" step** (`linux-x64`, `continue-on-error`) is a diagnostic, not the gate:
+  it runs the ray query test five times through the test executable before the suite and prints the
+  map on failure plus "ray query: N of 5 runs passed". The `Test` step is what fails the job. The
+  "Vulkan device and host CPU" step prints `vulkaninfo --summary`, the CPU model and `avx512f`. On
+  the next miss, read those first.
 - macOS job prints CPU, `sw_vers`, brew versions, the ICD, the layer manifest, and
   `maxSamplerLodBias|samplerMipLodBias|hostImageCopy|timestamp*|external_*` from `vulkaninfo`.
 - Windows runner: WARP for D3D12, no Vulkan ICD; Developer Mode off (the Agility measurement).

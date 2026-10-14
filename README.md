@@ -17,7 +17,11 @@ MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
 CI builds the native library from the pinned tag and the patch set on all three platforms and runs
 the suite with NRI's validation and the backend validation layer on: D3D12 on WARP, Vulkan on
 lavapipe and MoltenVK, NONE everywhere. A fourth job regenerates the interop layer and fails on
-drift.
+drift. Windows is also verified on NVIDIA hardware.
+
+Linux CI runs on lavapipe (software Vulkan) only and is not stable: an intermittent ray-query miss
+and one unexplained test-host crash are open, so a red Linux job can be either. No hardware Linux
+driver has run this code.
 
 ## Packages
 
@@ -40,6 +44,21 @@ The two NRI payloads are both a file named `NRI.dll`: take exactly one.
 <PackageReference Include="PrismNRI.Native.Upscalers" Version="0.1.0-alpha" />
 <PackageReference Include="PrismNRI.Native.Agility" Version="0.1.0-alpha" />
 ```
+
+The packages are [release](https://github.com/Nullpoint56/PrismNRI/releases) assets, not on
+NuGet.org. From a local feed: put the `.nupkg` files in a folder and add it beside your project:
+
+```xml
+<!-- nuget.config -->
+<configuration>
+  <packageSources>
+    <add key="prismnri" value="path/to/nupkg" />
+  </packageSources>
+</configuration>
+```
+
+The release workflow restores them that way and creates a device on Windows, Linux and macOS
+before it publishes (`tools/consume`).
 
 No package contains a vendor runtime (`amd_fidelityfx_*`, `libxess.dll`, `nvngx_*`): the
 application ships them beside its executable. DLSS is a build switch, not a package:
