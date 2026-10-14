@@ -104,9 +104,9 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   ```powershell
   dotnet pack PrismNRI.slnx -c Release -o <dir>
   $env:PRISMNRI_FEED = "<dir>"
-  dotnet build tools/consume -c Release -p:PrismNRIPackageVersion=0.1.0-alpha
+  dotnet build tools/consume -c Release -p:PrismNRIPackageVersion=0.2.0-alpha
   dotnet tools/consume/bin/Release/net11.0/PrismNRI.Consume.dll
-  dotnet run --project tools/consume -c Release -r win-x64 -p:PrismNRIPackageVersion=0.1.0-alpha
+  dotnet run --project tools/consume -c Release -r win-x64 -p:PrismNRIPackageVersion=0.2.0-alpha
   ```
   Portable build loads `bin/.../runtimes/win-x64/native/NRI.dll` through the deps.json; `-r`
   loads the flat `NRI.dll`. Delete `tools/consume/obj` after re-packing the same version.

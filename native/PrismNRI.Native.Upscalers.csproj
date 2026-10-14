@@ -17,7 +17,7 @@
 
   <PropertyGroup>
     <PackageId>PrismNRI.Native.Upscalers</PackageId>
-    <Version>0.1.0-alpha</Version>
+    <Version>0.2.0-alpha</Version>
     <Description>NRI native library for PrismNRI with the NIS, FSR and XeSS upscalers compiled in. Replaces the NRI library of the PrismNRI package (take one or the other). Vendor runtimes (FidelityFX, XeSS) are not included: the application ships them.</Description>
     <PackageTags>nri;upscaler;fsr;xess;nis;native</PackageTags>
     <IncludeBuildOutput>false</IncludeBuildOutput>

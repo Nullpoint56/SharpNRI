@@ -32,9 +32,9 @@ headers do not say. NRI v190.
 | `PrismNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll` | D3D12 on the Agility SDK (Windows) |
 
 ```xml
-<PackageReference Include="PrismNRI" Version="0.1.0-alpha" ExcludeAssets="native" />  <!-- only with Upscalers -->
-<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.1.0-alpha" />
-<PackageReference Include="PrismNRI.Native.Agility" Version="0.1.0-alpha" />
+<PackageReference Include="PrismNRI" Version="0.2.0-alpha" ExcludeAssets="native" />  <!-- only with Upscalers -->
+<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.2.0-alpha" />
+<PackageReference Include="PrismNRI.Native.Agility" Version="0.2.0-alpha" />
 ```
 
 - Not on NuGet.org: the `.nupkg` files are GitHub release assets. Folder feed, `nuget.config` beside
