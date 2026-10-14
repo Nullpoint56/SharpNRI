@@ -119,6 +119,29 @@ public sealed class DeviceTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    // NRI's Wait is void and gives up after NRI_TIMEOUT_FENCE (5 s) with an ERROR message; the
+    // binding turns that into an exception so no caller reads results that are not there yet
+    // (CLAUDE.md: CI runners and flakes, item 1). The fence here is never signalled.
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Fence_wait_throws_when_NRI_gives_up_before_the_value_is_reached(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        using var fence = device.CreateFence();
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var e = Assert.Throws<TimeoutException>(() => fence.Wait(1));
+        clock.Stop();
+        GpuWork.Record($"{backend}: NRI gave up after {clock.ElapsedMilliseconds} ms; {e.Message}");
+
+        Assert.Equal(0UL, fence.Value);
+        Assert.InRange(clock.ElapsedMilliseconds, 4000, 60_000);
+        Assert.Contains(messages, m => m.IsError);
+        device.WaitIdle();
+    }
+
     [Fact]
     public void Creating_on_an_unknown_backend_fails_with_the_result_and_the_message()
     {

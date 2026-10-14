@@ -100,7 +100,7 @@ public sealed class SharedHandleTests
         commandBuffer.Begin();
         commandBuffer.End();
         queue.Submit(commandBuffer, fence, 6);
-        fence.Wait(6);
+        GpuWork.Wait(fence, 6);
         Assert.Equal(6UL, fence.Value);
         device.WaitIdle();
 
@@ -137,7 +137,7 @@ public sealed class SharedHandleTests
         commandBuffer.Barrier(new NriTextureBarrier(texture, general, attachment, SrcQueue: NriQueue.External, DstQueue: queue));
         commandBuffer.End();
         queue.Submit(commandBuffer, fence, 1);
-        fence.Wait(1);
+        GpuWork.Wait(fence, 1);
         device.WaitIdle();
 
         Assert.DoesNotContain(messages, m => m.IsError);

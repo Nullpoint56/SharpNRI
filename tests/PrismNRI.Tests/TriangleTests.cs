@@ -137,7 +137,7 @@ public sealed class TriangleTests(ITestOutputHelper output)
         commandBuffer.End();
 
         queue.Submit(commandBuffer, fence, 1);
-        fence.Wait(1);
+        GpuWork.Wait(fence, 1);
 
         var mapped = readback.Map();
         var pixels = new byte[Size * Size * 4];

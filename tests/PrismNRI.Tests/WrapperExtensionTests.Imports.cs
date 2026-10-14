@@ -224,7 +224,7 @@ public sealed unsafe partial class WrapperExtensionTests
             RecordFill(first, nriLayout, set, pipeline, storage, staging, texture, readback, layout);
             first.End();
             queue.Submit(first, fence, 1);
-            fence.Wait(1);
+            GpuWork.Wait(fence, 1);
 
             // NRI's validation counts a wrapped command buffer as recording from the start and refuses
             // Begin ("already in the recording state"): the owner begins it natively, NRI records and ends.
@@ -238,7 +238,7 @@ public sealed unsafe partial class WrapperExtensionTests
             second.CopyQueries(queries, 0, 2, readback, layout.QueryOffset);
             second.End();
             queue.Submit(second, fence, 2);
-            fence.Wait(2);
+            GpuWork.Wait(fence, 2);
 
             var ticks = layout.CheckReadback(readback);
             Record($"VK imported timestamps {ticks.First} -> {ticks.Second}");
@@ -325,7 +325,7 @@ public sealed unsafe partial class WrapperExtensionTests
             commandBuffer.ReadbackTextureToBuffer(readback, layout.TextureLayout, texture, CopyLayout.Region);
             commandBuffer.End();
             queue.Submit(commandBuffer, fence, 1);
-            fence.Wait(1);
+            GpuWork.Wait(fence, 1);
 
             layout.CheckReadback(readback, withQueries: false);
             device.WaitIdle();

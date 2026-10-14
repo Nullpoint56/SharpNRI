@@ -327,9 +327,9 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - **Shared D3D12 textures stay TYPELESS** like every NRI texture; D3D11 import refusal is a recorded
   limitation, not a patch.
 - **Software ray tracer answers are asserted like any other** (owner, 2026-10-14, reversing the
-  earlier record-and-skip): a wrong hit map fails on every adapter. lavapipe's intermittent miss is
-  an unsolved issue (CI runners and flakes), not something a skip makes green; a red Linux job from
-  it is the honest state.
+  earlier record-and-skip): a wrong hit map fails on every adapter. The intermittent lavapipe
+  "miss" was a test reading back after NRI's 5 s fence-wait timeout (CI runners and flakes, item 1);
+  tests wait with `GpuWork.Wait`, not `NriFence.Wait`, before reading GPU results.
 
 ---
 
@@ -469,8 +469,9 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - **No external semaphores**: has `VK_KHR_external_memory_fd`, not `VK_KHR_external_semaphore_fd`;
   `SharedHandleInterface` is `UNSUPPORTED`, `TrySharedHandles` null; `SharedHandleTests` skip naming
   both extensions (`SharedHandleTests.cs`).
-- **Ray query misses intermittently**, unsolved; the test fails when it does: see CI runners
-  and flakes.
+- **Slow first submit**: shaders are JIT-compiled when the command buffer executes; with a cold Mesa
+  shader cache a ray tracing submit took 0.6 s on a Ryzen 9700X and passed NRI's 5 s fence timeout
+  under load. That was the "ray query miss" (CI runners and flakes, item 1), not a traversal bug.
 - `GALLIUM_OVERRIDE_CPU_CAPS=avx` or `sse4.1` makes lavapipe die with an illegal instruction before
   any test runs; not usable for narrowing.
 
@@ -690,21 +691,61 @@ extensions.
 ### CI runners and flakes
 
 Both were on the Linux leg (lavapipe on GitHub hosts of varying CPU); the Windows and macOS legs
-have no intermittent failures. Item 1 is **unsolved** and nothing masks it; item 2 is identified
-and fixed in the tests.
+have no intermittent failures. Both are identified and fixed in the tests; neither was a driver
+bug.
 
-1. **lavapipe ray query intermittent miss.**
+1. **"lavapipe ray query miss": a fence wait that gave up after 5 s. Fixed in the tests and the binding.**
    `RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS(VK)` on the Linux runner sometimes
-   reports no hit at the centre. Same packages (Mesa 25.2.8, loader 1.3.275, clang 18) pass and fail
-   on different runs. Ruled out: patch 0005 (committed resources only; the field is only copied into
-   VMA), Mesa version (WSL with 25.2.8: 18/18), CPU model / AVX-512 (failed on EPYC 7763 without
-   avx512f and later passed 5/5 on the same model; passed on 9V74 and 9V45 with it; Ryzen 9700X local
-   never fails), `LP_NATIVE_VECTOR_WIDTH=256` (failed with it; removed). Never reproduced locally in
-   more than ninety runs. Known: the shader writes 0 or 1 per ray, geometry opaque, both validation
-   layers clean every run; the shader loops on `Proceed()`. The test fails on a miss since the commit
-   "Linux: the ray-query miss fails the job again" (it was a skip before); Linux CI is red when it
-   happens. The hit map is in the log (`GpuWork.Record`) and in the failure message. The same
-   assertions in `RayScene.ExpectTriangle` (RT pipeline, micromap, import tests) fail likewise.
+   reported a miss; the last one (run 38551840987, EPYC 7763, probe step, 1 of 5) was a total miss,
+   "(8,8) centre ... expected 1, got 0; 0 hits of 256". Cause: NRI's `Wait(fence, value)` is
+   `vkWaitSemaphores` with `NRI_TIMEOUT_FENCE` = 5000 ms (`Source/Shared/SharedExternal.h`,
+   `Source/VK/FenceVK.hpp:52-54`); on timeout it reports "WaitSemaphores() timed out!" as an ERROR
+   message and returns (the API is `void`), and `NriFence.Wait` returns normally. The test then read
+   a readback buffer the queue had not written yet: all zeros, an all-miss map. The test asserted
+   the map before `Assert.DoesNotContain(messages, IsError)`, so the failure named the map, never the
+   timeout. lavapipe JIT-compiles shader variants when it executes the command buffer (llvmpipe
+   compiles at first launch; the BVH build alone runs leaf, morton, radix-sort, LBVH and encode
+   shaders), so the first submit of a process with a cold Mesa shader cache is slow.
+   Measured in WSL (Ryzen 9700X, 16 threads): submit+wait 8-15 ms with a warm cache, 570-600 ms with
+   `MESA_SHADER_CACHE_DISABLE=true`, 1.0-1.3 s cold on 4 CPUs shared with 8 busy loops. Cold on one
+   CPU shared with 14 busy loops: 5112 ms, "WaitSemaphores() timed out!", and exactly the CI failure,
+   "(8,8) centre, inside the triangle: expected 1, got 0; 0 hits of 256", 3 runs of 3. A fresh GitHub
+   runner has a cold cache and 2 vCPUs (`nproc` in the CI log), and `dotnet test` runs classes in
+   parallel. First inferred from the identical symptom, then measured on the runner: with the fix in
+   place the cold-cache probe step recorded "GPU work took 6098 ms to reach fence" on the
+   placed/updated BLAS test. Why "never locally": the WSL cache was warm after the first run.
+   Fix: `GpuWork.Wait(fence, value)` polls `NriFence.Value` until it is reached (fails the test after
+   `GpuWork.GpuTimeout`, 2 min) and records any wait of 250 ms or more; every test that reads GPU
+   results waits through it (`GpuWork.Run` too). With the fix the same one-CPU setup passes 3 of 3
+   (13-15 s per run), and cold on 4 CPUs with 10 busy loops both ray tracing classes pass 40 of 40;
+   the full suite with sync validation passes. `DeviceTests.Fence_*` keeps `NriFence.Wait` (it
+   asserts `Value` after) and so does `AllocationTests` (it runs on NONE, whose fence never advances).
+   Binding fix (owner, 2026-10-14): `NriFence.Wait` reads `Value` after NRI's Wait and throws
+   `TimeoutException` when it is short (`dotnet/Core/NriFence.cs`; not on NONE, whose fence never
+   advances and whose Wait is a no-op). `DeviceTests.Fence_wait_throws_when_NRI_gives_up_before_the_value_is_reached`
+   waits on a never-signalled fence per GPU backend (about 5 s each; D3D12 times out the same way,
+   `WaitForSingleObjectEx(m_Event, NRI_TIMEOUT_FENCE)` in `FenceD3D12.hpp`).
+   Ruled out on the way, with evidence: barriers and synchronization. The NRI barriers map to
+   `ACCELERATION_STRUCTURE_BUILD` / `ACCELERATION_STRUCTURE_WRITE` -> `ACCELERATION_STRUCTURE_READ`
+   at `BUILD | COMPUTE_SHADER | RAY_TRACING_SHADER` (`ConversionVK.h:418-446`,
+   `CommandBufferVK.hpp:386-390, 2534-2550`); NRI adds no internal barrier to builds; the BLAS and
+   TLAS have separate scratch buffers; instances and vertices are host-written before submit.
+   Khronos synchronization validation (`VK_KHRONOS_VALIDATION_VALIDATE_SYNC=1` plus
+   `VK_KHRONOS_VALIDATION_SYNCVAL_SHADER_ACCESSES_HEURISTIC=1`; without the heuristic syncval does
+   not see shader descriptor accesses and misses even a deleted dispatch->copy barrier): 0 hazards in
+   the whole suite (239 tests). Positive controls: deleting the TLAS->dispatch barrier gives
+   SYNC-HAZARD READ_AFTER_WRITE at `vkCmdDispatch`; deleting the dispatch->copy barrier gives one at
+   `vkCmdCopyBuffer2`; deleting the BLAS->TLAS barrier gives nothing (the TLAS build reads the BLAS
+   through a device address in the instance buffer, which syncval cannot follow; that barrier is
+   checked by reading the code). lavapipe turns every `vkCmdPipelineBarrier2` into a full flush and
+   fence wait (`lvp_execute.c` `handle_pipeline_barrier` -> `finish_fence`), so a barrier mistake
+   could not have caused a lavapipe-only failure anyway. Stress without the fix (100 runs per row,
+   each class, `MALLOC_PERTURB_=165`): `LP_NUM_THREADS` 64, 4, 0, and 64 with sync validation: 0
+   failures of 800. CI now runs the suite with sync validation on and a "Ray tracing, cold shader
+   cache" step (`MESA_SHADER_CACHE_DISABLE=true`, `-showLiveOutput`) that prints the wait times.
+   Earlier misses are recorded in the repository only as "no hit at the centre", without their
+   maps; a timeout explains an all-zero map, and a partial map, if there was one, is not explained
+   by it.
 2. **Linux test host SIGSEGV: a stale Vortice function table. Fixed in the tests.** Runs
    38546336866 (EPYC 9V74) and 38551840987 (EPYC 7763) died with exit 139 after exactly 106 of 239
    tests (58 passed, 48 skipped). In the fixed order of a detailed green run the 107th test is

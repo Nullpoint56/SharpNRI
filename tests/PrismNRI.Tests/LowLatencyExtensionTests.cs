@@ -79,7 +79,7 @@ public sealed partial class LowLatencyExtensionTests
             for (var frame = 0; frame < FrameNum; frame++)
             {
                 var presentId = (ulong)frame + 1;
-                frameFence.Wait((ulong)frame);           // one frame in flight
+                GpuWork.Wait(frameFence, (ulong)frame);           // one frame in flight
                 lowLatency.LatencySleep(swapChain, presentId);
                 lowLatency.SetLatencyMarker(swapChain, presentId, LatencyMarker.INPUT_SAMPLE);
                 lowLatency.SetLatencyMarker(swapChain, presentId, LatencyMarker.SIMULATION_START);
@@ -98,7 +98,7 @@ public sealed partial class LowLatencyExtensionTests
                 lowLatency.SetLatencyMarker(swapChain, presentId, LatencyMarker.RENDER_SUBMIT_END);
                 ext.QueuePresent(swapChain, release[index], presentId);
             }
-            frameFence.Wait(FrameNum);
+            GpuWork.Wait(frameFence, FrameNum);
             device.WaitIdle();
 
             Thread.Sleep(100); // the driver fills the history after the GPU is done
