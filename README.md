@@ -16,14 +16,36 @@ native library is built from a pinned NRI release plus a small patch set, both i
 
 ## Status
 
-`0.1.0-alpha`, against NRI `v190`, on .NET 11. Windows x64, Linux x64 and macOS arm64 (Vulkan through
-MoltenVK; the macOS library needs a Vulkan loader installed and macOS 26, findings §9.1).
+`0.1.0-alpha`, against NRI `v190` plus seven patches ([patches/](patches/README.md)), on .NET 11.
+Windows x64, Linux x64 and macOS arm64.
 
-Phase one is done: the generated interop layer, device creation on Vulkan, D3D12 and NRI's NONE
-backend, the core object model, and a triangle rendered offscreen and read back on both GPU
-backends with NRI's validation and the backend validation layers on. Extensions and the
-PrismSlang projection are next. See [docs/findings.md](docs/findings.md) for what was measured
-along the way.
+CI builds the native library from the pinned tag and the patch set on all three and runs the suite
+on a headless device with NRI's validation and the backend validation layer on: device creation on
+Vulkan, D3D12 and NRI's NONE backend, every core object, every extension the device offers (the
+rest skip naming what is missing), and a triangle rendered offscreen and read back, D3D12 on WARP
+and Vulkan on lavapipe and MoltenVK. A fourth job regenerates the interop layer and fails on drift.
+See [docs/findings.md](docs/findings.md) for what was measured along the way.
+
+On macOS this binding is Vulkan through MoltenVK: only the Base package exists there, NRI's Metal
+backend is not built, and the application provides the Vulkan loader and MoltenVK (findings §9).
+The library needs macOS 15 or newer, which is .NET 11's own floor.
+
+### Coverage
+
+All 114 functions of NRI's `CoreInterface` have a hand-written counterpart, and so do 12 of the 16
+headers in `Include/Extensions`: `DescriptorHeap`, `Imgui`, `LowLatency`, `MeshShader`,
+`RayTracing`, `SharedHandle` (patch 0002), `Streamer`, `SwapChain`, `Upscaler`, `Video`,
+`WrapperD3D12`, `WrapperVK`. `DeviceCreation` is `NriDevice.Create` and `NriAdapter`; `Helper` is
+`AllocateAndBindMemory` (over `CalculateAllocationNumber`) and `QueryVideoMemoryInfo`. Not wrapped:
+
+- `NRIWrapperD3D11.h` and `NRIWrapperMetal.h`: those backends are not built (Vulkan and D3D12 are
+  the scope; Metal is passed OFF so macOS is Vulkan through MoltenVK).
+- Raw only, public in `PrismNRI.Native.NriApi`: `nriConvertDXGIFormatToNRI`, `nriConvertVKFormatToNRI`,
+  `nriConvertNRIFormatToDXGI`, `nriConvertNRIFormatToVK`, `nriGetFormatProps`,
+  `nriGetGraphicsAPIString`, `nriFitPipelineLayoutSettingsIntoDeviceLimits`, `nriReportLiveObjects`,
+  `nriBeginAnnotation`, `nriEndAnnotation`, `nriAnnotation`, `nriSetThreadName`.
+- Not reachable, since they take NRI handles the binding does not expose: `HelperInterface::UploadData`,
+  `CreateAccelerationStructureVK` and `CreateAccelerationStructureD3D12` in the two wrappers.
 
 ## What you get
 
@@ -86,7 +108,7 @@ framework dependency. PrismSlang's NRI projection and the engine's renderer test
 
 | Package | What is in it | When |
 |---|---|---|
-| `PrismNRI` (its native assets) | `NRI.dll` / `libNRI.so` with **no upscaler SDK**, AMD AGS, licences. MIT throughout, about 2 MB | the default |
+| `PrismNRI` (its native assets) | `NRI.dll` / `libNRI.so` / `libNRI.dylib` with **no upscaler SDK**, AMD AGS (Windows), licences. MIT throughout, about 2 MB | the default |
 | `PrismNRI.Native.Upscalers` | `NRI.dll` / `libNRI.so` with **NIS, FSR and XeSS** compiled in, AMD AGS, licences | you want NRI's upscaler extension |
 | `PrismNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll`, Microsoft's licence | D3D12 on the Agility SDK rather than the inbox runtime (Windows) |
 
@@ -102,7 +124,7 @@ PrismNRI's own native assets.
 No package contains a vendor upscaler runtime. FSR needs `amd_fidelityfx_loader_dx12.dll` +
 `amd_fidelityfx_upscaler_dx12.dll` (D3D12) or `amd_fidelityfx_vk.dll` (Vulkan), XeSS needs
 `libxess.dll`: your application ships them beside its executable, under AMD's and Intel's terms.
-`NriUpscalerExtension.IsRuntimeInstalled(type)` tells you whether they are there, and
+`device.Upscaler.IsRuntimeInstalled(type)` tells you whether they are there, and
 `CreateUpscaler` throws `NriUnsupportedException` naming the missing file. DLSS is not a package at
 all: build NRI yourself with `pwsh tools/build-native.ps1 -WithDlss <path to the DLSS SDK>`, which
 puts an NGX-linked `NRI.dll` (NVIDIA's licence, yours to ship) in `runtimes-upscalers-dlss/`. See
@@ -122,7 +144,10 @@ dotnet test --solution PrismNRI.slnx # NONE always; VK and D3D12 when a device e
 The native payload is not committed. Windows needs Visual Studio with C++ and CMake 3.30+; Linux
 needs CMake, clang (GCC 13 rejects NRI under `-Werror`), the Vulkan loader and X11/Wayland headers;
 `tools/ci/verify-linux.sh` installs them and runs the whole Linux leg, with a Khronos validation layer
-that matches NRI's headers. `pwsh tools/generate-native.ps1` regenerates the interop layer from the
+that matches NRI's headers. macOS needs Xcode's command-line tools and CMake (Ninja if present), and
+for the tests Homebrew's `molten-vk`, `vulkan-loader` and `vulkan-validationlayers` with
+`DYLD_FALLBACK_LIBRARY_PATH` and `VK_DRIVER_FILES` set as the workflow's `osx-arm64` job sets them.
+`pwsh tools/generate-native.ps1` regenerates the interop layer from the
 pinned, patched headers and is checked by CI for drift.
 
 ## What it uses
@@ -138,7 +163,7 @@ shaders, xunit v3 for the tests.
 
 - [docs/design.md](docs/design.md) — how it is built and why
 - [docs/findings.md](docs/findings.md) — what was measured, in order
-- [docs/guide.md](docs/guide.md) — how to use it, and what will surprise you (as the surface settles)
+- [docs/guide.md](docs/guide.md) — how to use it, and what will surprise you
 - [patches/README.md](patches/README.md) — the patch set
 
 ## Licence

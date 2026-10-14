@@ -17,7 +17,7 @@ NRI with no upscaler SDK compiled in. MIT throughout, plus Apache-2.0 alternativ
 
 | Component | Version | In the package as | Licence | Platforms |
 |---|---|---|---|---|
-| [NRI](https://github.com/NVIDIA-RTX/NRI) (NVIDIA Render Interface) | v190 + `patches/` | `NRI.dll` / `libNRI.so` | MIT | all |
+| [NRI](https://github.com/NVIDIA-RTX/NRI) (NVIDIA Render Interface) | v190 + `patches/` | `NRI.dll` / `libNRI.so` / `libNRI.dylib` | MIT | all |
 | [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | commit 3aa9212 | compiled into NRI | MIT | all |
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | v1.4.365 | compiled into NRI (headers only; no Vulkan runtime is shipped) | Apache-2.0 OR MIT | all |
 | [NVTX](https://github.com/NVIDIA/NVTX) | v3.6.0 | compiled into NRI (header-only) | Apache-2.0 with LLVM exceptions | all |
@@ -88,8 +88,9 @@ Agility SDK's `D3D12StateObjectCompiler.*` (not in its `distributable files.txt`
 `libxess_dx11.dll`), DLSS frame generation (`nvngx_dlssg`), and the other FidelityFX effect DLLs.
 
 Not shipped but required on the target machine: the Microsoft Visual C++ 2015-2022 runtime
-(`NRI.dll` imports `MSVCP140.dll` / `VCRUNTIME140.dll`), a GPU driver, and on Linux the Vulkan loader
-(`libvulkan.so.1`).
+(`NRI.dll` imports `MSVCP140.dll` / `VCRUNTIME140.dll`), a GPU driver, on Linux the Vulkan loader
+(`libvulkan.so.1`), and on macOS the Vulkan loader (`libvulkan.1.dylib`) and MoltenVK for the
+Vulkan backend.
 
 ## Obligations
 
