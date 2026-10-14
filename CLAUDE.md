@@ -97,6 +97,10 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 - In-repo, `dotnet/PrismNRI.csproj` copies `runtimes/<rid>/native` beside `ProjectReference`
   consumers and also `runtimes-agility/<rid>/native` when staged (never packed;
   `-p:PrismNRIDevAgility=false` turns it off), so tests run D3D12 on Agility.
+- A build from source with no staged library for its RID fails with `PRISMNRI001`, naming the
+  directory and the `build-native.ps1` command; before, it built and the consumer failed at device
+  creation with `DllNotFoundException`. `-p:PrismNRIRequireNative=false` skips the check. Every
+  workflow builds after the payload is staged or restored, so none needs it.
 - **Consumption smoke test** (`tools/consume`, not in the solution): `PackageReference`s to
   `PrismNRI` + `PrismNRI.Testing` at `-p:PrismNRIPackageVersion`, from the folder in
   `PRISMNRI_FEED` (default `nupkg/`), restored into `tools/consume/obj/packages` so the global
