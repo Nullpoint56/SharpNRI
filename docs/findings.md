@@ -780,3 +780,55 @@ The decision: **out.** It is a compatibility backend in which half of the explic
 silently does nothing. It would add a third shader bytecode, DXBC, to the engine's and the
 tests' shader pipelines, and it has no ray tracing, mesh shaders, bindless, shared handles or
 DLSS. Nothing in the engine needs it.
+
+### 10.3 Closing the surface gaps
+
+Wrapped: `NriQueue.UploadData` (managed upload records, short data refused),
+`CreateAccelerationStructureVK`/`D3D12` (caller names the type, needs RayTracing), `NriHandle` on
+every object, queue and descriptor set, `NriDevice.Core`/`Helper` read-only, the twelve flat exports
+on the static class `Nri`. `Nri` refuses `Format.MAX_NUM`: `nriGetFormatProps(MAX_NUM)` returned
+another format's entry.
+
+Measured on RTX 4070 SUPER (VK, D3D12, Agility 1.619) and WARP:
+
+- RT pipeline: identifier 32 B, SBT alignment 64 on all three. `DispatchRays` and
+  `DispatchRaysIndirect` produce the same map as the ray query: 32 hits of 256.
+- D3D12 RT library: NRI adds each ShaderDesc as a DXIL library exporting everything. One shared
+  `lib_6_3` library named by three descs faults in `CreateRayTracingPipeline` (SEH under the debug
+  layer). One library per export works (`tools/compile-test-shaders.ps1` now emits one DXIL per
+  export). Vulkan takes one SPIR-V module.
+- Unbound BLAS size equals the GetMemoryDesc2 prediction (VK 3072 B/256, D3D12 2944 B/128, WARP
+  65536 B). Update scratch equals build scratch on NVIDIA (1664 B); WARP reports build 120 B, update
+  0 B. Compacted: VK 2944 of 3072 B, D3D12 2944 of 2944 B. Placed+updated, CLONE and COMPACT trace
+  the same map.
+- A BLAS imported back by its native object reports the same GPU handle, native object, buffer and
+  scratch sizes, and traces the same map.
+- Micromaps, VK: a transparent micro-triangle hides the non-opaque triangle and an opaque one shows
+  it. Index-less OMM (NONE, address 0) draws VUID-...-pInfos-10904 from VVL 1.4.341, which looks like
+  a false positive; an index buffer is clean. D3D12: NRI's prebuild query passes no input buffer or
+  per-OMM descs, debug error 1162, SEH via break-on-error; the test therefore runs D3D12 without
+  the debug layer (NRI validation on). Without the layer, the BLAS build linking the micromap fails
+  `Close` with `E_INVALIDARG`: skipped on D3D12 naming that.
+- Import wrappers (all twelve) carry a dispatch, copies, a texture upload and readback, and
+  timestamps, byte-exact. `CreateMemoryVK` without a mapping: NRI maps it itself. Under NRI
+  validation a wrapped command buffer counts as recording from creation, so `Begin` is refused.
+  `CreateBufferVK` records usage NONE, so a buffer barrier with storage access is refused; a global
+  barrier passes.
+- Formats (108): round trips hold except DXGI has none for the 38 ETC2/ASTC formats, VK to NRI gives
+  UNKNOWN for all 52 block-compressed formats (table ends at 130), and DXGI 18 maps to RGB32_SINT.
+- UploadData: buffer plus 2 layers x 2 mips RGBA8 exact, layer-major, on VK, D3D12 and WARP. NV12:
+  VK VUID-VkCopyBufferToImageInfo2-dstImage-07981; D3D12 error 1417.
+- Reflex on D3D12: report all zero after 72 frames, filled and ordered after 200. VK: VK_LAYER_RTSS
+  (RivaTuner) killed the process at the first present. With implicit layers disabled VK passed, but
+  a later `D3D12CreateDevice` in the same process returned 0x887A0007
+  (`DXGI_ERROR_DEVICE_RESET`), with or without ALLOW_LOW_LATENCY and VSYNC. The VK case is skipped
+  naming that defect, since it breaks every later D3D12 test in the process.
+- H.264 encode, D3D12: minimum 256x256; a 64x64 capability query draws debug error 1312, SEH. One
+  IDR frame at QP 26: 277 B, `00 00 00 01 65`. VK: minimum 160x64, resolve on GRAPHICS; the feedback
+  query never becomes available and `vkCmdCopyQueryPoolResults` with WAIT never completes. Skipped
+  on VK naming that; it would hang the run.
+- Counts: 238 total / 233 passed / 5 skipped on hardware; 238 / 227 / 11 on WARP.
+
+Two of the new skips (Reflex on VK, H.264 encode on VK) are keyed on the backend and quote a
+measured defect rather than a missing capability, the same exception as §9.9's device-name skips
+and recorded for the same reason: a capability flag says yes and the path does not work.

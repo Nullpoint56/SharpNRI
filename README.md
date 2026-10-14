@@ -40,8 +40,8 @@ headers in `Include/Extensions`: `DescriptorHeap`, `Imgui`, `LowLatency`, `MeshS
 included; so are `CreateAccelerationStructureVK` and `CreateAccelerationStructureD3D12` in the two
 wrappers. The twelve flat exports (`nriConvert*Format*`, `nriGetFormatProps`,
 `nriGetGraphicsAPIString`, `nriFitPipelineLayoutSettingsIntoDeviceLimits`, `nriReportLiveObjects`,
-the three annotation calls and `nriSetThreadName`) are managed static helpers. Every object also
-exposes its raw NRI handle, as an escape hatch to `PrismNRI.Native.NriApi`. The audit behind this
+the three annotation calls and `nriSetThreadName`) are managed static helpers on `Nri`. Every object also
+exposes its raw NRI handle (`NriHandle`), as an escape hatch to `PrismNRI.Native.NriApi`. The audit behind this
 is findings §10.
 
 Not bound, by decision (design §4.7, findings §10):
