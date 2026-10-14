@@ -1,0 +1,32 @@
+Vulkan: samplerLodBiasMax is 0 where the portability subset forbids a mip LOD bias.
+
+VK_KHR_portability_subset has a feature, samplerMipLodBias, without which every sampler must
+have mipLodBias == 0 (VUID-VkSamplerCreateInfo-samplerMipLodBias-04467). MoltenVK on the GitHub
+macOS runner ("Apple Paravirtual device", MoltenVK 1.4.2) reports the feature as false while
+VkPhysicalDeviceLimits::maxSamplerLodBias stays non-zero, and NRI copies the limit into
+DeviceDesc::other.samplerLodBiasMax. A caller that honours the reported limit therefore creates
+a sampler the Khronos validation layer rejects (docs/findings.md 9.4).
+
+NRI already chains VkPhysicalDevicePortabilitySubsetFeaturesKHR under __APPLE__ and reads
+imageView2DOn3DImage from it; this reads samplerMipLodBias next to it and reports a limit of 0
+when the feature is absent. No other platform is affected.
+
+Applies on top of NRI v190 with patches 0001 to 0005.
+
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index cc92d62..0bf9234 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -1542,6 +1542,12 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+         m_Desc.other.timestampFrequencyHz = uint64_t(1e9 / double(limits.timestampPeriod) + 0.5);
+         m_Desc.other.drawIndirectMaxNum = limits.maxDrawIndirectCount;
+         m_Desc.other.samplerLodBiasMax = limits.maxSamplerLodBias;
++#ifdef __APPLE__
++        // A portability device can forbid any non-zero "mipLodBias" ("samplerMipLodBias", "VUID-VkSamplerCreateInfo-samplerMipLodBias-04467")
++        // while its "maxSamplerLodBias" limit stays non-zero (MoltenVK). The limit reported here is the bias a sampler may actually use
++        if (IsExtensionSupported(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, desiredDeviceExts) && !PortabilitySubsetFeatures.samplerMipLodBias)
++            m_Desc.other.samplerLodBiasMax = 0.0f;
++#endif
+         m_Desc.other.samplerAnisotropyMax = limits.maxSamplerAnisotropy;
+         m_Desc.other.texelOffsetMin = (int8_t)limits.minTexelOffset;
+         m_Desc.other.texelOffsetMax = (uint8_t)limits.maxTexelOffset;

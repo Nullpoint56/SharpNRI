@@ -16,7 +16,8 @@ native library is built from a pinned NRI release plus a small patch set, both i
 
 ## Status
 
-`0.1.0-alpha`, against NRI `v190`, on .NET 11. Windows x64 and Linux x64.
+`0.1.0-alpha`, against NRI `v190`, on .NET 11. Windows x64, Linux x64 and macOS arm64 (Vulkan through
+MoltenVK; the macOS library needs a Vulkan loader installed and macOS 26, findings §9.1).
 
 Phase one is done: the generated interop layer, device creation on Vulkan, D3D12 and NRI's NONE
 backend, the core object model, and a triangle rendered offscreen and read back on both GPU

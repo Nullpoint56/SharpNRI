@@ -9,6 +9,8 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0003 validation `HAS_BUFFER` crash | bug | to file, first |
 | 0004 Vulkan minor version above the instance's | bug | to file with 0003 |
 | 0005 `MemoryHeap::alignment` uninitialised (GCC `-Werror` build) | bug | to file with 0003 |
+| 0006 `samplerLodBiasMax` above what a portability device allows | bug | to file with 0003 |
+| 0007 Apple loader link should be optional | cleanup | to file after 0003, cite PR 134 |
 | 0001 Agility SDK from a path | proposal | to file after 0003 |
 | 0002 SharedHandle extension | proposal | to file once the editor has used it |
 
@@ -63,6 +65,43 @@ Reproduces on v190, Ubuntu 24.04, `cmake -DCMAKE_BUILD_TYPE=Release` with the di
 Fix: `, alignment(0)` in the initialiser list. Patch attached
 (`patches/0005-helper-memoryheap-alignment-init.patch`), one line; with it the library builds
 clean under GCC and passes our suite.
+
+## 0006 — `samplerLodBiasMax` permits a bias a portability device forbids
+
+**Title:** Vulkan on MoltenVK: `samplerLodBiasMax` ignores `VkPhysicalDevicePortabilitySubsetFeaturesKHR::samplerMipLodBias`
+
+`DeviceVK::Create` copies `VkPhysicalDeviceLimits::maxSamplerLodBias` into
+`DeviceDesc::other.samplerLodBiasMax`. Under `VK_KHR_portability_subset` a device may report
+`samplerMipLodBias = false`, and then every sampler must have `mipLodBias == 0`
+(VUID-VkSamplerCreateInfo-samplerMipLodBias-04467) whatever the limit says. MoltenVK 1.4.2 on an
+"Apple Paravirtual device" (GitHub's macOS arm64 runner) reports the feature as false and
+`maxSamplerLodBias = 15.999`, so a caller that keeps `SamplerDesc::mipBias` within NRI's reported
+limit gets "mipLodBias (portability error) is 0.500000, but samplerMipLodBias not supported" from
+the Khronos validation layer.
+
+Reproduces on v190, macOS 26.6, MoltenVK 1.4.2, validation layer 1.4.357: `CreateSampler` with
+`mipBias = 0.5`. NRI already chains `PortabilitySubsetFeatures` under `__APPLE__` and reads
+`imageView2DOn3DImage` from it. Fix: report 0 when the subset is enabled without
+`samplerMipLodBias`. Patch attached (`patches/0006-vulkan-portability-sampler-lod-bias.patch`), 6
+lines; with it the device reports 0 and a sampler made within the limit validates clean.
+
+## 0007 — The Apple link of the Vulkan loader makes the library unloadable without it
+
+**Title:** `NRI_ENABLE_VULKAN_LOADER_LINKING`: make PR 134's Apple loader link optional
+
+PR 134 added `find_package(Vulkan REQUIRED)` and a link of `Vulkan_LIBRARIES` into `NRI_VK` on
+Apple so that samples started from an IDE without the Vulkan SDK environment could find the
+loader; the review said the link "is just not needed because it gets loaded dynamically, except
+your specific case" and asked for a condition, and it merged unconditional. A library built on a
+machine with Homebrew's loader records `/opt/homebrew/opt/vulkan-loader/lib/libvulkan.1.dylib` as
+a load-time dependency and does not load on a Mac without that file, NONE backend included,
+while `DeviceVK` still `dlopen`s `libvulkan.1.dylib` at device creation exactly as on Linux.
+
+Proposal: an option, default ON on Apple so the sample workflow keeps working, OFF for anyone
+shipping the library. Measured on v190 on a GitHub macOS runner: with the option off the library
+links only the system, loads without a loader, and the Vulkan backend finds Homebrew's loader
+through `DYLD_FALLBACK_LIBRARY_PATH` as before. Patch attached
+(`patches/0007-cmake-vulkan-loader-link-option.patch`), 3 lines changed.
 
 ## 0001 — Load the Agility SDK from a path when the host cannot export `D3D12SDKVersion`
 

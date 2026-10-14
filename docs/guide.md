@@ -238,3 +238,7 @@ survives a native crash.
 | Vulkan loader older than the driver (Ubuntu 24.04's stock 1.3 loader with Mesa 25) | crashed in `CmdSetRootConstants` and rejected `HOST_TRANSFER` textures before patch 0004; fixed in the shipped library | §8.4 |
 | Khronos validation layer older than NRI's headers | every newer struct NRI chains is an `[ERROR]` message; match the layer to the headers (`tools/ci/fetch-vulkan-layer.sh`) | §8.3 |
 | `TrySharedHandles` null on Vulkan | the device lacks external memory or external semaphores (lavapipe has no `VK_KHR_external_semaphore_fd`) | §8.5 |
+| `libNRI.dylib` fails to load on macOS | NRI links the Vulkan loader on Apple: install one (Homebrew `vulkan-loader` or the LunarG SDK); Homebrew's `/opt/homebrew/lib` needs `DYLD_FALLBACK_LIBRARY_PATH`. The shipped library also needs macOS 26 | §9.1, §9.2 |
+| `mipBias` rejected on MoltenVK | the portability subset may forbid any bias; keep `mipBias` within `samplerLodBiasMax`, which is 0 there with patch 0006 | §9.4 |
+| `libNRI.dylib` and the Vulkan loader | the library links nothing but the system (patch 0007) and `dlopen`s `libvulkan.1.dylib` at device creation; put the loader and MoltenVK where dyld looks, or on `DYLD_FALLBACK_LIBRARY_PATH`. NRI has no loader-path field outside the wrapper route | §9.1, §9.9 |
+| Timestamps read 0 on MoltenVK without GPU counter sampling | they are written when the command buffer completes; copy them in a later submission | §9.6 |

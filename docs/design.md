@@ -192,8 +192,13 @@ Both NRI builds keep Vulkan, D3D12, NONE, NRI validation, the ImGui extension, N
 names, and are compiled against the Agility headers (`NRI_ENABLE_AGILITY_SDK_SUPPORT=ON`); neither
 contains the Agility runtime.
 
+On osx-arm64 only Base exists: `libNRI.dylib` with Vulkan (through MoltenVK), NONE, validation,
+ImGui and debug names, Metal passed OFF so the contents do not depend on the build machine's Xcode.
+NRI links the Vulkan loader into it on Apple, so unlike the other platforms the library needs a
+loader present to load at all (findings §9.1).
+
 **A consumer takes exactly one of `PrismNRI`'s native assets and `PrismNRI.Native.Upscalers`.** Both
-contain a file called `NRI.dll` (`libNRI.so`) at the same package path, and NuGet's conflict
+contain a file called `NRI.dll` (`libNRI.so`, `libNRI.dylib`) at the same package path, and NuGet's conflict
 resolution between two packages' native assets of the same name is not something to rely on. An
 application that wants the upscalers references both packages and excludes PrismNRI's native
 assets:
@@ -298,6 +303,17 @@ with no GPU, and the wrong fixture for anything that asks a question (§6.6).
 
 ---
 
+### 4.6 Two skips name a device, and why that is allowed
+
+A skip names the capability the device lacks, so that a reader knows what was not measured and a
+capable device cannot be skipped by accident. Two tests break that rule on purpose: MoltenVK on
+GitHub's "Apple Paravirtual device" crashes inside the driver when a host-transfer image is bound
+(§9.5) and writes zero for timestamps copied in the submission that wrote them (§9.6). No feature
+bit predicts either, the device advertises both features, and a failing job on every push hides
+everything else. So those two skip on the adapter name (`TestDevice.IsAppleParavirtualVK`), with
+the defect and the backtrace as the reason, and the timestamp test still records what a later
+submission reads. They are the only name-keyed skips; a physical Mac is not covered by them.
+
 ## 5. Patches
 
 `patches/*.patch` are `git diff`s against the submodule at the pinned tag, applied in name order
@@ -315,3 +331,5 @@ the pin moves, and the ones that change headers are re-measured by the ABI oracl
 | 0003 Validation layer passes `HAS_BUFFER` through | applied, measured (§7.5) |
 | 0004 Vulkan minor version capped at the instance's | applied, measured (§8.4); upstream bug |
 | 0005 `MemoryHeap::alignment` initialised | applied, measured with GCC 13 (§8.1); upstream bug |
+| 0006 `samplerLodBiasMax` is 0 on a portability device without `samplerMipLodBias` | applied, measured on MoltenVK (§9.4); upstream bug |
+| 0007 Apple loader link is an option, off for our payload | applied, measured (§9.9); upstream cleanup |

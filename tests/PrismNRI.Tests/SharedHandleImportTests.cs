@@ -49,7 +49,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
 
     private static void Require(GraphicsAPI api)
     {
-        Assert.SkipUnless(OperatingSystem.IsWindows(), "NT handle import is the Windows path; Linux would import OPAQUE_FD and is not covered here");
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "NT handle import is the Windows path; elsewhere it would import OPAQUE_FD, which is not covered here");
         TestDevice.RequireAvailable(new Backend(api));
     }
 

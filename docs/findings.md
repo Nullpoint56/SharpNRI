@@ -521,3 +521,153 @@ never reproduced locally (Windows on the GPU, WSL on lavapipe, over fifty runs).
 loops on `Proceed()` as the spec describes instead of calling it once, which is correct for
 opaque geometry either way and removes one thing a software traversal could disagree about. The
 probe stays: the next miss leaves its map in the log, and that is the next piece of evidence.
+
+## 9. Phase six: the macOS leg
+
+Measured on the `macos-latest` GitHub runner: "Apple M2 Pro (Virtual)" (`VirtualMac2,1`), macOS
+26.6.2, AppleClang 21.0.0, CMake 4.4.3, .NET SDK 11.0.100-rc.2. Vulkan is Homebrew's MoltenVK
+1.4.2 behind Homebrew's Khronos loader 1.4.357, with Homebrew's validation layer 1.4.357. The
+device is "Apple Paravirtual device", Vulkan 1.4.357, conformance 1.4.4.0; NRI creates it as a
+Vulkan 1.4 device with 18 device extensions. Only the Base variant is built, with NRI's Metal
+backend off: on macOS this binding is Vulkan through MoltenVK.
+
+### 9.1 The build, and what the library links
+
+`tools/build-native.ps1 -Rid osx-arm64` configures with AppleClang, Ninja,
+`CMAKE_OSX_ARCHITECTURES=arm64` and `NRI_ENABLE_METAL_SUPPORT=OFF` passed explicitly: NRI turns its
+Metal 4 backend on by default whenever Xcode 26 and the Metal toolchain are present, and the runner
+has both, so which backends the library contains would otherwise depend on the image. NGX is not
+passed (its condition, `WIN32 OR NOT IS_ARM64`, is false). The native build takes about 25 seconds
+including the dependency download; the payload is `libNRI.dylib` (1,069,376 bytes) plus the same
+licences as Linux, 8 files, 1.2 MB.
+
+Two facts about the library that differ from the other platforms, both measured with `otool`:
+
+- **NRI links the Vulkan loader on Apple.** `nri/CMakeLists.txt` runs `find_package(Vulkan
+  REQUIRED)` under `APPLE` and links `Vulkan_LIBRARIES` into the VK backend, so `libNRI.dylib`
+  has a load-time dependency on `/opt/homebrew/opt/vulkan-loader/lib/libvulkan.1.dylib`, the
+  absolute install name of the build machine's loader, and still `dlopen`s `libvulkan.1.dylib`
+  at device creation as on Linux. A Mac without a Vulkan loader cannot load the library at all,
+  NONE backend included; one with the loader elsewhere depends on dyld's fallback search by leaf
+  name. The script records the link list and refuses anything outside the system and the loader.
+- **Minimum macOS 26.0** (`minos 26.0, sdk 26.5`). No deployment target is set, so the library
+  is stamped with the runner's OS and will not load on an older macOS.
+
+Both are packaging decisions for the owner rather than things this leg changes: the first would
+be a patch to NRI's CMakeLists, the second a `CMAKE_OSX_DEPLOYMENT_TARGET`.
+
+### 9.2 Homebrew's Vulkan is on none of the default paths
+
+Homebrew on arm64 lives in `/opt/homebrew`. dyld's default fallback path is
+`$HOME/lib:/usr/local/lib:/usr/lib`, so a `dlopen("libvulkan.1.dylib")` by leaf name (NRI's, and
+Vortice's in the wrapper tests) does not search it; the job sets `DYLD_FALLBACK_LIBRARY_PATH`
+with the Homebrew prefix first. Whether the suite passes without it was not measured. molten-vk
+1.4.2 keeps its ICD manifest in the keg's `etc/vulkan/icd.d`, not `share/vulkan/icd.d` (the first
+run failed with "Found no drivers" on the `share` path); the job finds the file and sets
+`VK_DRIVER_FILES` to it alone. The loader finds the validation layer in
+`/opt/homebrew/share/vulkan/explicit_layer.d` without help: adding the keg's own directory through
+`VK_ADD_LAYER_PATH` only produced a "duplicate layer" loader warning.
+
+The layer (1.4.357) is older than the Vulkan-Headers NRI builds against (1.4.365), the situation
+that produced "unknown struct" errors on Linux (8.3). With MoltenVK it produced none: every
+struct NRI chains for MoltenVK's 18 extensions is one 1.4.357 knows.
+
+### 9.3 A raw Vulkan device must opt into portability enumeration
+
+`WrapperExtensionTests` creates its own `VkInstance` and `VkDevice` through Vortice.Vulkan. The
+loader hides portability drivers (MoltenVK) from an instance that does not enable
+`VK_KHR_portability_enumeration` with `VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR`, and a
+device that advertises `VK_KHR_portability_subset` must have it enabled
+(VUID-VkDeviceCreateInfo-pProperties-04451). NRI does both under `__APPLE__`. The test now does
+both when the loader and the device offer them, which only a portability driver does; on Windows
+the six wrapper tests still pass. On the runner the raw device is Vulkan 1.3 on the paravirtual
+device with validation on, and wraps without a validation error.
+
+### 9.4 A sampler with a mip LOD bias the device forbids: patch 0006
+
+`DescriptorTests.Sampler_is_created_from_a_filled_desc(VK)` failed on the layer's
+VUID-VkSamplerCreateInfo-samplerMipLodBias-04467: "mipLodBias (portability error) is 0.500000,
+but samplerMipLodBias not supported." MoltenVK reports
+`VkPhysicalDevicePortabilitySubsetFeaturesKHR::samplerMipLodBias = false` and
+`maxSamplerLodBias = 15.999`, and NRI copies the limit into `DeviceDesc::other.samplerLodBiasMax`,
+so the reported limit permitted a sampler the device forbids. Patch 0006 reports 0 when the
+portability subset is enabled without the feature (6 lines next to NRI's existing
+`imageView2DOn3DImage` read of the same struct); on the runner the device then reports
+`samplerLodBiasMax = 0`. The test fills `mipBias` with `min(0.5, samplerLodBiasMax)` and records
+both; on Windows and Linux the limit is far above 0.5 and the test is unchanged.
+
+### 9.5 Host-transfer images crash the paravirtual Metal driver
+
+The first complete run died with SIGSEGV (exit 139) in
+`TextureTests.Committed_2D_texture_is_created_with_each_usage(VK, HOST_TRANSFER)`. Under lldb on
+the runner: `EXC_BAD_ACCESS (address=0xc)` in `AppleParavirtGPUMetalIOGPUFamily`, called from
+MoltenVK's `MVKImagePlane::updateMTLTextureContent` <- `MVKImageMemoryBinding::flushToDevice` <-
+`bindDeviceMemory` <- `vkBindImageMemory`, through the validation layer, from NRI's
+`TextureVK::AllocateAndBindMemory`. No Vulkan error precedes it, and the device advertises
+`hostImageCopy = true`, which is why NRI sets `VK_IMAGE_USAGE_HOST_TRANSFER_BIT` and reports
+`FormatSupportBits::HOST_COPY`. Nothing NRI reports predicts it, so this one case skips by device
+name (`TestDevice.IsAppleParavirtualVK`) with the crash as the reason. Whether a physical Apple
+GPU behaves the same is not measured here.
+
+### 9.6 Timestamps are written at completion
+
+`QueryTests.Two_timestamps_around_GPU_work_are_ordered(VK)` read 0 and 0. MoltenVK reports
+`timestampComputeAndGraphics = true`, `timestampValidBits = 64` on every family and
+`timestampPeriod = 1`, so NRI reports `features.timestamp`. When it sees two zeros on the
+paravirtual device, the test now copies the same queries again from a later submission: that copy
+reads 140273875750 -> 140273875750, two equal non-zero values. That is what timestamps written on
+the host when the command buffer completes look like, which is MoltenVK's path for a GPU without
+counter sampling: a copy recorded in the submission that wrote them runs before they exist. The
+test records both readings and skips on that device only; wherever the in-submission copy reads
+non-zero it asserts as before.
+
+### 9.7 What else the leg measured
+
+- **The ABI oracle agrees on arm64.** `NativeAbiTests` compiled its probe with AppleClang on
+  arm64 and matched all 273 structs, 1,840 field offsets, 55 fixed buffers, 96 enums, 4
+  bitfields, 19 DllImports and 238 function-pointer fields. Until now it had only run on x64.
+- **External handles.** MoltenVK has core external memory and semaphores and
+  `VK_EXT_external_memory_metal`, but neither `VK_KHR_external_memory_fd` nor
+  `VK_KHR_external_semaphore_fd`, so patch 0002's interface is `UNSUPPORTED` and the five
+  `SharedHandleTests` skip on Vulkan, as on lavapipe.
+- **Capabilities MoltenVK lacks here**, each already a named skip: ray tracing, mesh shaders,
+  video, descriptor heaps, shading-rate attachments.
+- The triangle renders and reads back on MoltenVK with validation on (`TriangleTests`, 115 ms).
+
+### 9.8 Where the macOS leg ends up
+
+| | Linux (lavapipe, 8.8) | macOS (MoltenVK 1.4.2, paravirtual M2 Pro, 1.4.357 layer) |
+|---|---|---|
+| total | 216 | 216 |
+| passed | 108 | 104 |
+| skipped | 108 | 112 |
+| failed | 0 | 0 |
+
+The 112 skips: 88 D3D12 (Windows only), 5 SharedHandle (no fd external handles), 4 NT-handle
+import proofs (Windows path), 3 video, 3 payload contracts that do not exist for osx-arm64
+(Upscalers twice, Agility), and one each for ray tracing, mesh shaders, descriptor heaps, the
+shading-rate attachment, PE imports, the Windows swap-chain window, NIS (Base variant) and the
+two paravirtual-device defects (9.5, 9.6). The tests take about 4 seconds.
+
+### 9.9 Four decisions, and what was done with them
+
+- **The two device-name skips stay.** §9.5 and §9.6 are driver defects on the paravirtual Metal
+  device with no feature bit to key on. They remain keyed on the adapter name with the defect as
+  the reason, and the rule and its exception are written down in design §4.6.
+- **The loader link becomes patch 0007.** Upstream history: PR 134 (merged April 2025) added
+  the Apple link so that samples launched from an IDE without the Vulkan SDK environment could
+  find the loader; the maintainer's review said the static link "is just not needed because it
+  gets loaded dynamically, except your specific case" and asked for a condition, and the change
+  merged unconditional. No issue reports the consequence for a shipped library. The patch wraps
+  the two lines in `NRI_ENABLE_VULKAN_LOADER_LINKING`, default ON so upstream's workflow is
+  unchanged, and `build-native.ps1` passes OFF for osx-arm64. The library then links only the
+  system and the Vulkan backend finds the loader through `DYLD_FALLBACK_LIBRARY_PATH` on the
+  runner as before. NRI's `DeviceCreationDesc` has no loader-path field (only the wrapper route's
+  `DeviceCreationVKDesc::libraryPath` has one), so a consumer that ships its own loader puts it
+  on a path dyld searches; recorded in the guide.
+- **Deployment target 15.0.** NRI pins none, so the library inherited the runner's own version
+  (26.0). MoltenVK's runtime minimum is macOS 12.0; .NET 11 supports macOS 15 and newer; the
+  binding cannot run below .NET's floor, so `CMAKE_OSX_DEPLOYMENT_TARGET=15.0` is the lowest
+  version that can matter and is what the script passes.
+- **The sampler bias adaptation stays.** The test asks for `min(0.5, samplerLodBiasMax)` and
+  records both numbers (§9.4); the guide's traps table carries the consumer-facing rule.
