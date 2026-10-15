@@ -116,6 +116,40 @@ public sealed class PipelineTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    // Stale or foreign cache bytes. NRI returns OUT_OF_DATE from CreatePipelineCache and, in
+    // CreateImplementation (DeviceVK.h, DeviceD3D12.h), destroys the half-made object and nulls the
+    // out handle; the validation layer does the same (DeviceVal.hpp). So nothing is handed back to
+    // leak: the binding throws, the host allocator balances and the device disposes clean.
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void A_cache_primed_with_garbage_is_refused_with_OUT_OF_DATE_and_leaks_nothing(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        var allocator = new NriCountingAllocator();
+        var device = TestDevice.Create(backend.Api, messages, b => b.Allocator = allocator);
+        Assert.SkipWhen(device.Desc.features.pipelineCache == 0, $"{backend}: features.pipelineCache = 0; the backend ignores cache data");
+        try
+        {
+            var garbage = new byte[4096];
+            new Random(0x5a1e).NextBytes(garbage);
+            var live = allocator.Live;
+
+            var e = Assert.Throws<NriException>(() => device.CreatePipelineCache(garbage));
+            Record($"{backend}: CreatePipelineCache(4096 random bytes) -> {e.Result}; host allocations live before {live}, after {allocator.Live}");
+
+            Assert.Equal(Result.OUT_OF_DATE, e.Result);
+            Assert.Equal(live, allocator.Live);
+            Assert.Equal(0, device.LiveObjects);
+        }
+        finally
+        {
+            device.Dispose();
+        }
+        Record($"{backend}: after disposal {allocator.Allocations} allocations, {allocator.Frees} frees, Live = {allocator.Live}");
+        Assert.Equal(0L, allocator.Live);
+    }
+
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
     public void Compute_pipeline_is_counted_and_disposed(Backend backend)
