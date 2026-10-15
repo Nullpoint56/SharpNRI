@@ -501,6 +501,20 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 
 - `StreamerDesc.constantBufferMemoryLocation` is documented optional, but validation rejects its
   default: set it (e.g. `MemoryLocation.HOST_UPLOAD`).
+- **`StreamerDesc.queuedFrameNum` counts the frame being filled.** It is the number of per-frame
+  regions in the dynamic buffer: data streamed in frame N is overwritten by frame
+  N + `queuedFrameNum`, so the GPU must be done with frame N before that frame streams anything.
+  An application that waits for frame N - k to finish before it streams frame N's data passes k;
+  one that streams before that wait passes k + 1. Upstream's header says NRI adds one for the
+  current frame. The code stopped doing that in May 2025 and patch 0011 corrects the comment.
+  Measured: with 2, frame 2 reuses frame 0's offset.
+- **Block-compressed textures**: `StreamTextureData`'s `DataRowPitch` is the distance between rows
+  of blocks. With patch 0010 they are staged in rows of blocks. Upstream v190 staged texel rows,
+  16 times the space for 4x4 blocks (a 64x64 BC1 mip took 32,768 B instead of 2,048), and read
+  past the end of `Data`. The bytes still arrived intact, so only the footprint showed it.
+- `EndStreamerFrame` discards every copy batch not yet recorded with `CopyStreamedData`: fill and
+  record a batch within one streamer frame. A batch filled on another thread must reach the
+  recording thread before that frame's `EndStreamerFrame`.
 
 ### SwapChain
 

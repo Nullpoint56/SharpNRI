@@ -13,6 +13,8 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0007 Apple loader link should be optional | cleanup | to file after 0003, cite PR 134 |
 | 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | to file with 0003 |
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | bug (reporting) | to file with 0003 |
+| 0010 Streamer stages compressed textures in texel rows | bug | to file with 0003 |
+| 0011 Streamer `queuedFrameNum` comment promises a +1 the code dropped | bug (docs) | to file with 0003 |
 | 0001 Agility SDK from a path | proposal | to file after 0003 |
 | 0002 SharedHandle extension | proposal | to file once the editor has used it |
 
@@ -191,3 +193,34 @@ VkSemaphore, is signalled and waited by queue submits in both directions with th
 clean; a D3D12 fence opens on a second D3D12 device and signals
 both ways; a D3D12 texture opens on a second D3D12 device. One known limitation to state in the
 proposal: D3D11 refuses the typeless resource NRI creates. ~500 lines across 24 files.
+
+## 0010 — Streamer stages block-compressed textures in texel rows
+
+**Title:** Streamer: `StreamTextureData` computes the staging pitch in texels for compressed formats
+
+`StreamerImpl::StreamTextureData` (`Source/Shared/StreamerInterface.hpp`) sizes the staging region
+as `w * formatProps.stride` per row and `h` rows, `w` and `h` in texels, `stride` the size of a
+block, and copies `h` rows of that from `data`, `dataRowPitch` apart. `CmdUploadBufferToTexture`
+reads rows of blocks (Vulkan: `bufferRowLength = rowPitch / stride * blockWidth`; D3D12: the
+footprint's `RowPitch`). Measured on v190, 64x64 BC1 with 7 mips, Vulkan and D3D12 on NVIDIA: mip
+0 took 32,768 bytes of the dynamic buffer instead of 2,048 (16 times for mips 0-3), and by the code
+the copy reads up to byte 8,576 of the 2,048-byte mip. The texels read back intact, because the
+upload uses the same oversized pitch. Since 1c70f5b (v172); before it the pitch came from
+`dataRowPitch`. Fix: for compressed formats, `(w + blockWidth - 1) / blockWidth` blocks of `stride`
+bytes per row and `(h + blockHeight - 1) / blockHeight` rows; the planar formats, whose
+`FormatProps` also have 2x2 blocks, are left as they are. Patch attached
+(`patches/0010-streamer-block-compressed-rows.patch`), 7 lines.
+
+## 0011 — `StreamerDesc::queuedFrameNum` says NRI adds one frame; it does not
+
+**Title:** Streamer: the `queuedFrameNum` comment promises a +1 that 6f80a7c removed
+
+`NRIStreamer.h` says `queuedFrameNum` "adds 1 under the hood for the current "not-yet-committed"
+frame". 3f38b1a added that with `m_Desc.queuedFrameNum++`; 6f80a7c ("fixed wrong ring-buffer
+logic") made the dynamic buffer per-frame regions, dropped the `++` and kept the comment. Since
+then there are `queuedFrameNum` regions (`Grow`, `EndFrame`). Measured on v190, Vulkan and D3D12:
+with `queuedFrameNum = 2`, `StreamBufferData` in frames 0 to 3 returns offsets 0, 65536, 0, 65536
+in one buffer. A caller who believes the comment gets one region too few, and the frame being
+filled overwrites data the oldest queued frame may still read. Fix: the comment (the patch), or
+restore the `++`; the patch takes the comment so no caller's memory use changes. Patch attached
+(`patches/0011-streamer-queued-frame-num-comment.patch`), one line.

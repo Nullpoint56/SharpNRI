@@ -58,7 +58,10 @@ public ref struct NriStreamTextureDataDesc
     /// <summary>The texels, laid out with <see cref="DataRowPitch"/> and <see cref="DataSlicePitch"/>.</summary>
     public ReadOnlySpan<byte> Data { get; init; }
 
+    /// <summary>Bytes from one row to the next in <see cref="Data"/>; for a block-compressed format, one row of blocks to the next.</summary>
     public uint DataRowPitch { get; init; }
+
+    /// <summary>Bytes from one depth slice to the next in <see cref="Data"/>.</summary>
     public uint DataSlicePitch { get; init; }
 
     /// <summary>From <see cref="NriStreamerExtension.BeginStreamerCopyBatch"/>.</summary>
@@ -148,11 +151,14 @@ public sealed unsafe class NriStreamerExtension
     }
 
     /// <summary>
-    /// A streamer. <c>dynamicBufferDesc.size</c> is ignored (the buffer grows on demand);
-    /// <c>queuedFrameNum</c> is the number of frames in flight, to which NRI adds one for the
-    /// frame being recorded. The constant ring and the host-data ring are optional (size 0), but
-    /// NRI validation requires <c>constantBufferMemoryLocation</c> to be an UPLOAD location even
-    /// with no constant ring, although the header marks it optional (measured at v190).
+    /// A streamer. <c>dynamicBufferDesc.size</c> is ignored (the buffer grows on demand).
+    /// <c>queuedFrameNum</c> is the number of per-frame regions in the dynamic buffer, the frame
+    /// being filled included: data streamed in a frame is overwritten <c>queuedFrameNum</c> frames
+    /// later, so the GPU must be done with frame N before frame N + <c>queuedFrameNum</c> streams
+    /// anything. NRI adds nothing (upstream's header says it adds one; patch 0011 corrects it).
+    /// The constant ring and the host-data ring are optional (size 0), but NRI validation requires
+    /// <c>constantBufferMemoryLocation</c> to be an UPLOAD location even with no constant ring,
+    /// although the header marks it optional (measured at v190).
     /// </summary>
     public NriStreamer CreateStreamer(in StreamerDesc streamerDesc)
     {
@@ -194,7 +200,12 @@ public sealed unsafe class NriStreamerExtension
         return result is null ? default : new Span<byte>(result, data.Length);
     }
 
-    /// <summary>A copy batch identifier (never 0). Unconsumed batches are discarded by <see cref="EndStreamerFrame"/>.</summary>
+    /// <summary>
+    /// A copy batch identifier (never 0). <see cref="EndStreamerFrame"/> discards every batch not
+    /// yet recorded by <see cref="CopyStreamedData"/>, so a batch is filled and recorded within one
+    /// streamer frame; one filled on another thread reaches the recording thread before that
+    /// frame's <see cref="EndStreamerFrame"/>.
+    /// </summary>
     public ulong BeginStreamerCopyBatch(NriStreamer streamer) => _table.BeginStreamerCopyBatch(streamer.Raw);
 
     /// <summary>
@@ -258,7 +269,9 @@ public sealed unsafe class NriStreamerExtension
 
     /// <summary>
     /// (HOST) Streams texels into the dynamic buffer for a copy to <c>DstTexture</c> by
-    /// <see cref="CopyStreamedData"/>. Returns where the texels landed.
+    /// <see cref="CopyStreamedData"/>. Returns where the texels landed. A block-compressed format
+    /// is staged in rows of blocks (patch 0010; upstream v190 staged texel rows, 16 times the
+    /// space for 4x4 blocks, and read past the end of <c>Data</c>).
     /// </summary>
     public NriBufferOffset StreamTextureData(NriStreamer streamer, in NriStreamTextureDataDesc streamTextureDataDesc)
     {

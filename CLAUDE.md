@@ -279,13 +279,15 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | 0007 cmake-vulkan-loader-link-option | `NRI_ENABLE_VULKAN_LOADER_LINKING` (default ON) wraps the Apple `find_package(Vulkan)` + link; we pass OFF | shipped dylib otherwise needs the build machine's loader path; NRI PR 134 added it for an IDE case, maintainer: "just not needed" |
 | 0008 vulkan-format-table-compressed | `VK_FORMAT_TABLE` extended from 131 to 185 entries: VkFormat 131-184 (BC, ETC2/EAC, ASTC LDR) map to NRI's formats; BC1 RGB (131, 132) stay `UNKNOWN` | upstream gap: `nriConvertVKFormatToNRI` returned `UNKNOWN` for all 52 compressed formats while the reverse table produces them |
 | 0009 vulkan-swapchain-out-of-date-not-an-error | `AcquireNextTexture` / `Present` return `OUT_OF_DATE` for exactly `VK_ERROR_OUT_OF_DATE_KHR` before `NRI_RETURN_ON_BAD_VKRESULT` (no report); return values unchanged | upstream reporting defect: a documented, expected result reported as `Message::ERROR` on every resize |
+| 0010 streamer-block-compressed-rows | `StreamTextureData` sizes and copies compressed formats in rows of blocks: `ceil(w / blockWidth) * stride` per row, `ceil(h / blockHeight)` rows; other formats (the planar video ones included) unchanged | upstream bug: texel rows, 16x the dynamic-buffer space for 4x4 blocks and a read past the end of the caller's data; the texels still landed right (same oversized pitch on both sides) |
+| 0011 streamer-queued-frame-num-comment | `NRIStreamer.h` comment only: `queuedFrameNum` counts the current frame; data streamed in a frame is overwritten `queuedFrameNum` frames later | upstream doc defect: the comment says NRI adds 1, which 6f80a7c (May 2025) stopped doing; the code is the contract |
 
 - Applied by both `build-native.ps1` and `generate-native.ps1` (a header patch changes L0), each
   skipping already-applied patches (reverse applies cleanly).
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0009 each also apply alone onto the bare tag.
+  `git diff --cached HEAD`); 0003-0011 each also apply alone onto the bare tag.
 - Patch 0007 inserts three lines at `CMakeLists.txt:126`; upstream line numbers past that are three
   lower than the patched tree's.
 - 0001 stays even though the wrapped-device route also loads Agility (see D3D12 and the Agility
@@ -677,6 +679,24 @@ extensions.
   it, an access violation in `CreateSwapChain` (measured). Not patched (caller error, NRI's own
   instance always enables it).
 - `StreamerDesc::constantBufferMemoryLocation` is marked optional but validation rejects its default.
+- **Streamer ring: `queuedFrameNum` regions, no +1 (patch 0011 fixes the comment).** `Grow` sizes the
+  dynamic buffer `perFrame * queuedFrameNum`, `EndFrame` cycles modulo `queuedFrameNum`, a grown-out
+  buffer is destroyed `queuedFrameNum` frames later. The header's "adds 1 under the hood" came with
+  3f38b1a (2025-05-06); 6f80a7c (2025-05-30, "fixed wrong ring-buffer logic") dropped the `++` and
+  kept the comment. Fixed the comment, not the code: the code has been the behaviour since, and a +1
+  would grow every caller's ring. `StreamerExtensionTests`: with 2, frame 2 reuses frame 0's offset
+  (VK, D3D12). Raised by a consumer that sized from the header.
+- **Streamer BC staging (patch 0010).** v190's `StreamTextureData` used `w * stride` per row and `h`
+  rows (texels; 1c70f5b, v172, replaced the caller's `dataRowPitch` with that). 64x64 BC1 with 7
+  mips, measured: mips 0-3 staged in 16 times their block footprint on VK and D3D12 (mip 0 32,768 B
+  instead of 2,048); the one-block mips 4x4, 2x2, 1x1 in 128, 32, 16 B on VK (footprint 16 after
+  the 16-byte slice alignment) and 128 B each on D3D12 (footprint 8). By the code, the copy reads
+  up to byte 8,576 of the 2,048-byte mip 0. Readback was byte-exact before the patch on NVIDIA VK
+  and D3D12: the upload is recorded with the same oversized pitch, so only the footprint shows it. Gated on `isCompressed`: NV12/P010/P016 also have 2x2
+  `FormatProps` blocks, and their texel-row staging is left as upstream has it (unmeasured through
+  the Streamer). Batches not recorded by `EndStreamerFrame` are discarded (`EndFrame` clears them);
+  NRI's generation check on a stale batch is an `NRI_CHECK`, an `assert`, gone in release builds;
+  only NRI validation refuses it.
 - SwapChain / Streamer tests on NONE only prove the marshalling: NONE has no validation, nothing
   says the calls are legal.
 - **Video**: H.265 Annex-B writing returns `UNSUPPORTED` for short/long-term reference sets, VUI,

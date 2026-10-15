@@ -1,0 +1,52 @@
+Streamer: StreamTextureData stages block-compressed textures in rows of blocks.
+
+StreamTextureData sizes its staging region, and copies the caller's data into it, with a row
+pitch of w * FormatProps::stride and h rows, where w and h are the region's size in texels and
+"stride" is the size of a block. For a compressed format the rows CmdUploadBufferToTexture reads
+are rows of blocks: Vulkan turns the row pitch into bufferRowLength as rowPitch / stride *
+blockWidth, and D3D12 uses it as the footprint's RowPitch. So every compressed upload took 16
+times its footprint in the dynamic buffer for 4x4 blocks: a 64x64 BC1 mip took 32,768 bytes
+instead of 2,048, and a 4096x4096 BC7 mip would take 256 MB instead of 16 MB, in each per-frame
+region. The copy loop read h rows of w * stride bytes from "data", dataRowPitch apart, which runs
+past the end of a tightly packed mip: for the 2,048-byte 64x64 BC1 mip it read up to byte 8,576.
+The texels still arrived intact (measured on Vulkan and D3D12), because the upload is recorded
+with the same oversized pitch and reads only the leading part of each staged row.
+
+This computes the row pitch and the row count in blocks for compressed formats:
+(w + blockWidth - 1) / blockWidth blocks of "stride" bytes per row, and
+(h + blockHeight - 1) / blockHeight rows, which is also the number of rows copied. dataRowPitch
+keeps its meaning, the distance between rows of blocks in "data". Every other format is staged as
+before, including the planar video formats, whose FormatProps also describe 2x2 blocks.
+
+Applies on top of NRI v190, independent of the other patches.
+
+diff --git a/Source/Shared/StreamerInterface.hpp b/Source/Shared/StreamerInterface.hpp
+index 2a3b78a..b783061 100644
+--- a/Source/Shared/StreamerInterface.hpp
++++ b/Source/Shared/StreamerInterface.hpp
+@@ -218,10 +218,14 @@ BufferOffset StreamerImpl::StreamTextureData(const StreamTextureDataDesc& stream
+     d = d == WHOLE_SIZE ? GetDimension(deviceDesc.graphicsAPI, textureDesc, 2, streamTextureDataDesc.dstRegion.mipOffset) : d;
+ 
+     // Allocate a minimum continous region in a buffer encompassing the destination texture region
++    // (compressed formats are copied in rows of blocks, as expected by "CmdUploadBufferToTexture")
+     const FormatProps& formatProps = GetFormatProps(textureDesc.format);
+-    uint32_t rowPitch = w * formatProps.stride;
++    uint32_t blockWidth = formatProps.isCompressed ? formatProps.blockWidth : 1;
++    uint32_t blockHeight = formatProps.isCompressed ? formatProps.blockHeight : 1;
++    uint32_t rowNum = (h + blockHeight - 1) / blockHeight;
++    uint32_t rowPitch = (w + blockWidth - 1) / blockWidth * formatProps.stride;
+     uint32_t alignedRowPitch = Align(rowPitch, deviceDesc.memoryAlignment.uploadBufferTextureRow);
+-    uint32_t alignedSlicePitch = Align(alignedRowPitch * h, deviceDesc.memoryAlignment.uploadBufferTextureSlice);
++    uint32_t alignedSlicePitch = Align(alignedRowPitch * rowNum, deviceDesc.memoryAlignment.uploadBufferTextureSlice);
+     uint64_t dataSize = alignedSlicePitch * d;
+ 
+     m_DynamicBufferOffset = Align(m_DynamicBufferOffset, deviceDesc.memoryAlignment.uploadBufferTextureSlice);
+@@ -240,7 +244,7 @@ BufferOffset StreamerImpl::StreamTextureData(const StreamTextureDataDesc& stream
+         uint8_t* dst = (uint8_t*)m_iCore.MapBuffer(*m_DynamicBuffer, offset, dataSize);
+ 
+         for (uint32_t z = 0; z < d; z++) {
+-            for (uint32_t y = 0; y < h; y++) {
++            for (uint32_t y = 0; y < rowNum; y++) {
+                 uint8_t* dstRow = dst + z * alignedSlicePitch + y * alignedRowPitch;
+                 const uint8_t* srcRow = (uint8_t*)streamTextureDataDesc.data + z * streamTextureDataDesc.dataSlicePitch + y * streamTextureDataDesc.dataRowPitch;
+                 memcpy(dstRow, srcRow, rowPitch);
