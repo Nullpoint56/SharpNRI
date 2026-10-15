@@ -424,6 +424,12 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - D3D12 descriptor-set heap offsets for three sets: (0,0), (3,1), (6,2); (0,0) after `Reset`. VK
   (0,0) always.
 - Pipeline cache after one compute pipeline: VK 6,872 B, D3D12 3,318 B; rebuilt from bytes, same size.
+  Stale or foreign bytes: `CreatePipelineCache` throws `NriException` with `OUT_OF_DATE` and hands
+  nothing back to leak. NRI's `CreateImplementation` (`DeviceVK.h`, `DeviceD3D12.h`) destroys the
+  half-made object and nulls the handle on any non-`SUCCESS`, the validation layer likewise
+  (`DeviceVal.hpp`). Measured with 4,096 random bytes (`PipelineTests`): `OUT_OF_DATE` on NVIDIA VK
+  and D3D12, host allocator balanced (VK 30/30, D3D12 18/18), device disposes with 0 children.
+  A claim that NRI returns `OUT_OF_DATE` together with a usable cache is false for v190.
 - **UNORM rounding**: clear `0.1` -> 25 on NVIDIA Vulkan, 26 elsewhere. `TriangleTests` clears
   `(0.2, 0.4, 0.6)` and allows +-1; VK and D3D12 readbacks differ at edges, so it logs each SHA-256
   instead of comparing.

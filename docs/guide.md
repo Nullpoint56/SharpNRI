@@ -209,6 +209,8 @@ queue.UploadData(
   (patch 0006): MoltenVK reports `maxSamplerLodBias = 15.999` but forbids any bias
   (`samplerMipLodBias = false`, VUID-VkSamplerCreateInfo-samplerMipLodBias-04467).
 - `device.CreatePipelineCache(bytes)`: a cache rebuilt from its own bytes reports the same size.
+  Stale or foreign bytes throw `NriException` with `Result.OUT_OF_DATE` and create nothing (no
+  leak, measured); catch it and create an empty cache.
 
 ## Descriptors and layouts
 
