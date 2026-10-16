@@ -11,12 +11,15 @@
 //
 // Presenting from Vulkan runs in a child process (this test executable, started again with
 // PRISMNRI_TEST_CHILD set; the module initializer below runs the frames and exits before xunit
-// starts). Two measured reasons (CLAUDE.md: Extensions, Reflex): on the development machine
-// RivaTuner's implicit VK_LAYER_RTSS killed the process at the first vkQueuePresentKHR, so the
-// child runs with implicit layers disabled (VK_LOADER_LAYERS_DISABLE=~implicit~; the explicit
-// Khronos validation layer stays on), and presenting from Vulkan made later D3D12CreateDevice calls
-// in the same process fail with DXGI_ERROR_DEVICE_RESET, which a separate process keeps away from
-// the other tests.
+// starts) because presenting from Vulkan made later D3D12CreateDevice calls in the same process
+// fail with DXGI_ERROR_DEVICE_RESET (CLAUDE.md: Extensions, Reflex), which a separate process keeps
+// away from the other tests. The child runs with implicit layers on, so on a machine with RivaTuner
+// Statistics Server it is also the regression test for the binding's enumeration: RTSS's implicit
+// VK_LAYER_RTSS maps physical devices to instances from vkEnumeratePhysicalDevices, which NRI
+// never calls, and killed the process at the first vkQueuePresentKHR. The binding enumerates NRI's
+// physical devices after creation so the layer knows them
+// (NriDeviceOptions.VkEnumeratePhysicalDevicesAfterCreation); before that the child had to run with
+// implicit layers disabled (VK_LOADER_LAYERS_DISABLE=~implicit~).
 
 using System.Diagnostics;
 using System.Reflection;
@@ -43,7 +46,6 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
         if (Path.GetFileNameWithoutExtension(self).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
             start.ArgumentList.Add(Assembly.GetEntryAssembly()!.Location); // "dotnet PrismNRI.Tests.dll"
         start.Environment[ChildVariable] = ChildName;
-        start.Environment["VK_LOADER_LAYERS_DISABLE"] = "~implicit~";
 
         using var child = Process.Start(start)!;
         var stderr = child.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
