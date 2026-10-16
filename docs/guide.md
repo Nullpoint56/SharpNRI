@@ -339,6 +339,27 @@ fence.Wait(1);
   `NriAttachment`, `NriVertexBuffer`, `NriFenceSubmit`. Native arrays are built on the stack;
   a whole frame allocates nothing ([Zero allocation](#zero-allocation)).
 - Barriers are never inserted for you. `AccessStage` / `AccessLayoutStage` are NRI's before/after.
+- **A texture barrier side with access `NONE` and a defined layout is layout-only on D3D12**
+  (patch 0020): it is recorded with `SYNC_NONE` whatever its stages, because the D3D12 debug layer
+  refuses `NO_ACCESS` with a layout other than `UNDEFINED` and any other sync (1331, then `End`
+  throws `INVALID_ARGUMENT` from `Close`). On Vulkan the same side is an execution dependency on
+  its stages with no access, e.g. after a semaphore wait. So such a side orders nothing on D3D12
+  beyond the layout transition; give it the access the previous work used when the order matters.
+- **`ZeroBuffer` is stage `COPY`, access `COPY_DESTINATION`, on both backends** (patch 0021). It
+  is `CopyBufferRegion` from a zero buffer on D3D12 and `vkCmdFillBuffer` on Vulkan, a clear
+  command; NRI's Vulkan `COPY` stage includes `VK_PIPELINE_STAGE_2_CLEAR_BIT` with the patch.
+  `CLEAR_STORAGE` is wrong for it on D3D12 (`CLEAR_UNORDERED_ACCESS_VIEW`).
+- **Textures used on a COPY queue stay in `Layout.GENERAL` on every queue.** D3D12 copy command
+  lists allow only `D3D12_BARRIER_LAYOUT_COMMON` (NRI's `GENERAL`) and no layout transitions;
+  NRI maps layouts whatever the list type, so another layout there is a debug-layer error (1334)
+  at execution. Transition `UNDEFINED` -> `GENERAL` at first use and keep it; on Vulkan `GENERAL` is
+  legal everywhere. Not patched: mapping silently to `COMMON` would move the mismatch to the other
+  queue's barrier.
+- **One recording command buffer per allocator at a time.** D3D12 `Begin` resets the command
+  list against its allocator; a second `Begin` while another command buffer of the same
+  allocator records draws debug error 540 (`COMMAND_ALLOCATOR_CONTENTION`) and throws
+  `NriException` (`INVALID_ARGUMENT`). Vulkan and NRI validation say nothing. One allocator per
+  command buffer in flight is the simplest shape.
 - **Vertex stride comes from `SetVertexBuffers`**, not the pipeline, on D3D12 and on Vulkan with
   `features.extendedDynamicState` (every Vulkan 1.3+ device; NRI binds with
   `vkCmdBindVertexBuffers2`). `VertexStreamDesc.stride` is the fallback for a Vulkan device
@@ -805,6 +826,10 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Non-zero `VkBindingOffsets` mismatch | descriptors bind to the wrong slots | Descriptors |
 | Vulkan COMPUTE/COPY queue fetched late | resources switch to concurrent sharing | Threads |
 | Pixel compare without tolerance | UNORM rounding differs by one | Recording |
+| Texture barrier side with access `NONE` and a layout | D3D12: layout-only (`SYNC_NONE`, patch 0020); before the patch debug error 1331 and `End` throws | Recording |
+| `ZeroBuffer` ordered with `CLEAR_STORAGE` | wrong on D3D12 (a copy there); use `COPY` (patch 0021 makes it cover the Vulkan fill) | Recording |
+| Non-`GENERAL` layout on a D3D12 COPY queue | debug error 1334 at execution; keep such textures in `GENERAL` | Recording |
+| Two command buffers of one allocator recording at once | D3D12: debug error 540, `Begin` throws | Recording |
 | Same-submission timestamp copy on MoltenVK | reads 0 | Queries |
 | One DXIL library for a D3D12 RT pipeline | `CreateRayTracingPipeline` faults | RayTracing |
 | Single `Proceed()` in a ray query | software traversal may disagree | RayTracing |

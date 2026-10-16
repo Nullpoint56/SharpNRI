@@ -120,6 +120,80 @@ public sealed class BufferTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// ZeroBuffer is ordered by a COPY barrier on both backends (patch 0021). On D3D12 it is
+    /// CopyBufferRegion from a zero buffer (sync COPY); on Vulkan it is vkCmdFillBuffer, a clear
+    /// command, whose stage is VK_PIPELINE_STAGE_2_CLEAR_BIT, which upstream's COPY mapping
+    /// (VK_PIPELINE_STAGE_2_COPY_BIT only) does not include. The buffer is first filled with 0xAB by a
+    /// copy, then zeroed, then copied to a readback buffer, with a COPY barrier before and after the
+    /// zero. On Vulkan the Khronos synchronization validation is switched on through the layer's
+    /// environment variables for this device only, with a positive control (a zero and a copy with
+    /// no barrier between, recorded and never submitted) as the marker that it is active; the layer
+    /// reads the process environment at instance creation, which .NET on Unix does not update, so
+    /// the test skips there. Without the patch syncval reports a hazard at each barrier-separated
+    /// command that touches the zeroed buffer (CLAUDE.md: Barriers).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void ZeroBuffer_is_ordered_by_a_COPY_barrier(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        string[] settings = ["VK_KHRONOS_VALIDATION_VALIDATE_SYNC", "VK_KHRONOS_VALIDATION_SYNCVAL_SHADER_ACCESSES_HEURISTIC"];
+        var messages = new List<NriMessage>();
+        NriDevice device;
+        var previous = settings.Select(Environment.GetEnvironmentVariable).ToArray();
+        if (backend.Api == GraphicsAPI.VK)
+            foreach (var s in settings) Environment.SetEnvironmentVariable(s, "1");
+        try
+        {
+            device = TestDevice.Create(backend.Api, messages);
+        }
+        finally
+        {
+            for (var i = 0; i < settings.Length; i++) Environment.SetEnvironmentVariable(settings[i], previous[i]);
+        }
+        using var _ = device;
+
+        const int size = 4096;
+        using var upload = device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = size });
+        using var buffer = device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = size });
+        using var readback = device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = size });
+        upload.Map().Fill(0xAB);
+        upload.Unmap();
+
+        if (backend.Api == GraphicsAPI.VK)
+        {
+            var queue = device.GetQueue(QueueType.GRAPHICS);
+            using var allocator = queue.CreateCommandAllocator();
+            using var control = allocator.CreateCommandBuffer();
+            var start = messages.Count;
+            control.Begin();
+            control.ZeroBuffer(buffer, 0, size);
+            control.CopyBuffer(readback, 0, buffer, 0, size);
+            control.End();
+            var hazards = messages.Skip(start).Where(m => m.Text.Contains("SYNC-HAZARD", StringComparison.Ordinal)).ToList();
+            foreach (var m in hazards) Record("control, no barrier: " + m.Text);
+            Assert.SkipWhen(hazards.Count == 0, $"the Khronos synchronization validation did not activate ({settings[0]} is read from the process environment at instance creation; no SYNC-HAZARD for a zero and a copy with no barrier between)");
+            messages.Clear();
+        }
+
+        Run(device, cmd =>
+        {
+            cmd.CopyBuffer(buffer, 0, upload, 0, size);
+            cmd.Barrier(new NriBufferBarrier(buffer, CopyDestination, CopyDestination));
+            cmd.ZeroBuffer(buffer, 0, size);
+            cmd.Barrier(new NriBufferBarrier(buffer, CopyDestination, CopySource));
+            cmd.CopyBuffer(readback, 0, buffer, 0, size);
+        });
+
+        var actual = readback.Map().ToArray();
+        readback.Unmap();
+        foreach (var m in messages.Where(m => m.IsError || m.IsWarning)) Record("message: " + m.Text);
+        Record($"{backend}: {messages.Count(m => m.IsError)} error message(s); {actual.Count(b => b != 0)} non-zero byte(s) of {size} read back");
+        Assert.DoesNotContain(messages, m => m.IsError);
+        Assert.All(actual, b => Assert.Equal(0, b));
+    }
+
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
     public void Map_of_a_sub_range_has_the_requested_length(Backend backend)

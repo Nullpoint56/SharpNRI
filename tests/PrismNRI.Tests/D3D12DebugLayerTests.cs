@@ -109,6 +109,135 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
         Assert.All(onErrors, l => Assert.Contains("[938] GPU-BASED VALIDATION: Dispatch, Uninitialized descriptor accessed", l, StringComparison.Ordinal));
     }
 
+    // ---------------------------------------------------------------- what the debug layer refuses in barriers and recording
+
+    private static AccessLayoutStage Triple(AccessBits access, Layout layout, StageBits stages) => new() { access = access, layout = layout, stages = stages };
+    private static readonly AccessLayoutStage ShaderRead = Triple(AccessBits.SHADER_RESOURCE, Layout.SHADER_RESOURCE, StageBits.ALL_SHADERS);
+
+    /// <summary>The six texture barriers measured against message 1331 (CLAUDE.md: Barriers), by name.</summary>
+    private static readonly Dictionary<string, (AccessLayoutStage Before, AccessLayoutStage After)> NoAccessBarriers = new()
+    {
+        ["before NONE access, COPY_DESTINATION layout, COPY stages"] = (Triple(AccessBits.NONE, Layout.COPY_DESTINATION, StageBits.COPY), ShaderRead),
+        ["before NONE access, COPY_DESTINATION layout, NONE stages"] = (Triple(AccessBits.NONE, Layout.COPY_DESTINATION, StageBits.NONE), ShaderRead),
+        ["after NONE access, SHADER_RESOURCE layout, ALL_SHADERS stages"] = (TextureCopyDestination, Triple(AccessBits.NONE, Layout.SHADER_RESOURCE, StageBits.ALL_SHADERS)),
+        ["after NONE access, SHADER_RESOURCE layout, NONE stages"] = (TextureCopyDestination, Triple(AccessBits.NONE, Layout.SHADER_RESOURCE, StageBits.NONE)),
+        ["before NONE access, GENERAL layout, COPY stages; GENERAL after"] = (Triple(AccessBits.NONE, Layout.GENERAL, StageBits.COPY), Triple(AccessBits.SHADER_RESOURCE, Layout.GENERAL, StageBits.ALL_SHADERS)),
+        ["before NONE access, SHADER_RESOURCE layout, ALL_SHADERS stages; SHADER_RESOURCE after"] = (Triple(AccessBits.NONE, Layout.SHADER_RESOURCE, StageBits.ALL_SHADERS), ShaderRead),
+    };
+
+    public static TheoryData<Backend, string> NoAccessBarrierCases
+    {
+        get
+        {
+            var data = new TheoryData<Backend, string>();
+            foreach (var api in new[] { GraphicsAPI.VK, GraphicsAPI.D3D12 })
+            foreach (var name in NoAccessBarriers.Keys)
+            {
+                data.Add(new Backend(api), name);
+            }
+            return data;
+        }
+    }
+
+    /// <summary>
+    /// A texture barrier side with access NONE and a layout other than UNDEFINED is a layout-only
+    /// side, recorded on D3D12 with SYNC_NONE (patch 0020). Upstream derives the sync from the
+    /// stages alone, and the debug layer refuses NO_ACCESS with a defined layout and any sync but
+    /// SYNC_NONE: "[1331] ID3D12CommandList::Barrier: Invalid LayoutBefore value ... LayoutBefore
+    /// must be LAYOUT_UNDEFINED or SyncBefore must be SYNC_NONE when AccessBefore is
+    /// ACCESS_NO_ACCESS", then Close fails with E_INVALIDARG (four of the six shapes here; the two
+    /// with NONE stages were already clean). On Vulkan the same barrier is an execution dependency
+    /// with an empty access mask, legal as it is. One barrier on a 4x4 RGBA8 texture per command
+    /// buffer, with NRI validation and the graphics API's layer on; nothing is submitted. D3D12
+    /// skips without the debug layer: NRI validation does not check this rule, so a clean run
+    /// without the layer would show nothing.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(NoAccessBarrierCases))]
+    public void A_texture_barrier_whose_side_has_no_access_records_on_both_backends(Backend backend, string shape)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        if (backend.Api == GraphicsAPI.D3D12)
+        {
+            var noDebugLayer = NoDebugLayer(device);
+            Assert.SkipWhen(noDebugLayer is not null, noDebugLayer ?? "");
+        }
+
+        var (before, after) = NoAccessBarriers[shape];
+        using var texture = device.CreateCommittedTexture(MemoryLocation.DEVICE, new TextureDesc
+        {
+            type = TextureType.TEXTURE_2D,
+            usage = TextureUsageBits.SHADER_RESOURCE,
+            format = Format.RGBA8_UNORM,
+            width = 4,
+            height = 4,
+            depth = 1,
+            mipNum = 1,
+            layerNum = 1,
+            sampleNum = 1,
+        });
+        var queue = device.GetQueue(QueueType.GRAPHICS);
+        using var allocator = queue.CreateCommandAllocator();
+        using var commandBuffer = allocator.CreateCommandBuffer();
+        var start = messages.Count;
+        commandBuffer.Begin();
+        commandBuffer.Barrier(new NriTextureBarrier(texture, before, after));
+        var end = Xunit.Record.Exception(commandBuffer.End);
+        var provoked = messages.Skip(start).ToList();
+        foreach (var m in provoked) Record("message: " + m);
+        Record($"{backend}, {shape}: {provoked.Count} message(s), {provoked.Count(m => m.IsError)} error(s), End {(end is null ? "succeeded" : "threw " + end.Message)}");
+
+        Assert.DoesNotContain(provoked, m => m.IsError);
+        Assert.Null(end);
+    }
+
+    /// <summary>
+    /// D3D12 allows one command list in the recording state per command allocator: Begin is
+    /// ID3D12GraphicsCommandList::Reset(allocator), which the debug layer refuses for a second list
+    /// while the first is open ([540] COMMAND_ALLOCATOR_CONTENTION). Vulkan allows several command
+    /// buffers from one externally synchronized pool to record at once, and NRI validation tracks
+    /// the recording state per command buffer only, so neither says anything there. Measured here
+    /// with NRI validation on: two command buffers from one allocator, the first begun, then the
+    /// second. The portable rule is one recording command buffer per allocator at a time
+    /// (CLAUDE.md: Barriers).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void A_second_command_buffer_of_one_allocator_cannot_begin_while_the_first_records_on_D3D12(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        if (backend.Api == GraphicsAPI.D3D12)
+        {
+            var noDebugLayer = NoDebugLayer(device);
+            Assert.SkipWhen(noDebugLayer is not null, noDebugLayer ?? "");
+        }
+
+        var queue = device.GetQueue(QueueType.GRAPHICS);
+        using var allocator = queue.CreateCommandAllocator();
+        using var first = allocator.CreateCommandBuffer();
+        using var second = allocator.CreateCommandBuffer();
+        first.Begin();
+        var start = messages.Count;
+        var begin = Xunit.Record.Exception(() => second.Begin());
+        var provoked = messages.Skip(start).ToList();
+        foreach (var m in provoked) Record("message: " + m);
+        Record($"{backend}: second Begin {(begin is null ? "succeeded" : $"threw {begin.GetType().Name}: {begin.Message}")}; {provoked.Count(m => m.IsError)} error message(s)");
+        first.End();
+
+        if (backend.Api == GraphicsAPI.VK)
+        {
+            Assert.Null(begin);
+            second.End();
+            Assert.DoesNotContain(messages, m => m.IsError);
+            return;
+        }
+        Assert.Contains(provoked, m => m.IsError && m.Text.Contains("[540]", StringComparison.Ordinal));
+    }
+
     private string[] RunChild(string name)
     {
         var self = Environment.ProcessPath!;

@@ -9,7 +9,7 @@ both in this repository.
 
 ## Status
 
-`0.4.0-alpha`, against NRI `v190` plus eighteen patches ([patches/](patches/README.md)), on .NET 11.
+`0.4.0-alpha`, against NRI `v190` plus twenty patches ([patches/](patches/README.md)), on .NET 11.
 Windows x64, Linux x64, macOS arm64. On macOS the binding is Vulkan through MoltenVK; NRI's Metal
 backend is not built, only the Base package exists, the application provides the Vulkan loader and
 MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
