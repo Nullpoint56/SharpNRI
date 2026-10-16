@@ -6,22 +6,25 @@ than a reconstruction. Status is updated as they are filed and answered.
 
 | Patch | Kind | Status |
 |---|---|---|
-| 0003 validation `HAS_BUFFER` crash | bug | to file, first |
-| 0004 Vulkan minor version above the instance's | bug | to file with 0003 |
-| 0005 `MemoryHeap::alignment` uninitialised (GCC `-Werror` build) | bug | to file with 0003 |
-| 0006 `samplerLodBiasMax` above what a portability device allows | bug | to file with 0003 |
-| 0007 Apple loader link should be optional | cleanup | to file after 0003, cite PR 134 |
-| 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | to file with 0003 |
-| 0009 `OUT_OF_DATE` from acquire/present reported as an error | bug (reporting) | to file with 0003 |
-| 0010 Streamer stages compressed textures in texel rows | bug | to file with 0003 |
-| 0011 Streamer `queuedFrameNum` comment promises a +1 the code dropped | bug (docs) | to file with 0003 |
-| 0013 EXCLUSIVE images created with queue family indices | bug (validation noise) | to file with 0003 |
-| 0014 Swap chain extent checked against the unscaled range with present scaling | bug | to file with 0003 |
-| 0015 Khronos message id name not forwarded | bug (reporting) | to file with 0003 |
-| 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | bug (validation) | to file with 0003 |
-| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | to file after 0003 |
-| 0001 Agility SDK from a path | proposal | to file after 0003 |
-| 0002 SharedHandle extension | proposal | to file once the editor has used it |
+| 0003 validation `HAS_BUFFER` crash | bug | filed 2026-10-16, [#279](https://github.com/NVIDIA-RTX/NRI/issues/279) |
+| 0004 Vulkan minor version above the instance's | bug | filed 2026-10-16, [#278](https://github.com/NVIDIA-RTX/NRI/issues/278) |
+| 0005 `MemoryHeap::alignment` uninitialised (read before written) | bug | filed 2026-10-16, [#275](https://github.com/NVIDIA-RTX/NRI/issues/275) |
+| 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | filed 2026-10-16, [#276](https://github.com/NVIDIA-RTX/NRI/issues/276) |
+| 0010 Streamer stages compressed textures in texel rows | bug | filed 2026-10-16, [#274](https://github.com/NVIDIA-RTX/NRI/issues/274) |
+| 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277) |
+| 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
+| 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2: after the maintainer engages; offer limit 0, a feature bit, or a clamp |
+| 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
+| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2: enhancement issue; per-frame vs total semantics is his call |
+| 0001 Agility SDK from a path | proposal | phase 2: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
+| 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
+| 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
+| 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
+| 0015 Khronos message id name not forwarded | reporting | not filed: a format he changed on purpose in 59d0785 |
+
+The texts as filed, and the audit that preceded them (every claim re-verified against the unpatched
+tree by reviewers given the patches but not these conclusions), are the sections below; the filed
+ones were posted in a shorter form (Observed, Cause with line numbers, Fix as a snippet).
 
 ---
 
@@ -215,20 +218,6 @@ upload uses the same oversized pitch. Since 1c70f5b (v172); before it the pitch 
 bytes per row and `(h + blockHeight - 1) / blockHeight` rows; the planar formats, whose
 `FormatProps` also have 2x2 blocks, are left as they are. Patch attached
 (`patches/0010-streamer-block-compressed-rows.patch`), 7 lines.
-
-## 0011 — `StreamerDesc::queuedFrameNum` says NRI adds one frame; it does not
-
-**Title:** Streamer: the `queuedFrameNum` comment promises a +1 that 6f80a7c removed
-
-`NRIStreamer.h` says `queuedFrameNum` "adds 1 under the hood for the current "not-yet-committed"
-frame". 3f38b1a added that with `m_Desc.queuedFrameNum++`; 6f80a7c ("fixed wrong ring-buffer
-logic") made the dynamic buffer per-frame regions, dropped the `++` and kept the comment. Since
-then there are `queuedFrameNum` regions (`Grow`, `EndFrame`). Measured on v190, Vulkan and D3D12:
-with `queuedFrameNum = 2`, `StreamBufferData` in frames 0 to 3 returns offsets 0, 65536, 0, 65536
-in one buffer. A caller who believes the comment gets one region too few, and the frame being
-filled overwrites data the oldest queued frame may still read. Fix: the comment (the patch), or
-restore the `++`; the patch takes the comment so no caller's memory use changes. Patch attached
-(`patches/0011-streamer-queued-frame-num-comment.patch`), one line.
 
 ## 0013 — EXCLUSIVE images are created with queue family indices
 

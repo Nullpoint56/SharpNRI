@@ -160,7 +160,7 @@ public sealed unsafe class NriStreamerExtension
     /// <c>queuedFrameNum</c> is the number of per-frame regions in the dynamic buffer, the frame
     /// being filled included: data streamed in a frame is overwritten <c>queuedFrameNum</c> frames
     /// later, so the GPU must be done with frame N before frame N + <c>queuedFrameNum</c> streams
-    /// anything. NRI adds nothing (upstream's header says it adds one; patch 0011 corrects it).
+    /// anything. NRI adds nothing (upstream's header says it adds one; the code stopped in 6f80a7c).
     /// The constant ring and the host-data ring are optional (size 0), but NRI validation requires
     /// <c>constantBufferMemoryLocation</c> to be an UPLOAD location even with no constant ring,
     /// although the header marks it optional (measured at v190).

@@ -133,7 +133,16 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 From the owner. Do not relitigate.
 
 - **Patches are in-repo.** NRI changes are `patches/*.patch` with a prose header; report text for
-  upstream lives in `docs/upstream.md`. Never file anything upstream (issues, PRs, comments).
+  upstream lives in `docs/upstream.md`, which also records what was filed and where.
+- **Upstream filing is the owner's trigger, in phases** (decided 2026-10-16). Issues with the fix
+  attached, not pull requests, one per defect, in the maintainer's terse commit register, naming
+  the line, the commit that introduced it and one measurement; nothing names this repository, C#,
+  an engine or a product. Phase 1 is correctness (a wrong result, a crash, undefined memory, a
+  refused valid call) and comments on the maintainer's own open issues; phase 2 is proposals and
+  design questions, only after he engages. Not filed: anything nitpicky (a comment, a message
+  format, a layer warning, a build option). A patch stays in the set whether filed or not, and is
+  dropped at the next tag that carries the fix. Nothing is posted without the owner reading the
+  exact text.
 - **A patch is NRI-shaped**: a field on an existing desc, a new desc, or a new interface struct in
   NRI's style, comment in NRI's voice; or a bug fix. Never a semantic change to an existing call.
   Every patch must apply cleanly to the next upstream tag.
@@ -280,7 +289,6 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | 0008 vulkan-format-table-compressed | `VK_FORMAT_TABLE` extended from 131 to 185 entries: VkFormat 131-184 (BC, ETC2/EAC, ASTC LDR) map to NRI's formats; BC1 RGB (131, 132) stay `UNKNOWN` | upstream gap: `nriConvertVKFormatToNRI` returned `UNKNOWN` for all 52 compressed formats while the reverse table produces them |
 | 0009 vulkan-swapchain-out-of-date-not-an-error | `AcquireNextTexture` / `Present` return `OUT_OF_DATE` for exactly `VK_ERROR_OUT_OF_DATE_KHR` before `NRI_RETURN_ON_BAD_VKRESULT` (no report); return values unchanged | upstream reporting defect: a documented, expected result reported as `Message::ERROR` on every resize |
 | 0010 streamer-block-compressed-rows | `StreamTextureData` sizes and copies compressed formats in rows of blocks: `ceil(w / blockWidth) * stride` per row, `ceil(h / blockHeight)` rows; other formats (the planar video ones included) unchanged | upstream bug: texel rows, 16x the dynamic-buffer space for 4x4 blocks and a read past the end of the caller's data; the texels still landed right (same oversized pitch on both sides) |
-| 0011 streamer-queued-frame-num-comment | `NRIStreamer.h` comment only: `queuedFrameNum` counts the current frame; data streamed in a frame is overwritten `queuedFrameNum` frames later | upstream doc defect: the comment says NRI adds 1, which 6f80a7c (May 2025) stopped doing; the code is the contract |
 | 0012 streamer-dynamic-buffer-initial-size | `StreamerDesc::dynamicBufferDesc.size` is the initial per-frame size of the dynamic buffer, allocated in `Create` through `Grow` (`size` rounded up to 64 KiB, times `queuedFrameNum`); 0 keeps the on-demand growth | upstream ignores the field (header: `"size" is ignored`) and grows from empty, one committed buffer per new per-frame high-water mark, each parked and destroyed `queuedFrameNum` frames later inside `EndStreamerFrame`; a consumer measured 222 stream calls at 477 ms and `EndStreamerFrame` at 189 ms per level load from that |
 | 0013 vulkan-exclusive-image-no-family-indices | `DeviceVK::FillCreateInfo` passes `queueFamilyIndexCount = 0` and null indices for `VK_SHARING_MODE_EXCLUSIVE` images | upstream passes every active family's index whatever the sharing mode; Vulkan ignores them for EXCLUSIVE, and the Khronos best-practices checks report `BestPractices-vkCreateImage-sharing-mode-exclusive` ("queueFamilyIndexCount of 3", measured) per image |
 | 0014 vulkan-swapchain-scaled-extent-check | `SwapChainVK::Create` checks the requested extent against `VkSurfacePresentScalingCapabilitiesKHR::min/maxScaledImageExtent` when it creates the swap chain with present scaling, the unscaled range otherwise | upstream always checked the unscaled range, which on Windows is exactly the current client size, so with scaling (where Vulkan allows the scaled range) a size that lagged a resize was refused with `INVALID_ARGUMENT`; measured: 100x80 on a 64x64 window creates and presents |
@@ -289,16 +297,17 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
-  because a later patch may change a line inside an earlier patch's context (0012 changes the
-  line above 0011's) and with full context the earlier patch then looks unapplied and the script
-  throws.
+  because a later patch may change a line inside an earlier patch's context, and with full
+  context the earlier patch then looks unapplied and the script throws (it happened with the
+  removed 0011 and 0012, three lines apart in `NRIStreamer.h`).
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0011 and 0013-0016 each also apply alone onto the bare tag;
-  0012 applies after 0011 (its header hunk's context carries 0011's comment line). Patches to a
+  `git diff --cached HEAD`); 0003-0016 each also apply alone onto the bare tag. Patches to a
   file an earlier patch touches (0012-0016 all are) are cut from a scratch clone at the tag with
-  the earlier patches committed, `git diff` against that commit.
+  the earlier patches committed, `git diff` against that commit. There is no 0011: it corrected
+  the `queuedFrameNum` header comment only, and a comment is knowledge, not a patch (owner,
+  2026-10-16); the fact lives below under Extensions and in the binding's docs.
 - Patch 0007 inserts three lines at `CMakeLists.txt:126`; upstream line numbers past that are three
   lower than the patched tree's.
 - 0001 stays even though the wrapped-device route also loads Agility (see D3D12 and the Agility
@@ -387,8 +396,10 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 ### Device creation and callbacks
 
 - **Null `AbortExecution` kills the process.** NRI's `CheckAndSetDefaultCallbacks` installs a
-  handler that calls `DebugBreak()` on every `Message::ERROR`; with no debugger: exit `0x80000003`
-  before the failing call returns and before the test sees the message. Showed up as a vanished test
+  handler that calls `DebugBreak()`; `ReportMessage` calls it for every report whose result is
+  positive (`FAILURE`, `INVALID_ARGUMENT`, ..., `SharedExternal.hpp:927`), which is every ERROR
+  except the negative-result class (`DEVICE_LOST`, `OUT_OF_DATE`, `INVALID_SDK`). With no debugger:
+  exit `0x80000003` before the failing call returns and before the test sees the message. Showed up as a vanished test
   host with exit 0 through a pipe. `MessageBridge` always supplies its own thunk, breaking only when
   `BreakOnError` and a debugger is attached (`dotnet/Interop/MessageBridge.cs`).
 - **`GetQueue` out of range**: `INVALID_ARGUMENT` on VK and D3D12 with no message; NONE returns
@@ -735,7 +746,7 @@ extensions.
   it, an access violation in `CreateSwapChain` (measured). Not patched (caller error, NRI's own
   instance always enables it).
 - `StreamerDesc::constantBufferMemoryLocation` is marked optional but validation rejects its default.
-- **Streamer ring: `queuedFrameNum` regions, no +1 (patch 0011 fixes the comment).** `Grow` sizes the
+- **Streamer ring: `queuedFrameNum` regions, no +1; the header comment is wrong and not patched.** `Grow` sizes the
   dynamic buffer `perFrame * queuedFrameNum`, `EndFrame` cycles modulo `queuedFrameNum`, a grown-out
   buffer is destroyed `queuedFrameNum` frames later. The header's "adds 1 under the hood" came with
   3f38b1a (2025-05-06); 6f80a7c (2025-05-30, "fixed wrong ring-buffer logic") dropped the `++` and
