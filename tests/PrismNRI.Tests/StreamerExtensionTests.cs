@@ -176,7 +176,7 @@ public sealed class StreamerExtensionTests
     /// queuedFrameNum is the number of per-frame regions in the dynamic buffer, the frame being
     /// filled among them: with 2, frames 0 and 1 stream into two regions and frame 2 reuses frame
     /// 0's offset. Upstream's header says NRI adds one region for the current frame; the code has
-    /// not since 6f80a7c, and patch 0011 corrects the comment.
+    /// not since 6f80a7c (the comment is stale; the binding's docs carry the measured rule).
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
