@@ -414,15 +414,31 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   `queueNum`, and `DeviceVK` never refills the desc from the physical device. `NriAdapter.Enumerate`
   makes one call with a 32-entry buffer (NRI's own maximum); the count-then-fill pattern cost two.
   Not patched: moving selection into `DeviceVK::Create` is 50-70 lines that change an existing
-  call's observable answer (`supportedGraphicsAPIs` merged bits, tie order).
-- **RivaTuner's implicit layer kills a presenting Vulkan process** at the first present: loader
-  log `vkEnumeratePhysicalDevices: Invalid instance`, exit 0xC0000409. Measured on the dev
-  machine with `VK_LOADER_DEBUG=layer`: three instances before the crash in the normal flow (two
-  from `Enumerate`, the device's); and with enumeration run under `DISABLE_RTSS_LAYER=1` so the
-  device's instance is the only one the layer ever saw, with and without the Khronos layer, the
-  same crash. The instance count is not the cause; a consumer's claim that the layer "latches the
-  first instance" is not supported. Remedy: the layer's switch, or `VK_LOADER_LAYERS_DISABLE=~implicit~`
-  (the resize test's child).
+  call's observable answer (`supportedGraphicsAPIs` merged bits, tie order). The instance count
+  is not what killed presenting processes under RTSS (next bullet).
+- **RivaTuner's implicit layer killed a presenting Vulkan process; the binding enumerates
+  physical devices after creation.** `VK_LAYER_RTSS` intercepts `vkEnumeratePhysicalDevices` (not
+  `vkEnumeratePhysicalDeviceGroups`) to map each physical device to its instance, and its overlay
+  uses the map when it initialises at the first `vkQueuePresentKHR`. NRI discovers physical
+  devices only through groups (`Source/Creation/Creation.cpp:383-401` in the adapter enumeration,
+  `Source/VK/DeviceVK.hpp:767-777` in `DeviceVK::Create`; `vkEnumeratePhysicalDevices` appears
+  nowhere in the Vulkan backend), so the layer had no entry for NRI's device: loader log
+  `vkEnumeratePhysicalDevices: Invalid instance [VUID-vkEnumeratePhysicalDevices-instance-parameter]`,
+  exit 0xC0000409 at the first present. Measured on the dev machine (RTSS running) with the resize
+  test's child, implicit layers on: control 3 of 3 dead; with one count-then-fill
+  `vkEnumeratePhysicalDevices` on NRI's `VkInstance` after creation, results unused, 3 of 3
+  survive, 36 of 36 frames presented, exit 0. `NriDevice.Create` makes that call for VK
+  (`EnumeratePhysicalDevicesVK` in `dotnet/Core/NriDevice.cs`: `vkGetInstanceProcAddr` and the
+  instance from the WrapperVK table, `stackalloc` up to 32, results and `VkResult` ignored, never
+  throws, skipped on any null); opt-out `NriDeviceOptions.VkEnumeratePhysicalDevicesAfterCreation`
+  (default true). `CreateFromVulkan` does not: that instance is the caller's. The adapter
+  enumeration's throwaway instances need nothing, they are destroyed before any present. The
+  earlier instance-count hypothesis stays refuted (`VK_LOADER_DEBUG=layer`: three instances before
+  the crash in the normal flow; with enumeration under `DISABLE_RTSS_LAYER=1`, the device's
+  instance the only one the layer saw, with and without the Khronos layer, the same crash). A
+  consumer's first wording, that the layer "latches the first instance", was wrong; their later
+  diagnosis, groups versus devices, was right. Not patched in NRI: a workaround for a third-party
+  layer, neither NRI-shaped nor an NRI bug, which the maintainer would decline.
 - **Khronos messages carry the id name (patch 0015)**: `[1809909096] BestPractices-vkCreateImage-sharing-mode-exclusive: vkCreateImage(): ...`.
   Upstream forwards `"[%u] %s"` (number, `pMessage`); the SDK 1.4.3xx layer's `pMessage` no
   longer starts with "Validation Warning: [ name ]", so the name was lost. Messages with id 0
@@ -738,10 +754,11 @@ extensions.
   got it from present 6 times over the same 8 resizes, never from acquire, no ERROR message, the
   raw instance's Khronos layer clean.
 - **The resize test runs in a child process**: the test exe started again with
-  `PRISMNRI_TEST_CHILD=swapchain-resize` and `VK_LOADER_LAYERS_DISABLE=~implicit~`; a
-  `[ModuleInitializer]` runs the frames and exits before xunit starts. Reasons: RTSS's implicit layer
-  kills a Vulkan-presenting process here, and Vulkan presents poisoned later D3D12 device creation
-  in the same process (Reflex, below).
+  `PRISMNRI_TEST_CHILD=swapchain-resize`; a `[ModuleInitializer]` runs the frames and exits before
+  xunit starts. Reason: Vulkan presents poisoned later D3D12 device creation in the same process
+  (Reflex, below). The child runs with implicit layers on, so on a machine with RTSS it is the
+  regression test for the binding's physical-device enumeration (Device creation and callbacks);
+  before that it had to run with `VK_LOADER_LAYERS_DISABLE=~implicit~`.
 - **Wrapped VK device + swap chain needs `VK_KHR_get_surface_capabilities2`** on the instance:
   `SwapChainVK::Create` calls `vkGetPhysicalDeviceSurfaceCapabilities2KHR` unconditionally; without
   it, an access violation in `CreateSwapChain` (measured). Not patched (caller error, NRI's own
@@ -822,9 +839,9 @@ extensions.
   IDR at QP 26 = 277 B, `00 00 00 01 65`. VK minimum 160x64, resolve on GRAPHICS; the feedback query
   never becomes available and `vkCmdCopyQueryPoolResults` with WAIT never completes. Skipped on VK
   naming that; it would hang the run (`VideoExtensionTests.cs`).
-- **Reflex**: D3D12 report all zero after 72 frames, filled and ordered after 200. VK: RivaTuner's
-  implicit `VK_LAYER_RTSS` killed the process at the first `vkQueuePresentKHR`; with implicit layers
-  disabled VK passed, but later `D3D12CreateDevice` calls in the process returned `0x887A0007`
+- **Reflex**: D3D12 report all zero after 72 frames, filled and ordered after 200. VK: before the binding's
+  physical-device enumeration, RivaTuner's implicit `VK_LAYER_RTSS` killed the process at the first
+  `vkQueuePresentKHR`; with implicit layers disabled VK passed, but later `D3D12CreateDevice` calls in the process returned `0x887A0007`
   (`DXGI_ERROR_DEVICE_RESET`), with or without `ALLOW_LOW_LATENCY` and `VSYNC`, failing unrelated
   D3D12 tests. VK case skipped naming that (`LowLatencyExtensionTests.cs`).
 

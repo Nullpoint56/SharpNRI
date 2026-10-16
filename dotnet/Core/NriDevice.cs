@@ -122,6 +122,7 @@ public sealed unsafe partial class NriDevice : NriObject
                 recorder.Attach(device);
                 messages = null!;
                 allocator = null;
+                if (options.GraphicsApi == GraphicsAPI.VK && options.VkEnumeratePhysicalDevicesAfterCreation) EnumeratePhysicalDevicesVK(device);
                 return device;
             }
         }
@@ -134,6 +135,53 @@ public sealed unsafe partial class NriDevice : NriObject
         finally
         {
             foreach (var pin in pins) pin.Free();
+        }
+    }
+
+    // RivaTuner's implicit Vulkan layer maps each VkPhysicalDevice to its instance from
+    // vkEnumeratePhysicalDevices and uses that map when its overlay initialises at the first
+    // vkQueuePresentKHR. NRI finds physical devices through vkEnumeratePhysicalDeviceGroups only
+    // (Creation.cpp, DeviceVK::Create), so the layer has no entry for NRI's device and the process
+    // dies at the first present. One count-then-fill call on NRI's instance, through the loader NRI
+    // loaded, results discarded. Never throws; no managed allocation for up to 32 physical devices.
+    // Not on the wrapped route: that instance is the caller's. See CLAUDE.md: Device creation and
+    // callbacks.
+    private static void EnumeratePhysicalDevicesVK(NriDevice device)
+    {
+        NriWrapperVKExtension? wrapper;
+        try { wrapper = device.TryWrapperVK; }
+        catch (NriException) { return; }
+        if (wrapper is null) return;
+
+        var instance = wrapper.GetInstanceVK();
+        var getInstanceProcAddr = (delegate* unmanaged[Stdcall]<nint, byte*, nint>)wrapper.GetInstanceProcAddrVK();
+        if (instance == 0 || getInstanceProcAddr is null) return;
+
+        delegate* unmanaged[Stdcall]<nint, uint*, nint*, int> enumerate;
+        fixed (byte* name = "vkEnumeratePhysicalDevices"u8)
+        {
+            enumerate = (delegate* unmanaged[Stdcall]<nint, uint*, nint*, int>)getInstanceProcAddr(instance, name);
+        }
+        if (enumerate is null) return;
+
+        uint count = 0;
+        if (enumerate(instance, &count, null) < 0 || count == 0) return; // VkResult errors are negative
+
+        const int StackCapacity = 32;
+        if (count <= StackCapacity)
+        {
+            var physicalDevices = stackalloc nint[StackCapacity];
+            var filled = count;
+            _ = enumerate(instance, &filled, physicalDevices);
+        }
+        else
+        {
+            var physicalDevices = new nint[count];
+            fixed (nint* p = physicalDevices)
+            {
+                var filled = count;
+                _ = enumerate(instance, &filled, p);
+            }
         }
     }
 

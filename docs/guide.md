@@ -98,6 +98,7 @@ ref readonly DeviceDesc caps = ref device.Desc;
 | `ForwardAllocatorToThirdParty` | also routes VMA / D3D12MA host allocations; off by default (chatty) |
 | `D3D12AgilitySdkPath` | null: the `AgilitySDK` directory beside the assembly when present (`NriDevice.DefaultAgilitySdkPath`), else inbox. `""`: force inbox |
 | `VkBindingOffsets` | see [Descriptors and layouts](#descriptors-and-layouts) |
+| `VkEnumeratePhysicalDevicesAfterCreation` | Vulkan, default true: one `vkEnumeratePhysicalDevices` on NRI's instance right after creation, results discarded, so implicit layers that map physical devices from that call (RivaTuner's) know NRI's device; false skips it. Not on `CreateFromVulkan` (the instance is yours) |
 | `Robustness`, `DeviceLostInfoLevel`, `EnableD3D12RayTracingValidation` | only on `NriDevice.Create`, not on the wrapped routes |
 
 Caveats:
@@ -123,13 +124,16 @@ Caveats:
   (one 32-entry buffer, no count call first). `NriDevice.Create` with `Adapter` null enumerates
   once more inside NRI, so keep the `NriAdapter` and pass it: the device's own instance is then
   the process's second, not its third or fourth.
-- **RivaTuner Statistics Server's implicit layer** (`VK_LAYER_RTSS`) kills a presenting Vulkan
-  process at the first present: the loader logs `vkEnumeratePhysicalDevices: Invalid instance`
-  and the process fail-fasts (exit 0xC0000409). Measured here that it does so even when the
-  device's instance is the only one the layer ever saw (enumeration ran with the layer's own
-  switch off), with and without the Khronos layer, so the number of instances is not the cause.
-  The remedy is the layer's switch, `DISABLE_RTSS_LAYER=1` in the process environment before the
-  first instance, or `VK_LOADER_LAYERS_DISABLE=~implicit~` as the tests use.
+- **RivaTuner Statistics Server's implicit layer** (`VK_LAYER_RTSS`) maps each physical device to
+  its instance from `vkEnumeratePhysicalDevices` and uses that map at the first present. NRI finds
+  physical devices only through `vkEnumeratePhysicalDeviceGroups`, so on NRI's device the loader
+  logged `vkEnumeratePhysicalDevices: Invalid instance` and the process failed fast at the first
+  present (exit 0xC0000409). `NriDevice.Create` therefore calls `vkEnumeratePhysicalDevices` once
+  on NRI's instance after creation (`VkEnumeratePhysicalDevicesAfterCreation`, default true), and
+  a presenting Vulkan process survives with the layer on. A device from `CreateFromVulkan` is on
+  your instance: enumerate physical devices on it with `vkEnumeratePhysicalDevices` yourself. The
+  number of instances is not the cause (measured with the device's instance the only one the
+  layer saw).
 - **Adapter uid** (`NriAdapter.Uid`): LUID when `high` is 0, UUID otherwise. On Linux
   `deviceLUIDValid` is false, so NRI builds it from `VkPhysicalDeviceIDProperties.deviceUUID`;
   match on the UUID there.
@@ -512,7 +516,9 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   `ALLOW_LOW_LATENCY` and `VSYNC`. Do not mix a Vulkan Reflex swap chain with D3D12 devices in one
   process.
 - RivaTuner Statistics Server's implicit `VK_LAYER_RTSS` killed the process at the first Vulkan
-  present. Disable implicit layers if it is installed.
+  present until the binding started enumerating NRI's physical devices after creation
+  (`NriDeviceOptions.VkEnumeratePhysicalDevicesAfterCreation`, default true; see
+  [Device creation](#device-creation)). Leave the option on when RTSS may be installed.
 
 ### Video
 
@@ -790,7 +796,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | `IsUpscalerSupported` true, DLL absent | `CreateUpscaler` throws naming the file | Upscaler |
 | XeSS without the guard | lock held, next creation hangs | Upscaler |
 | Vulkan Reflex + D3D12 in one process | `D3D12CreateDevice` 0x887A0007 | LowLatency |
-| RTSS installed | process dies at first Vulkan present | LowLatency |
+| RTSS installed, `VkEnumeratePhysicalDevicesAfterCreation = false` or a wrapped device whose instance never ran `vkEnumeratePhysicalDevices` | process dies at first Vulkan present | Device creation |
 | Reflex report in the first frames | all zeros | LowLatency |
 | H.264 encode on Vulkan | feedback resolve hangs | Video |
 | H.264 encode 64x64 on D3D12 | debug error 1312; minimum is 256x256 | Video |
