@@ -295,6 +295,10 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | 0015 vulkan-message-id-name | the debug-utils callback forwards `pMessageIdName` as `[id] name: text` when the layer provides one | upstream forwards number and text; current Khronos layers keep the VUID / check name only in `pMessageIdName`, so the forwarded text had no name |
 | 0016 validation-pipeline-layout-all-stages | `DeviceVal::CreatePipelineLayout` and `CreateGraphicsPipeline` read a layout `shaderStages` of `ALL` (0) as `ALL_SHADERS`, as `PipelineLayoutD3D12` does | upstream masked the ranges' stages with 0: a layout with `ALL` refused every range with explicit stages ("not compatible with 'shaderStages'") and every graphics pipeline ("not enabled in the pipeline layout") |
 | 0017 swapchain-latest-ready-bit | `SwapChainBits::LATEST_READY` + `DeviceDesc::features.latestReadySwapChain` (VK: swap chain + `fifoLatestReady`); with `VSYNC` the capped list is FIFO_LATEST_READY, FIFO_RELAXED/FIFO, FIFO; the bit is cleared from `m_Flags` unless that mode was chosen; D3D11/D3D12 clear it | upstream reaches FIFO_LATEST_READY only without `VSYNC` and after MAILBOX, which NVIDIA always offers, so it is never chosen there; NRI never reports the chosen mode |
+| 0018 d3d12-break-on-error-switch | `DeviceCreationDesc::disableD3D12BreakOnError` ("enabled by default" switches) wraps the two `SetBreakOnSeverity` calls in `DeviceD3D12::Create` (7 lines); the binding passes it unless `BreakOnError` and a debugger is attached | upstream sets the info-queue break on ERROR and CORRUPTION for every debug-layer device: without a debugger the first D3D12 error is an `SEHException` out of the NRI call, or a dead headless process, although the message callback already reports it |
+| 0019 d3d12-gpu-based-validation-switch | `DeviceCreationDesc::enableD3D12GpuBasedValidation` ("disabled by default", beside `enableD3D12RayTracingValidation`): `ID3D12Debug1::SetEnableGPUBasedValidation(true)` after `EnableDebugLayer` (9 lines) | upstream never enables GPU-based validation, which must be enabled before the device is created; the alternative is a D3D12 COM sequence in the binding |
+| 0020 d3d12-texture-barrier-no-access-sync-none | `CommandBufferD3D12::Barrier` sets `SyncBefore` / `SyncAfter` to `SYNC_NONE` for a texture barrier side whose access is `NONE` and whose layout is not `UNDEFINED` (4 lines + comment, `CommandBufferD3D12.hpp:2447`) | upstream derives the sync from the stages alone; the debug layer refuses `NO_ACCESS` with a defined layout and any other sync (1331) and `Close` fails `E_INVALIDARG`, while the same barrier is legal on Vulkan |
+| 0021 vulkan-copy-stage-covers-fill-buffer | `StageBits::COPY` maps to `VK_PIPELINE_STAGE_2_COPY_BIT \| VK_PIPELINE_STAGE_2_CLEAR_BIT` (`ConversionVK.h:427`); the `COPY` comment in `NRIDescs.h` names `CmdZeroBuffer` | `CmdZeroBuffer` is `vkCmdFillBuffer`, a clear command whose stage is `CLEAR_BIT`, on Vulkan and `CopyBufferRegion` (sync `COPY`) on D3D12, so no NRI stage covered it on both; syncval reported the hazards (Barriers) |
 
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
@@ -304,8 +308,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0017 each also apply alone onto the bare tag. Patches to a
-  file an earlier patch touches (0012-0017 all are) are cut from a scratch clone at the tag with
+  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag. Patches to a
+  file an earlier patch touches (0012-0021 all are, or are cut the same way) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit. There is no 0011: it corrected
   the `queuedFrameNum` header comment only, and a comment is knowledge, not a patch (owner,
   2026-10-16); the fact lives below under Extensions and in the binding's docs.
@@ -509,6 +513,17 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   stride 0 reads every vertex from the offset and no layer objects (legal in both APIs). The
   binding's `NriVertexBuffer.Stride` / `SetVertexBuffer` stride had a default of 0, which invited
   it; no default now. Not a validation check: a false positive for intended stride 0.
+- **Root descriptor offset: a sliding window on Vulkan, an address on D3D12.** Vulkan
+  (`CommandBufferVK.hpp` `SetRootDescriptor`, push-descriptor path) adds `SetRootDescriptorDesc::offset`
+  to `VkDescriptorBufferInfo.offset` and keeps the view's range; `DescriptorVK.hpp` resolves a
+  `WHOLE_SIZE` (0) view to `bufferSize - viewOffset`. D3D12 (`PipelineLayoutD3D12.hpp`
+  `SetRootDescriptor`) binds `GetDeviceAddress() + offset`, no range (root views have none); so
+  does Vulkan's descriptor-heap path. NRI validation (`DescriptorVal.hpp:11`, with the size
+  resolved in `DeviceVal::CreateDescriptor`) caps the offset at `bufferSize - view.offset -
+  view.size`, so a whole-buffer view accepts offset 0 only; a sliding window needs a view the
+  size of the window. Not patched: making the backends agree (clamp, or shrink the Vulkan range)
+  is a semantic choice for upstream, a phase 2 design question. Guide and the
+  `NriCommandBuffer.SetRootDescriptor` doc say the same.
 - Pipeline cache after one compute pipeline: VK 6,872 B, D3D12 3,318 B; rebuilt from bytes, same size.
   Stale or foreign bytes: `CreatePipelineCache` throws `NriException` with `OUT_OF_DATE` and hands
   nothing back to leak. NRI's `CreateImplementation` (`DeviceVK.h`, `DeviceD3D12.h`) destroys the
@@ -523,6 +538,99 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   before NRI reads past it; subresources layer-major. Buffer + 2 layers x 2 mips RGBA8 exact on VK,
   D3D12, WARP. **NV12 refused**: VK VUID-VkCopyBufferToImageInfo2-dstImage-07981 (both planes in one
   region), D3D12 debug error 1417 (second plane's barrier).
+
+### Barriers
+
+- **D3D12 texture barrier side with access `NONE` and a defined layout (patch 0020).**
+  `GetBarrierSyncFlags(stages, access)` (`CommandBufferD3D12.hpp:84`) derives `D3D12_BARRIER_SYNC`
+  from the stages alone (NONE -> `SYNC_NONE`, ALL -> `SYNC_ALL`, else bits) and
+  `GetBarrierAccessFlags` maps `AccessBits::NONE` to `ACCESS_NO_ACCESS`; the texture conversion
+  (`:2444-2449` before the patch) uses them for both sides. The debug layer's rule, texture
+  barriers only: a side with `NO_ACCESS` and a layout other than `UNDEFINED` must have
+  `SYNC_NONE` (1331, `D3D12_MESSAGE_ID_INCOMPATIBLE_BARRIER_VALUES`); the enhanced-barriers spec
+  says `SYNC_NONE` requires `NO_ACCESS` on that side and lists `SYNC_NONE` / `SYNC_NONE` as the form
+  "for transitioning texture subresources to a new layout". Measured (NVIDIA RTX 4070 SUPER,
+  Agility 1.619, `D3D12DebugLayerTests.A_texture_barrier_whose_side_has_no_access_records_on_both_backends`,
+  NRI validation on, 4x4 RGBA8, one barrier per command buffer, nothing submitted), before the
+  patch: `{NONE, COPY_DESTINATION, COPY}` -> `{SHADER_RESOURCE, SHADER_RESOURCE, ALL_SHADERS}`:
+  "[1331] ID3D12CommandList::Barrier: Invalid LayoutBefore value D3D12_BARRIER_LAYOUT_COPY_DEST.
+  LayoutBefore must be LAYOUT_UNDEFINED or SyncBefore must be SYNC_NONE when AccessBefore is
+  ACCESS_NO_ACCESS in texture barrier at group [0], index [0].", then `Close` `E_INVALIDARG`
+  (`EndCommandBuffer: INVALID_ARGUMENT`); `{COPY_DESTINATION, COPY_DESTINATION, COPY}` ->
+  `{NONE, SHADER_RESOURCE, ALL_SHADERS}`: "Invalid LayoutAfter value
+  D3D12_BARRIER_LAYOUT_SHADER_RESOURCE. LayoutAfter must be LAYOUT_UNDEFINED or SyncAfter must be
+  SYNC_NONE when AccessAfter is ACCESS_NO_ACCESS ..."; before `{NONE, GENERAL, COPY}` and before
+  `{NONE, SHADER_RESOURCE, ALL_SHADERS}` (same layout both sides): the same 1331 for LayoutBefore
+  `COMMON` / `SHADER_RESOURCE`; the same shapes with stages `NONE` on the no-access side were
+  clean. After the patch all six are clean on D3D12; on Vulkan all six were clean before and
+  after (the barrier is an execution dependency on the stages with an empty access mask, legal
+  and useful after a semaphore wait, so the Vulkan translation stays). NRI validation does not
+  check the rule. Buffer and global barriers have no layout and the layer accepts them: not
+  touched. A consumer hit it on the first submit of a frame for textures another queue had
+  finished.
+- **`CmdZeroBuffer`'s stage (patch 0021).** D3D12 `ZeroBuffer` (`CommandBufferD3D12.hpp:2160`) is
+  `CopyBufferRegion` from a zero buffer: sync scope `COPY`. Vulkan `ZeroBuffer`
+  (`CommandBufferVK.hpp:2496`) is `vkCmdFillBuffer`; the spec puts it in the Clear Commands chapter
+  ("Filling Buffers") and its page calls it a "transfer" operation for barriers;
+  `VK_PIPELINE_STAGE_2_COPY_BIT` "specifies the execution of all copy commands, including
+  vkCmdCopyQueryPoolResults", `VK_PIPELINE_STAGE_2_CLEAR_BIT` "the execution of clear commands, with
+  the exception of vkCmdClearAttachments". Upstream `ConversionVK.h:427-434` maps `COPY` to
+  `COPY_BIT` only and `CLEAR_STORAGE` to `CLEAR_BIT` (since 1a1b6df split `TRANSFER_BIT`, which
+  covered both); `NRIDescs.h:473` gave `COPY` to `CmdCopy*` / `CmdUpload*` / `CmdReadback*` and no
+  stage named `CmdZeroBuffer`. So no NRI stage covered it on both backends: `COPY` missed it on
+  Vulkan, `CLEAR_STORAGE` on D3D12 (a consumer declared `CLEAR_STORAGE` and D3D12 refused it).
+  Measured with Khronos synchronization validation (`BufferTests.ZeroBuffer_is_ordered_by_a_COPY_barrier`,
+  NVIDIA): copy 0xAB in, barrier `{COPY_DESTINATION, COPY}` ->
+  `{COPY_DESTINATION, COPY}`, `ZeroBuffer`, barrier `{COPY_DESTINATION, COPY}` ->
+  `{COPY_SOURCE, COPY}`, copy out. Before the patch: "[1544472022]
+  SYNC-HAZARD-WRITE-AFTER-WRITE: vkCmdFillBuffer(): WRITE_AFTER_WRITE hazard detected.
+  vkCmdFillBuffer writes to dstBuffer VkBuffer ..., which was previously written by
+  vkCmdCopyBuffer2. The current synchronization allows VK_ACCESS_2_TRANSFER_WRITE_BIT accesses at
+  VK_PIPELINE_STAGE_2_COPY_BIT, but to prevent this hazard, it must allow these accesses at
+  VK_PIPELINE_STAGE_2_CLEAR_BIT." and "[3839452274] SYNC-HAZARD-READ-AFTER-WRITE:
+  vkCmdCopyBuffer2(): ... reads VkBuffer ..., which was previously written by vkCmdFillBuffer. No
+  sufficient synchronization is present to ensure that a read (VK_ACCESS_2_TRANSFER_READ_BIT) at
+  VK_PIPELINE_STAGE_2_COPY_BIT does not conflict with a prior write (VK_ACCESS_2_TRANSFER_WRITE_BIT)
+  at VK_PIPELINE_STAGE_2_CLEAR_BIT."; the readback was zero anyway (NVIDIA). After: clean, zero.
+  D3D12 clean before and after. The test switches syncval on through
+  `VK_KHRONOS_VALIDATION_VALIDATE_SYNC` and `..._SYNCVAL_SHADER_ACCESSES_HEURISTIC` in the process
+  environment before device creation, and a zero + copy with no barrier (recorded, not submitted)
+  is the positive control: no `SYNC-HAZARD` from it = syncval not active = skip (Linux: .NET does
+  not write the native environment). The access mapping (`COPY_DESTINATION` ->
+  `TRANSFER_WRITE`) already covers the fill. A `COPY` barrier now also orders the clear commands
+  `CmdClearStorage` records: a wider scope, not a different one.
+- **Copy command lists: layout `COMMON` only (knowledge, not patched).** `g_BarrierLayouts`
+  (`CommandBufferD3D12.hpp:219-241`) maps every NRI layout whatever the command list type. The
+  enhanced-barriers spec ("Command Queue Layout Compatibility") allows only
+  `D3D12_BARRIER_LAYOUT_COMMON` on `D3D12_COMMAND_LIST_TYPE_COPY`: "Copy queues do not support
+  layout transition Barriers", subresources used on copy queues "MUST be in the state COMMON ...
+  equivalent to a subresource with a layout of D3D12_BARRIER_LAYOUT_COMMON", and the debug layer
+  checks at `ExecuteCommandLists` that "LayoutBefore and AccessBefore match known or assumed
+  resource layout"; the message is 1334 `D3D12_MESSAGE_ID_INCOMPATIBLE_BARRIER_LAYOUT` (not
+  reproduced here). Mapping copy-list layouts to `COMMON` silently would move the error to the
+  other queue's barrier, whose LayoutBefore would then mismatch the tracked `COMMON`. Portable
+  rule: a texture a COPY queue touches stays in `Layout::GENERAL` (D3D12 `COMMON`) on every queue,
+  `UNDEFINED` -> `GENERAL` at first use; on Vulkan `GENERAL` is legal everywhere. The legacy
+  barrier path does take the list type (`GetResourceStates(accessBits, commandListType)`, `:262`);
+  the enhanced path does not.
+- **One recording command buffer per allocator (knowledge, not patched).** D3D12 `Begin`
+  (`CommandBufferD3D12.hpp:856`) is `ID3D12GraphicsCommandList::Reset(m_CommandAllocator)`, refused
+  for a second open list on the same allocator. Measured (`D3D12DebugLayerTests.A_second_command_buffer_of_one_allocator_cannot_begin_while_the_first_records_on_D3D12`,
+  NVIDIA, NRI validation on): "[540] ID3D12GraphicsCommandList::{Create,Reset}CommandList: The
+  command allocator is currently in-use by another command list or is being reset in another
+  thread.", then "ID3D12GraphicsCommandList::Reset(): failed, result = 0x80070057", and the
+  second `Begin` throws `NriException` (`BeginCommandBuffer: INVALID_ARGUMENT`). Vulkan: both
+  begin, no message (several command buffers of one externally synchronized pool may record).
+  `NRI.h`'s `CreateCommandBuffer` / `BeginCommandBuffer` comments do not say it; NRI validation
+  tracks `m_IsRecordingStarted` per command buffer (`CommandBufferVal.hpp:486`, set only on
+  `SUCCESS`), not per allocator. Portable rule: one command buffer in the recording state per
+  allocator at a time; simplest is one allocator per command buffer in flight.
+- **A resource-creation error under the break (a consumer's observation, not reproduced).** With
+  the info-queue break on, a command-list error broke as expected but 638
+  `D3D12_MESSAGE_ID_CREATERESOURCEANDHEAP_INVALIDHEAPPROPERTIES` from `CreatePlacedResource2`
+  (`E_INVALIDARG`) only logged. With patch 0018's default as the binding passes it (break off
+  unless `BreakOnError` and a debugger) every debug-layer error is a message, and NRI returns
+  `FAILURE` from the failed creation, which the binding throws as `NriException`.
 
 ### D3D12 and the Agility SDK
 
@@ -547,6 +655,44 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - `NriDeviceOptions.D3D12AgilitySdkPath`: null = `AgilitySDK` beside the assembly if present, `""`
   = inbox.
 - **Reflex on Vulkan poisons later D3D12 device creation** in the process: see Extensions.
+- **Info-queue break (patch 0018).** With `enableGraphicsAPIValidation`, `DeviceD3D12::Create`
+  calls `ID3D12InfoQueue::SetBreakOnSeverity(CORRUPTION, true)` and `(ERROR, true)`
+  unconditionally (upstream `DeviceD3D12.hpp:591-595`, since d003e22, v1.150). With
+  `NRI_ENABLE_AGILITY_SDK_SUPPORT` (our builds) it also registers
+  `ID3D12InfoQueue1::RegisterMessageCallback` (`:620`, since 503f448), whose `MessageCallback`
+  (`:191`) reports every message below WARNING as `Message::ERROR` / `FAILURE` through
+  `CallbackInterface`, `[id] text`; `ReportMessage` then calls `AbortExecution`, which
+  `MessageBridge` handles. So the break adds nothing but the stop: without a debugger it is a
+  `DebugBreak` that surfaces as an `SEHException` out of the NRI call (the micromap error 1162
+  case, Ray tracing) or kills a headless process. Binding: `disableD3D12BreakOnError =
+  !(BreakOnError && Debugger.IsAttached)` at device creation (`NriDevice.cs`), the same rule as
+  `MessageBridge`. Not on the wrapped route: `DeviceCreationD3D12Desc` has no
+  `enableGraphicsAPIValidation`, NRI sets no break there. Measured (`D3D12DebugLayerTests`, NVIDIA
+  and WARP, Agility 1.619, NRI validation off so NRI does not refuse first): `CopyBuffer` of 512
+  bytes into a 256-byte buffer gives `[841] ID3D12CommandList::CopyBufferRegion: The destination
+  region extends past the end of the destination resource. When DstOffset is 0 and NumBytes is
+  512, ...` as an ERROR message and returns; `End` then throws `INVALID_ARGUMENT` (`Close`
+  `E_INVALIDARG`). With the break forced on (one-off run, no debugger) the same copy threw
+  `SEHException` out of `CopyBuffer` right after the message; the test host survived.
+- **GPU-based validation (patch 0019).** The same block enables the debug layer
+  (`ID3D12Debug::EnableDebugLayer`, upstream `:493-497`) and the DXGI debug factory, and never
+  calls `ID3D12Debug1::SetEnableGPUBasedValidation`, which must come before device creation and
+  is process-global like the debug layer (NRI never switches it off again).
+  `NriDeviceOptions.EnableD3D12GpuBasedValidation` maps 1:1. Measured (`D3D12DebugLayerTests`,
+  children with `PRISMNRI_TEST_CHILD=d3d12-gbv-on` / `-off`, NVIDIA and WARP): a dispatch writing
+  through a `PARTIALLY_BOUND` range of two UAVs with only slot 0 written
+  (`Shaders/GpuValidation.hlsl`) reports `[938] GPU-BASED VALIDATION: Dispatch, Uninitialized
+  descriptor accessed: Descriptor Heap Index To DescriptorTableStart: [0], Descriptor Heap Index
+  FromTableStart: [1], Register Type: D3D12_DESCRIPTOR_RANGE_TYPE_UAV, ...` with the option, no
+  error without it; dispatch + wait 13-40 ms on, 7-10 ms off (NVIDIA). Without `PARTIALLY_BOUND` (a static
+  range, no `DESCRIPTORS_VOLATILE`) the CPU-side layer reports the slot with or without GBV:
+  `[646] SetComputeRootDescriptorTable ... has not been initialized` and `[1023] Dispatch: Static
+  Descriptor UAV resource dimensions (D3D12_UAV_DIMENSION_UNKNOWN) differs ...`, so that is no
+  test of GBV. The test runs in child processes because the setting would stay on for every later
+  D3D12 device in the test process.
+- A host could call `D3D12GetDebugInterface` + `ID3D12Debug1` itself before NRI creates the device
+  (process-global, so it would take), but the repo keeps D3D12 COM sequences out of the binding
+  (the Agility decision under Decisions), hence the switch.
 
 ### Vulkan loader and validation layers
 
@@ -683,8 +829,9 @@ extensions.
   Index-less OMM (NONE, address 0) draws VUID-...-pInfos-10904 from VVL 1.4.341, likely a false
   positive; with an index buffer it is clean.
 - **Micromaps, D3D12**: NRI's prebuild query passes no input buffer or per-OMM descs: debug error
-  1162, SEH via break-on-error. So that test runs D3D12 without the debug layer (NRI validation on).
-  Then the BLAS build linking the micromap fails `Close` with `E_INVALIDARG`: skipped on D3D12 naming
+  1162, SEH via break-on-error (measured before patch 0018; without a debugger the break is now
+  off and 1162 would be an ERROR message that fails the test instead). So that test runs D3D12
+  without the debug layer (NRI validation on). Then the BLAS build linking the micromap fails `Close` with `E_INVALIDARG`: skipped on D3D12 naming
   that.
 
 ### Upscalers and vendor runtimes

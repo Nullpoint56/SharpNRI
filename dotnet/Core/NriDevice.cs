@@ -106,9 +106,12 @@ public sealed unsafe partial class NriDevice : NriObject
                     enableNRIValidation = Bool(options.EnableNriValidation),
                     enableGraphicsAPIValidation = Bool(options.EnableGraphicsApiValidation),
                     enableD3D12RayTracingValidation = Bool(options.EnableD3D12RayTracingValidation),
+                    enableD3D12GpuBasedValidation = Bool(options.EnableD3D12GpuBasedValidation),
                     enableMemoryZeroInitialization = Bool(options.EnableMemoryZeroInitialization),
                     disableVKRayTracing = Bool(options.DisableVkRayTracing),
                     disableD3D12EnhancedBarriers = Bool(options.DisableD3D12EnhancedBarriers),
+                    // The debug layer's break follows MessageBridge's: a debugger only (patches/0018).
+                    disableD3D12BreakOnError = Bool(!(options.BreakOnError && System.Diagnostics.Debugger.IsAttached)),
                 };
 
                 Device* handle = null;

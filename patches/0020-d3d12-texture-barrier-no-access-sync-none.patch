@@ -1,0 +1,39 @@
+D3D12: a texture barrier side with AccessBits::NONE and a defined layout gets SYNC_NONE.
+
+CommandBufferD3D12::Barrier converts a texture barrier side by side: GetBarrierSyncFlags derives
+SyncBefore / SyncAfter from the stages alone, GetBarrierAccessFlags maps AccessBits::NONE to
+D3D12_BARRIER_ACCESS_NO_ACCESS, and the layout comes from g_BarrierLayouts (since enhanced barriers
+came in, 1d52b40). The debug layer refuses a texture barrier whose side has NO_ACCESS, a layout
+other than UNDEFINED and a sync other than SYNC_NONE (1331, INCOMPATIBLE_BARRIER_VALUES), and the
+enhanced-barriers spec gives SYNC_NONE / NO_ACCESS as the form for a side that only transitions the
+layout. On Vulkan the same NRI barrier is an execution dependency on the stages with an empty access
+mask, which is legal (it chains after a semaphore wait), so a portable caller writes it; D3D12 then
+records an invalid barrier and Close fails.
+
+This sets SyncBefore / SyncAfter to SYNC_NONE for a side whose access is NONE and whose layout is not
+UNDEFINED. Buffer and global barriers have no layout and are unchanged; a side with access or with
+an UNDEFINED layout is unchanged. Measured on v190 with Agility 1.619, NVIDIA, NRI validation off, a
+4x4 RGBA8 texture: {NONE, COPY_DESTINATION, COPY} -> {SHADER_RESOURCE, SHADER_RESOURCE, ALL_SHADERS}
+gave "[1331] ID3D12CommandList::Barrier: Invalid LayoutBefore value D3D12_BARRIER_LAYOUT_COPY_DEST.
+LayoutBefore must be LAYOUT_UNDEFINED or SyncBefore must be SYNC_NONE when AccessBefore is
+ACCESS_NO_ACCESS in texture barrier at group [0], index [0]." and Close E_INVALIDARG (likewise for
+LayoutAfter, and for GENERAL / SHADER_RESOURCE on both sides); with the change all record clean.
+
+diff --git a/Source/D3D12/CommandBufferD3D12.hpp b/Source/D3D12/CommandBufferD3D12.hpp
+index c69bd54..777edb1 100644
+--- a/Source/D3D12/CommandBufferD3D12.hpp
++++ b/Source/D3D12/CommandBufferD3D12.hpp
+@@ -2443,6 +2443,13 @@ NRI_INLINE void CommandBufferD3D12::Barrier(const BarrierDesc& barrierDesc) {
+                 out = {};
+                 out.SyncBefore = GetBarrierSyncFlags(in.before.stages, in.before.access);
+                 out.SyncAfter = GetBarrierSyncFlags(in.after.stages, in.after.access);
++
++                // "NO_ACCESS" with a defined layout requires "SYNC_NONE" (D3D12 debug layer, 1331): the layout transition is the only thing this side does
++                if (in.before.access == AccessBits::NONE && in.before.layout != Layout::UNDEFINED)
++                    out.SyncBefore = D3D12_BARRIER_SYNC_NONE;
++                if (in.after.access == AccessBits::NONE && in.after.layout != Layout::UNDEFINED)
++                    out.SyncAfter = D3D12_BARRIER_SYNC_NONE;
++
+                 out.AccessBefore = GetBarrierAccessFlags(in.before.access);
+                 out.AccessAfter = GetBarrierAccessFlags(in.after.access);
+                 out.LayoutBefore = GetBarrierLayout(in.before.layout, in.before.access);

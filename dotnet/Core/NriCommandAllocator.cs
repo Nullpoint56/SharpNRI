@@ -21,7 +21,12 @@ public sealed unsafe class NriCommandAllocator : NriObject
 
     internal CommandAllocator* Raw => (CommandAllocator*)Handle;
 
-    /// <summary>A command buffer backed by this allocator.</summary>
+    /// <summary>
+    /// A command buffer backed by this allocator. Only one command buffer of an allocator may be
+    /// recording at a time: on D3D12 a second <see cref="NriCommandBuffer.Begin"/> while another
+    /// records draws debug error 540 and throws <see cref="NriException"/>; Vulkan allows it, so
+    /// nothing else tells you. One allocator per command buffer in flight is the simplest shape.
+    /// </summary>
     public NriCommandBuffer CreateCommandBuffer()
     {
         CommandBuffer* handle = null;

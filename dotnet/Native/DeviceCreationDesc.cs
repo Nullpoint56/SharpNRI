@@ -54,6 +54,9 @@ public unsafe partial struct DeviceCreationDesc
     public byte enableD3D12RayTracingValidation;
 
     [NativeTypeName("bool")]
+    public byte enableD3D12GpuBasedValidation;
+
+    [NativeTypeName("bool")]
     public byte enableMemoryZeroInitialization;
 
     [NativeTypeName("bool")]
@@ -61,4 +64,7 @@ public unsafe partial struct DeviceCreationDesc
 
     [NativeTypeName("bool")]
     public byte disableD3D12EnhancedBarriers;
+
+    [NativeTypeName("bool")]
+    public byte disableD3D12BreakOnError;
 }

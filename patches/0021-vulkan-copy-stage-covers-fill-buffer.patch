@@ -1,0 +1,48 @@
+VK: StageBits::COPY includes VK_PIPELINE_STAGE_2_CLEAR_BIT, so it covers CmdZeroBuffer.
+
+CmdZeroBuffer is CopyBufferRegion from a zero buffer on D3D12 (sync scope COPY) and vkCmdFillBuffer
+on Vulkan, which the spec places among the clear commands: VK_PIPELINE_STAGE_2_COPY_BIT "specifies
+the execution of all copy commands", VK_PIPELINE_STAGE_2_CLEAR_BIT "the execution of clear commands,
+with the exception of vkCmdClearAttachments". Since 1a1b6df split VK_PIPELINE_STAGE_2_TRANSFER_BIT
+into COPY_BIT, RESOLVE_BIT and CLEAR_BIT, StageBits::COPY maps to COPY_BIT only, and no NRI stage
+covers the fill on both backends: COPY misses it on Vulkan, CLEAR_STORAGE (CLEAR_UNORDERED_ACCESS_VIEW)
+misses it on D3D12. NRIDescs.h names no stage for CmdZeroBuffer.
+
+This adds CLEAR_BIT to the COPY mapping and names CmdZeroBuffer in the COPY comment. CLEAR_STORAGE is
+unchanged. A COPY barrier now also orders the clear commands CmdClearStorage records (vkCmdClearColorImage,
+vkCmdFillBuffer); that is a wider scope, not a different one.
+Measured on v190, NVIDIA, Khronos synchronization validation on: copy, barrier {COPY_DESTINATION,
+COPY} -> {COPY_DESTINATION, COPY}, CmdZeroBuffer, barrier {COPY_DESTINATION, COPY} -> {COPY_SOURCE,
+COPY}, copy reported SYNC-HAZARD-WRITE-AFTER-WRITE at vkCmdFillBuffer ("it must allow these
+accesses at VK_PIPELINE_STAGE_2_CLEAR_BIT") and SYNC-HAZARD-READ-AFTER-WRITE at vkCmdCopyBuffer2
+("a prior write (VK_ACCESS_2_TRANSFER_WRITE_BIT) at VK_PIPELINE_STAGE_2_CLEAR_BIT"); with the change
+it is clean. D3D12 was clean before and after.
+
+diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
+index 68ee4dd..1e6f96f 100644
+--- a/Include/NRIDescs.h
++++ b/Include/NRIDescs.h
+@@ -470,7 +470,7 @@ NriBits(StageBits, uint32_t,
+     MICROMAP                        = NriBit(19),   // Invoked by "Cmd*Micromap*" commands
+ 
+     // Other
+-    COPY                            = NriBit(20),   // Invoked by "CmdCopy*", "CmdUpload*" and "CmdReadback*"
++    COPY                            = NriBit(20),   // Invoked by "CmdCopy*", "CmdUpload*", "CmdReadback*" and "CmdZeroBuffer"
+     RESOLVE                         = NriBit(21),   // Invoked by "CmdResolveTexture"
+     CLEAR_STORAGE                   = NriBit(22),   // Invoked by "CmdClearStorage"
+ 
+diff --git a/Source/VK/ConversionVK.h b/Source/VK/ConversionVK.h
+index a443b3a..de3ea69 100644
+--- a/Source/VK/ConversionVK.h
++++ b/Source/VK/ConversionVK.h
+@@ -424,8 +424,8 @@ constexpr VkPipelineStageFlags2 GetPipelineStageFlags(StageBits stageBits) {
+     if (stageBits & StageBits::INDIRECT)
+         flags |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+ 
+-    if (stageBits & StageBits::COPY)
+-        flags |= VK_PIPELINE_STAGE_2_COPY_BIT;
++    if (stageBits & StageBits::COPY) // "CmdZeroBuffer" is "vkCmdFillBuffer", a clear command in Vulkan synchronization scopes (a copy on D3D12)
++        flags |= VK_PIPELINE_STAGE_2_COPY_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT;
+ 
+     if (stageBits & StageBits::RESOLVE)
+         flags |= VK_PIPELINE_STAGE_2_RESOLVE_BIT;

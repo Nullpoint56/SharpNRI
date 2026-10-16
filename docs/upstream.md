@@ -12,10 +12,14 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | filed 2026-10-16, [#276](https://github.com/NVIDIA-RTX/NRI/issues/276) |
 | 0010 Streamer stages compressed textures in texel rows | bug | filed 2026-10-16, [#274](https://github.com/NVIDIA-RTX/NRI/issues/274) |
 | 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277) |
+| 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | phase 1 candidate, not filed: owner's trigger |
+| 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | phase 1 candidate, not filed: owner's trigger |
 | 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2: after the maintainer engages; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
 | 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2: after the maintainer engages; the uncapped order is his and stays |
+| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | phase 2: after the maintainer engages; the default (break) is his and stays |
+| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2: after the maintainer engages |
 | 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2: enhancement issue; per-frame vs total semantics is his call |
 | 0001 Agility SDK from a path | proposal | phase 2: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
 | 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
@@ -315,3 +319,89 @@ support. Measured on v190, NVIDIA (the surface offers `FIFO_LATEST_READY` and `M
 with the Khronos layer clean; the same mode forced on a device without the feature is reported
 ("presentMode is VK_PRESENT_MODE_FIFO_LATEST_READY_KHR, but feature presentModeFifoLatestReady is
 not enabled"). Patch attached (`patches/0017-swapchain-latest-ready-bit.patch`), thirteen lines.
+
+## 0018 — `disableD3D12BreakOnError`: the D3D12 info-queue break as a switch
+
+**Title:** D3D12: a switch to skip `SetBreakOnSeverity` with `enableGraphicsAPIValidation`
+
+With `enableGraphicsAPIValidation`, `DeviceD3D12::Create` calls
+`ID3D12InfoQueue::SetBreakOnSeverity` for `CORRUPTION` and `ERROR` unconditionally
+(`DeviceD3D12.hpp:591-595`, since d003e22). With the Agility SDK the same block registers
+`ID3D12InfoQueue1::RegisterMessageCallback` (`:620`, 503f448), whose `MessageCallback` (`:191`) reports
+every message below `WARNING` as `Message::ERROR` through `CallbackInterface`, where
+`AbortExecution` already lets the caller decide whether to stop. The info-queue break comes first
+and cannot be turned off, so in a process without a debugger the first debug-layer error is a
+breakpoint exception out of the call that recorded it, or the end of a headless process, before
+the caller sees the message. Proposal: `disableD3D12BreakOnError` among the "enabled by default"
+switches, skipping the two calls; the deny list and the callback stay, and the default keeps the
+break. Measured on v190 with Agility 1.619, NVIDIA and WARP, NRI validation off: `CmdCopyBuffer`
+of 512 bytes into a 256-byte buffer reports "[841] ID3D12CommandList::CopyBufferRegion: The
+destination region extends past the end of the destination resource" and throws a breakpoint
+exception out of the call; with the switch the call returns, the message arrives through
+`CallbackInterface`, and `EndCommandBuffer` fails `Close` with `E_INVALIDARG`. Patch attached
+(`patches/0018-d3d12-break-on-error-switch.patch`), seven lines.
+
+## 0019 — `enableD3D12GpuBasedValidation`: GPU-based validation as a switch
+
+**Title:** D3D12: a switch for `ID3D12Debug1::SetEnableGPUBasedValidation`
+
+With `enableGraphicsAPIValidation`, `DeviceD3D12::Create` enables the debug layer through
+`ID3D12Debug::EnableDebugLayer` before the device is created (`DeviceD3D12.hpp:493-497`) but never
+calls `ID3D12Debug1::SetEnableGPUBasedValidation`, which has to be called at the same point and is
+process-global like the debug layer. The CPU-side debug layer does not know which descriptors a
+shader accesses, so an access through an uninitialized descriptor in a volatile range is invisible
+without it, and the only way to get it is a D3D12 call of the caller's own before NRI creates the
+device. Proposal: `enableD3D12GpuBasedValidation` among the "disabled by default" switches beside
+`enableD3D12RayTracingValidation`; with `enableGraphicsAPIValidation`, the debug controller is
+queried for `ID3D12Debug1` after `EnableDebugLayer` and GPU-based validation is enabled. Measured on
+v190 with Agility 1.619, NVIDIA and WARP: a dispatch writing through a `PARTIALLY_BOUND` range of
+two UAVs with only slot 0 written reports "[938] GPU-BASED VALIDATION: Dispatch, Uninitialized
+descriptor accessed: ... Descriptor Heap Index FromTableStart: [1]" with the switch and nothing
+without it. Patch attached (`patches/0019-d3d12-gpu-based-validation-switch.patch`), nine lines.
+
+## 0020 — D3D12 texture barrier: a side with access `NONE` and a defined layout keeps the stages' sync
+
+**Title:** D3D12: texture barrier with `AccessBits::NONE` and a defined layout fails `Close`
+
+`CommandBufferD3D12::Barrier` converts each texture barrier side with
+`GetBarrierSyncFlags(stages, access)`, which derives `D3D12_BARRIER_SYNC` from the stages alone,
+and `GetBarrierAccessFlags`, which maps `AccessBits::NONE` to `D3D12_BARRIER_ACCESS_NO_ACCESS`
+(`CommandBufferD3D12.hpp:2444-2449`, since enhanced barriers came in, 1d52b40). The debug layer
+refuses a texture barrier whose side has `NO_ACCESS`, a layout other than `UNDEFINED` and a sync
+other than `SYNC_NONE` (1331, `INCOMPATIBLE_BARRIER_VALUES`); the enhanced-barriers spec lists
+`SYNC_NONE` / `NO_ACCESS` as the form for a side that only transitions the layout. On Vulkan the
+same NRI barrier is an execution dependency on the stages with no access mask, which is legal.
+Measured on v190 with Agility 1.619, NVIDIA, a 4x4 RGBA8 texture: `{NONE, COPY_DESTINATION, COPY}`
+-> `{SHADER_RESOURCE, SHADER_RESOURCE, ALL_SHADERS}` reports "[1331] ID3D12CommandList::Barrier:
+Invalid LayoutBefore value D3D12_BARRIER_LAYOUT_COPY_DEST. LayoutBefore must be LAYOUT_UNDEFINED or
+SyncBefore must be SYNC_NONE when AccessBefore is ACCESS_NO_ACCESS in texture barrier at group [0],
+index [0]." and `Close` fails with `E_INVALIDARG`; the after side gives the same for LayoutAfter,
+and `GENERAL` / `SHADER_RESOURCE` on both sides likewise; with stages `NONE` on that side it is
+clean. Fix: for a texture side with access `NONE` and a layout other than `UNDEFINED`, use
+`SYNC_NONE`; buffer and global barriers have no layout and are unchanged. With it all six shapes
+record clean. Patch attached (`patches/0020-d3d12-texture-barrier-no-access-sync-none.patch`), four
+lines and a comment.
+
+## 0021 — Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer`
+
+**Title:** VK: `StageBits::COPY` misses `vkCmdFillBuffer` (`CmdZeroBuffer`)
+
+`CmdZeroBuffer` is `CopyBufferRegion` from a zero buffer on D3D12 (`CommandBufferD3D12.hpp:2160`,
+sync `COPY`) and `vkCmdFillBuffer` on Vulkan (`CommandBufferVK.hpp:2503`), which the spec counts
+among the clear commands: `VK_PIPELINE_STAGE_2_COPY_BIT` "specifies the execution of all copy
+commands", `VK_PIPELINE_STAGE_2_CLEAR_BIT` "the execution of clear commands, with the exception of
+vkCmdClearAttachments". `GetPipelineStageFlags` maps `StageBits::COPY` to `COPY_BIT` only
+(`ConversionVK.h:427-428`, since 1a1b6df split `TRANSFER_BIT`, which covered both), and
+`NRIDescs.h:473` gives no stage for `CmdZeroBuffer`; `CLEAR_STORAGE` covers it on Vulkan but is
+`CLEAR_UNORDERED_ACCESS_VIEW` on D3D12, so no stage orders it on both backends. Measured on v190,
+NVIDIA, Khronos synchronization validation on: copy, barrier `{COPY_DESTINATION, COPY}` ->
+`{COPY_DESTINATION, COPY}`, `CmdZeroBuffer`, barrier `{COPY_DESTINATION, COPY}` ->
+`{COPY_SOURCE, COPY}`, copy reports "SYNC-HAZARD-WRITE-AFTER-WRITE: vkCmdFillBuffer(): ... The
+current synchronization allows VK_ACCESS_2_TRANSFER_WRITE_BIT accesses at
+VK_PIPELINE_STAGE_2_COPY_BIT, but to prevent this hazard, it must allow these accesses at
+VK_PIPELINE_STAGE_2_CLEAR_BIT." and "SYNC-HAZARD-READ-AFTER-WRITE: vkCmdCopyBuffer2(): ... a read
+(VK_ACCESS_2_TRANSFER_READ_BIT) at VK_PIPELINE_STAGE_2_COPY_BIT does not conflict with a prior write
+(VK_ACCESS_2_TRANSFER_WRITE_BIT) at VK_PIPELINE_STAGE_2_CLEAR_BIT". Fix: `COPY` maps to
+`COPY_BIT | CLEAR_BIT`, and the `COPY` comment names `CmdZeroBuffer`; with it the same sequence is
+clean. Patch attached (`patches/0021-vulkan-copy-stage-covers-fill-buffer.patch`), two lines and
+the comment.

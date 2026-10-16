@@ -1,0 +1,53 @@
+D3D12: DeviceCreationDesc::disableD3D12BreakOnError skips SetBreakOnSeverity for ERROR and CORRUPTION.
+
+With enableGraphicsAPIValidation, DeviceD3D12::Create calls
+ID3D12InfoQueue::SetBreakOnSeverity(CORRUPTION, true) and (ERROR, true) unconditionally (since
+d003e22). With the Agility SDK it also registers ID3D12InfoQueue1::RegisterMessageCallback (503f448),
+whose MessageCallback reports every debug-layer message below WARNING as Message::ERROR through
+CallbackInterface, where AbortExecution already lets the caller decide whether to break. The info
+queue break comes first and can't be turned off: in a process without a debugger the first
+debug-layer error is a breakpoint exception out of the NRI call that recorded it, or the end of a
+headless process, before the caller sees the message.
+
+This adds disableD3D12BreakOnError to the "enabled by default" switches; when set, the two
+SetBreakOnSeverity calls are skipped. Everything else in the block (deny list, message callback) is
+unchanged, and the default keeps the break. Measured on v190 with Agility 1.619, NVIDIA and WARP,
+NRI validation off: CmdCopyBuffer of 512 bytes into a 256-byte buffer throws a breakpoint exception
+out of the call after reporting "[841] ID3D12CommandList::CopyBufferRegion: The destination region
+extends past the end of the destination resource"; with the switch the call returns, the same
+message arrives through CallbackInterface and EndCommandBuffer fails Close with E_INVALIDARG.
+
+diff --git a/Include/Extensions/NRIDeviceCreation.h b/Include/Extensions/NRIDeviceCreation.h
+index a8ad7b5..572ba81 100644
+--- a/Include/Extensions/NRIDeviceCreation.h
++++ b/Include/Extensions/NRIDeviceCreation.h
+@@ -94,6 +94,7 @@ NriStruct(DeviceCreationDesc) {
+     // Switches (enabled by default)
+     bool disableVKRayTracing;                   // to save CPU memory in some implementations
+     bool disableD3D12EnhancedBarriers;          // even if AgilitySDK is in use, some apps still use legacy barriers. It can be important for integrations
++    bool disableD3D12BreakOnError;              // D3D12: don't "SetBreakOnSeverity" for "ERROR" and "CORRUPTION" (messages still go through "CallbackInterface", if supported)
+ };
+ 
+ // if "adapterDescs == NULL", then "adapterDescNum" is set to the number of adapters
+diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
+index 855c521..accdf27 100644
+--- a/Source/D3D12/DeviceD3D12.hpp
++++ b/Source/D3D12/DeviceD3D12.hpp
+@@ -608,11 +608,13 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
+         HRESULT hr = m_Device->QueryInterface(&pInfoQueue);
+ 
+         if (SUCCEEDED(hr)) {
+-            hr = pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+-            NRI_RETURN_ON_BAD_HRESULT(this, hr, "ID3D12InfoQueue::SetBreakOnSeverity");
++            if (!desc.disableD3D12BreakOnError) {
++                hr = pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
++                NRI_RETURN_ON_BAD_HRESULT(this, hr, "ID3D12InfoQueue::SetBreakOnSeverity");
+ 
+-            hr = pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
+-            NRI_RETURN_ON_BAD_HRESULT(this, hr, "ID3D12InfoQueue::SetBreakOnSeverity");
++                hr = pInfoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true);
++                NRI_RETURN_ON_BAD_HRESULT(this, hr, "ID3D12InfoQueue::SetBreakOnSeverity");
++            }
+ 
+             // TODO: this code is currently needed to disable known false-positive errors reported by the debug layer
+             D3D12_MESSAGE_ID disableMessageIDs[] = {

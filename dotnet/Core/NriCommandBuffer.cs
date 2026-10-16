@@ -21,6 +21,13 @@ public readonly unsafe record struct NriBufferBarrier(NriBuffer Buffer, AccessSt
 }
 
 /// <summary><c>TextureBarrierDesc</c> naming the wrapper. Defaults cover the whole texture.</summary>
+/// <remarks>
+/// A side whose access is <c>NONE</c> and whose layout is not <c>UNDEFINED</c> is layout-only on D3D12:
+/// it is recorded with <c>SYNC_NONE</c> whatever its stages (patch 0020; the debug layer refuses any
+/// other sync there). On Vulkan it stays an execution dependency on its stages with no access.
+/// A texture a COPY queue touches should stay in <c>Layout.GENERAL</c> on every queue: D3D12 copy
+/// lists allow only the <c>COMMON</c> layout.
+/// </remarks>
 public readonly unsafe record struct NriTextureBarrier(
     NriTexture Texture,
     AccessLayoutStage Before,
@@ -146,6 +153,16 @@ public sealed unsafe class NriCommandBuffer : NriObject
         }
     }
 
+    /// <summary>
+    /// Binds a buffer view (or an acceleration structure) as root descriptor
+    /// <paramref name="rootDescriptorIndex"/>, <paramref name="offset"/> bytes past the view's start.
+    /// The backends disagree on what the offset means: Vulkan slides the view's fixed window
+    /// (the push-descriptor write takes the view's offset plus this one and keeps the view's range),
+    /// D3D12 binds the view's address plus this offset with no range at all. NRI validation caps the
+    /// offset at buffer size minus view offset minus view size, with a <c>WHOLE_SIZE</c> view
+    /// resolved to the rest of the buffer, so a whole-buffer view accepts offset 0 only. For a
+    /// sliding window, make the view as large as the window. See the guide (root descriptors).
+    /// </summary>
     public void SetRootDescriptor(uint rootDescriptorIndex, NriDescriptor descriptor, uint offset = 0, BindPoint bindPoint = BindPoint.INHERIT)
     {
         var desc = new SetRootDescriptorDesc { rootDescriptorIndex = rootDescriptorIndex, descriptor = descriptor.Raw, offset = offset, bindPoint = bindPoint };
@@ -336,6 +353,11 @@ public sealed unsafe class NriCommandBuffer : NriObject
         }
     }
 
+    /// <summary>
+    /// Fills a range with zeros. In barriers it is stage <c>COPY</c>, access <c>COPY_DESTINATION</c>, on
+    /// both backends: <c>CopyBufferRegion</c> from a zero buffer on D3D12, <c>vkCmdFillBuffer</c> (a clear
+    /// command, which NRI's <c>COPY</c> stage covers with patch 0021) on Vulkan. Not <c>CLEAR_STORAGE</c>.
+    /// </summary>
     public void ZeroBuffer(NriBuffer buffer, ulong offset, ulong size) => Core.CmdZeroBuffer(Raw, buffer.Raw, offset, size);
 
     public void ResolveTexture(NriTexture dst, TextureRegionDesc? dstRegion, NriTexture src, TextureRegionDesc? srcRegion, ResolveOp op)
