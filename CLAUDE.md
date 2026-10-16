@@ -299,6 +299,7 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | 0019 d3d12-gpu-based-validation-switch | `DeviceCreationDesc::enableD3D12GpuBasedValidation` ("disabled by default", beside `enableD3D12RayTracingValidation`): `ID3D12Debug1::SetEnableGPUBasedValidation(true)` after `EnableDebugLayer` (9 lines) | upstream never enables GPU-based validation, which must be enabled before the device is created; the alternative is a D3D12 COM sequence in the binding |
 | 0020 d3d12-texture-barrier-no-access-sync-none | `CommandBufferD3D12::Barrier` sets `SyncBefore` / `SyncAfter` to `SYNC_NONE` for a texture barrier side whose access is `NONE` and whose layout is not `UNDEFINED` (4 lines + comment, `CommandBufferD3D12.hpp:2447`) | upstream derives the sync from the stages alone; the debug layer refuses `NO_ACCESS` with a defined layout and any other sync (1331) and `Close` fails `E_INVALIDARG`, while the same barrier is legal on Vulkan |
 | 0021 vulkan-copy-stage-covers-fill-buffer | `StageBits::COPY` maps to `VK_PIPELINE_STAGE_2_COPY_BIT \| VK_PIPELINE_STAGE_2_CLEAR_BIT` (`ConversionVK.h:427`); the `COPY` comment in `NRIDescs.h` names `CmdZeroBuffer` | `CmdZeroBuffer` is `vkCmdFillBuffer`, a clear command whose stage is `CLEAR_BIT`, on Vulkan and `CopyBufferRegion` (sync `COPY`) on D3D12, so no NRI stage covered it on both; syncval reported the hazards (Barriers) |
+| 0022 d3d12-copy-list-layouts-common | `CommandBufferD3D12::Barrier` records `COPY_SOURCE` / `COPY_DESTINATION` as `D3D12_BARRIER_LAYOUT_COMMON` in a copy command list, on the before side of a texture barrier whose `srcQueue` is a copy queue and on the after side of one whose `dstQueue` is (`IsCopyQueue`, `GetBarrierLayout`'s new argument; 13 lines added, 3 changed) | the copy layouts were refused on D3D12 copy lists (1334, `Close` fails) while Vulkan's copies need them; mapping copy lists alone moved the mismatch to the other queue's barrier, checked at `ExecuteCommandLists` (Barriers) |
 
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
@@ -308,8 +309,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag. Patches to a
-  file an earlier patch touches (0012-0021 all are, or are cut the same way) are cut from a scratch clone at the tag with
+  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag (0022 does not: its context is 0020's lines and it names 0002's `EXTERNAL_QUEUE`). Patches to a
+  file an earlier patch touches (0012-0022 all are, or are cut the same way) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit. There is no 0011: it corrected
   the `queuedFrameNum` header comment only, and a comment is knowledge, not a patch (owner,
   2026-10-16); the fact lives below under Extensions and in the binding's docs.
@@ -599,20 +600,69 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   not write the native environment). The access mapping (`COPY_DESTINATION` ->
   `TRANSFER_WRITE`) already covers the fill. A `COPY` barrier now also orders the clear commands
   `CmdClearStorage` records: a wider scope, not a different one.
-- **Copy command lists: layout `COMMON` only (knowledge, not patched).** `g_BarrierLayouts`
-  (`CommandBufferD3D12.hpp:219-241`) maps every NRI layout whatever the command list type. The
-  enhanced-barriers spec ("Command Queue Layout Compatibility") allows only
-  `D3D12_BARRIER_LAYOUT_COMMON` on `D3D12_COMMAND_LIST_TYPE_COPY`: "Copy queues do not support
-  layout transition Barriers", subresources used on copy queues "MUST be in the state COMMON ...
-  equivalent to a subresource with a layout of D3D12_BARRIER_LAYOUT_COMMON", and the debug layer
-  checks at `ExecuteCommandLists` that "LayoutBefore and AccessBefore match known or assumed
-  resource layout"; the message is 1334 `D3D12_MESSAGE_ID_INCOMPATIBLE_BARRIER_LAYOUT` (not
-  reproduced here). Mapping copy-list layouts to `COMMON` silently would move the error to the
-  other queue's barrier, whose LayoutBefore would then mismatch the tracked `COMMON`. Portable
-  rule: a texture a COPY queue touches stays in `Layout::GENERAL` (D3D12 `COMMON`) on every queue,
-  `UNDEFINED` -> `GENERAL` at first use; on Vulkan `GENERAL` is legal everywhere. The legacy
-  barrier path does take the list type (`GetResourceStates(accessBits, commandListType)`, `:262`);
-  the enhanced path does not.
+- **Copy queues: `COPY_SOURCE` / `COPY_DESTINATION` on every queue, `srcQueue` / `dstQueue` on
+  the hand-off (patch 0022).** Two backend facts meet here. Vulkan's copies hard-code the transfer
+  layouts: `CommandBufferVK.hpp` `CopyTexture` (`:2207-2224`), `ResolveTexture` (`:2291-2324`),
+  `UploadBufferToTexture` (`:2394`, `:2408`) and `ReadbackTextureToBuffer` (`:2477`, `:2492`) pass
+  `VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL` / `TRANSFER_DST_OPTIMAL`, so a texture in `GENERAL` cannot
+  be the destination of an NRI copy (VUID-VkCopyBufferToImageInfo2-dstImageLayout-00180, a
+  consumer measured eight or more per Debug run); here a GRAPHICS barrier claiming `GENERAL` before
+  a texture the copy queue left in `TRANSFER_DST_OPTIMAL` drew "[1180184443] VUID-vkCmdDraw-None-09600:
+  vkQueueSubmit2(): ... expects VkImage ... to be in layout VK_IMAGE_LAYOUT_GENERAL--instead,
+  current layout is VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL". D3D12: `g_BarrierLayouts`
+  (`CommandBufferD3D12.hpp:219-241`) maps `COPY_SOURCE` / `COPY_DESTINATION` to
+  `D3D12_BARRIER_LAYOUT_COPY_SOURCE` / `COPY_DEST` whatever the list type, and the enhanced-barrier
+  path never reads `m_CommandListType` (the legacy path's `GetResourceStates(accessBits,
+  commandListType)`, `:262`, does). The enhanced-barriers spec allows only
+  `D3D12_BARRIER_LAYOUT_COMMON` on `D3D12_COMMAND_LIST_TYPE_COPY` ("Copy queues do not support
+  layout transition Barriers"; COMMON is readable on any queue and writable as a copy destination
+  on any queue), `TextureD3D12` creates every texture in `COMMON` (`TextureD3D12.hpp:63`, `:114`),
+  and the debug layer tracks layouts across queues and checks LayoutBefore at
+  `ExecuteCommandLists`. So before the patch no layout a caller could name was legal on both
+  backends for a texture a COPY queue writes. Measured (`CrossQueueCopyTests`' probe, NVIDIA RTX
+  4070 SUPER, Agility 1.619, debug layer and NRI validation on, 16x16 RGBA8; COPY queue
+  `{NONE, UNDEFINED, NONE}` -> `{COPY_DESTINATION, COPY_DESTINATION, COPY}`, `UploadBufferToTexture`,
+  submit with a fence; GRAPHICS after the fence `{COPY_DESTINATION, <before>, COPY}` ->
+  `{SHADER_RESOURCE, SHADER_RESOURCE, ALL_SHADERS}`):
+  - (a) unpatched: "[1334] ID3D12CommandList::Barrier: LayoutAfter D3D12_BARRIER_LAYOUT_COPY_DEST
+    is incompatible with command list type D3D12_COMMAND_LIST_TYPE_COPY in texture barrier at
+    group [0], index [0].", then "[1334] ID3D12CommandList::CopyTextureRegion: Barrier
+    layout(D3D12_BARRIER_LAYOUT_COPY_DEST), ... does not match expected layout
+    (D3D12_BARRIER_LAYOUT_COMMON) using D3D12_COMMAND_LIST_TYPE_COPY command list ... for use as a
+    destination resource"; `End` throws (`Close` `E_INVALIDARG`), the submit draws "[838]
+    ID3D12CommandQueue::ExecuteCommandLists: Command lists must be successfully closed before
+    execution." and "[232] ... Device removal has been triggered", `DEVICE_LOST` from then on.
+  - (b) copy lists only (`COPY_SOURCE` / `COPY_DESTINATION` -> `COMMON` when the list is COPY, a
+    temporary build): the copy list is clean, `UNDEFINED` -> `COMMON` included (no `UNDEFINED`
+    special case needed); the GRAPHICS submit with `COPY_DESTINATION` before draws "[1334]
+    ID3D12CommandQueue1::ExecuteCommandLists: Barrier layout(D3D12_BARRIER_LAYOUT_COPY_DEST), ...
+    does not match expected layout (D3D12_BARRIER_LAYOUT_COMMON) using
+    D3D12_COMMAND_LIST_TYPE_DIRECT command list ..." (the device survives).
+  - (c) as (b) with `GENERAL` (`COMMON`) before on GRAPHICS: clean. So the mismatch is the layout
+    name, and copy-list mapping alone only moves the error.
+
+  The patch is that mapping plus the hand-off NRI already names: in a copy list, and on the before
+  side of a barrier whose `srcQueue` is a copy queue or the after side of one whose `dstQueue` is,
+  `COPY_SOURCE` / `COPY_DESTINATION` are `COMMON` (`QueueD3D12::GetType()`; patch 0002's
+  `EXTERNAL_QUEUE` sentinel excluded). With `srcQueue` = COPY on the GRAPHICS barrier the sequence
+  is clean. Vulkan side of `srcQueue` / `dstQueue`: `CommandBufferVK::Barrier` (`:2572-2573`)
+  passes both family indices whatever the sharing mode (`CONCURRENT` images included), which
+  raised the question whether two valid families on a `CONCURRENT` image draw a VUID: measured
+  with the Khronos layer 1.4.341 they do not, CONCURRENT and EXCLUSIVE images alike (NVIDIA:
+  GRAPHICS family 0, COPY family 1), so the hand-off is portable as it stands. Not chosen: copy lists only (moves the error, (b)); `COMMON`
+  for `COPY_*` on every list (consistent and tracking-free, but every single-queue caller loses the
+  maintainer's `COPY_SOURCE` / `COPY_DEST` layouts, and the queues were already in the desc);
+  the previous "keep such textures in `GENERAL`" rule (wrong on Vulkan, above). Portable rule:
+  copy with `COPY_DESTINATION` / `COPY_SOURCE` on every queue; across a COPY queue, a release
+  barrier on the source queue and the same barrier (same layouts, `srcQueue` / `dstQueue`) as the
+  acquire on the destination queue, keeping the copy layout, then any transition on the
+  destination queue (a Vulkan release and acquire of an EXCLUSIVE image must name the same
+  transition, and a D3D12 copy list cannot transition to anything but `COMMON`).
+  `CrossQueueCopyTests.A_texture_uploaded_on_the_COPY_queue_is_read_on_GRAPHICS_with_the_copy_layouts`
+  holds it on both backends with the layers on, CONCURRENT and EXCLUSIVE, and compares the
+  readback with the upload.
+- **From the consumer's runs (2026-10-16):** patch 0021 holds;
+  patch 0020's barrier has not yet been exercised by a frame with a texture to transition.
 - **One recording command buffer per allocator (knowledge, not patched).** D3D12 `Begin`
   (`CommandBufferD3D12.hpp:856`) is `ID3D12GraphicsCommandList::Reset(m_CommandAllocator)`, refused
   for a second open list on the same allocator. Measured (`D3D12DebugLayerTests.A_second_command_buffer_of_one_allocator_cannot_begin_while_the_first_records_on_D3D12`,
