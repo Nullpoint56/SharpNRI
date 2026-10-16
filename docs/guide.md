@@ -349,12 +349,19 @@ fence.Wait(1);
   is `CopyBufferRegion` from a zero buffer on D3D12 and `vkCmdFillBuffer` on Vulkan, a clear
   command; NRI's Vulkan `COPY` stage includes `VK_PIPELINE_STAGE_2_CLEAR_BIT` with the patch.
   `CLEAR_STORAGE` is wrong for it on D3D12 (`CLEAR_UNORDERED_ACCESS_VIEW`).
-- **Textures used on a COPY queue stay in `Layout.GENERAL` on every queue.** D3D12 copy command
-  lists allow only `D3D12_BARRIER_LAYOUT_COMMON` (NRI's `GENERAL`) and no layout transitions;
-  NRI maps layouts whatever the list type, so another layout there is a debug-layer error (1334)
-  at execution. Transition `UNDEFINED` -> `GENERAL` at first use and keep it; on Vulkan `GENERAL` is
-  legal everywhere. Not patched: mapping silently to `COMMON` would move the mismatch to the other
-  queue's barrier.
+- **Copy queues: use `COPY_DESTINATION` / `COPY_SOURCE` on every queue, and name the hand-off.**
+  Vulkan's copies (`CopyTexture`, `ResolveTexture`, `UploadBufferToTexture`,
+  `ReadbackTextureToBuffer`) require the transfer layouts, so a texture in `GENERAL` cannot be
+  their destination there. D3D12 copy command lists allow only `D3D12_BARRIER_LAYOUT_COMMON`; with
+  patch 0022 NRI records `COPY_SOURCE` / `COPY_DESTINATION` as `COMMON` in a copy list and on the
+  copy-queue side of a texture barrier whose `SrcQueue` / `DstQueue` is a copy queue. Across
+  queues: on the COPY queue `{UNDEFINED}` -> `{COPY_DESTINATION}`, the copy, then a release
+  `{COPY_DESTINATION}` -> `{COPY_DESTINATION}` with `SrcQueue: copy, DstQueue: graphics`; on the
+  other queue, after the fence, the same barrier as the acquire, then any transition. Without the
+  queues on the other queue's barrier D3D12 reports a layout mismatch at execution (1334); keep the
+  layout through the hand-off, because a Vulkan release and acquire of an `EXCLUSIVE` image must
+  name the same transition and a D3D12 copy list cannot transition. Mind the Vulkan sharing mode
+  (fetch the COPY queue before creating the resources it touches, [Threads](#threads)).
 - **One recording command buffer per allocator at a time.** D3D12 `Begin` resets the command
   list against its allocator; a second `Begin` while another command buffer of the same
   allocator records draws debug error 540 (`COMMAND_ALLOCATOR_CONTENTION`) and throws
@@ -828,7 +835,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Pixel compare without tolerance | UNORM rounding differs by one | Recording |
 | Texture barrier side with access `NONE` and a layout | D3D12: layout-only (`SYNC_NONE`, patch 0020); before the patch debug error 1331 and `End` throws | Recording |
 | `ZeroBuffer` ordered with `CLEAR_STORAGE` | wrong on D3D12 (a copy there); use `COPY` (patch 0021 makes it cover the Vulkan fill) | Recording |
-| Non-`GENERAL` layout on a D3D12 COPY queue | debug error 1334 at execution; keep such textures in `GENERAL` | Recording |
+| `COPY_DESTINATION` on a D3D12 COPY queue, or `GENERAL` around a Vulkan copy | before patch 0022 D3D12 debug error 1334 and `End` throws; Vulkan refuses a copy in `GENERAL`; use the copy layouts and `SrcQueue` / `DstQueue` on the hand-off | Recording |
 | Two command buffers of one allocator recording at once | D3D12: debug error 540, `Begin` throws | Recording |
 | Same-submission timestamp copy on MoltenVK | reads 0 | Queries |
 | One DXIL library for a D3D12 RT pipeline | `CreateRayTracingPipeline` faults | RayTracing |

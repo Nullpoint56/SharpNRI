@@ -25,8 +25,12 @@ public readonly unsafe record struct NriBufferBarrier(NriBuffer Buffer, AccessSt
 /// A side whose access is <c>NONE</c> and whose layout is not <c>UNDEFINED</c> is layout-only on D3D12:
 /// it is recorded with <c>SYNC_NONE</c> whatever its stages (patch 0020; the debug layer refuses any
 /// other sync there). On Vulkan it stays an execution dependency on its stages with no access.
-/// A texture a COPY queue touches should stay in <c>Layout.GENERAL</c> on every queue: D3D12 copy
-/// lists allow only the <c>COMMON</c> layout.
+/// Copies use <c>COPY_DESTINATION</c> / <c>COPY_SOURCE</c> on every queue (Vulkan's copies require the
+/// transfer layouts, so not <c>GENERAL</c>). D3D12 copy lists allow only <c>COMMON</c>: NRI records the copy
+/// layouts as <c>COMMON</c> in a copy list and on the copy-queue side of a barrier whose
+/// <see cref="SrcQueue"/> / <see cref="DstQueue"/> is a copy queue (patch 0022), so a texture handed between a
+/// COPY queue and another queue gets a release barrier on the source queue and the same barrier as the
+/// acquire on the destination queue, naming both queues and keeping the copy layout.
 /// </remarks>
 public readonly unsafe record struct NriTextureBarrier(
     NriTexture Texture,
@@ -327,7 +331,10 @@ public sealed unsafe class NriCommandBuffer : NriObject
     public void CopyBuffer(NriBuffer dst, ulong dstOffset, NriBuffer src, ulong srcOffset, ulong size) =>
         Core.CmdCopyBuffer(Raw, dst.Raw, dstOffset, src.Raw, srcOffset, size);
 
-    /// <summary>Whole-texture copy when both regions are null.</summary>
+    /// <summary>
+    /// Whole-texture copy when both regions are null. Source in <c>COPY_SOURCE</c>, destination in
+    /// <c>COPY_DESTINATION</c>: Vulkan records the transfer layouts whatever the barriers said.
+    /// </summary>
     public void CopyTexture(NriTexture dst, TextureRegionDesc? dstRegion, NriTexture src, TextureRegionDesc? srcRegion)
     {
         var d = dstRegion ?? default;
@@ -335,6 +342,11 @@ public sealed unsafe class NriCommandBuffer : NriObject
         Core.CmdCopyTexture(Raw, dst.Raw, dstRegion is null ? null : &d, src.Raw, srcRegion is null ? null : &s);
     }
 
+    /// <summary>
+    /// Buffer-to-texture copy. The texture must be in <c>COPY_DESTINATION</c>: Vulkan records the copy in
+    /// <c>TRANSFER_DST_OPTIMAL</c> whatever the barrier said, so <c>GENERAL</c> is refused there. On a COPY queue
+    /// see <see cref="NriTextureBarrier"/> for the hand-off.
+    /// </summary>
     public void UploadBufferToTexture(NriTexture dst, in TextureRegionDesc dstRegion, NriBuffer src, in TextureDataLayoutDesc srcDataLayout)
     {
         fixed (TextureRegionDesc* r = &dstRegion)
@@ -344,6 +356,7 @@ public sealed unsafe class NriCommandBuffer : NriObject
         }
     }
 
+    /// <summary>Texture-to-buffer copy; the texture must be in <c>COPY_SOURCE</c> (Vulkan records <c>TRANSFER_SRC_OPTIMAL</c>).</summary>
     public void ReadbackTextureToBuffer(NriBuffer dst, in TextureDataLayoutDesc dstDataLayout, NriTexture src, in TextureRegionDesc srcRegion)
     {
         fixed (TextureDataLayoutDesc* l = &dstDataLayout)

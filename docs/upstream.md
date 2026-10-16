@@ -14,6 +14,7 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277) |
 | 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | phase 1 candidate, not filed: owner's trigger |
 | 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | phase 1 candidate, not filed: owner's trigger |
+| 0022 D3D12 copy layouts refused in copy command lists | bug | phase 1 candidate, not filed: owner's trigger |
 | 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2: after the maintainer engages; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
@@ -405,3 +406,30 @@ VK_PIPELINE_STAGE_2_CLEAR_BIT." and "SYNC-HAZARD-READ-AFTER-WRITE: vkCmdCopyBuff
 `COPY_BIT | CLEAR_BIT`, and the `COPY` comment names `CmdZeroBuffer`; with it the same sequence is
 clean. Patch attached (`patches/0021-vulkan-copy-stage-covers-fill-buffer.patch`), two lines and
 the comment.
+
+## 0022 — D3D12 copy layouts refused in copy command lists
+
+**Title:** D3D12: `Layout::COPY_DESTINATION` barrier fails `Close` on a COPY queue
+
+`g_BarrierLayouts` maps `COPY_SOURCE` / `COPY_DESTINATION` to `D3D12_BARRIER_LAYOUT_COPY_SOURCE` /
+`COPY_DEST` whatever the command list type, and the enhanced-barrier texture conversion
+(`CommandBufferD3D12.hpp:2448-2449`, since enhanced barriers came in, 1d52b40) never reads
+`m_CommandListType`. The enhanced-barriers spec allows only `D3D12_BARRIER_LAYOUT_COMMON` on
+`D3D12_COMMAND_LIST_TYPE_COPY` ("Copy queues do not support layout transition Barriers"). Vulkan's
+copies hard-code `TRANSFER_SRC/DST_OPTIMAL` (`CommandBufferVK.hpp` `UploadBufferToTexture` and
+the other copies), so `GENERAL` is no way out there: no layout is legal on both backends for a
+texture a COPY queue writes. Measured on v190 with Agility 1.619, NVIDIA, debug layer on, a 16x16
+RGBA8 texture, COPY queue `{NONE, UNDEFINED}` -> `{COPY_DESTINATION, COPY_DESTINATION}` and
+`CmdUploadBufferToTexture`: "[1334] ID3D12CommandList::Barrier: LayoutAfter
+D3D12_BARRIER_LAYOUT_COPY_DEST is incompatible with command list type D3D12_COMMAND_LIST_TYPE_COPY
+in texture barrier at group [0], index [0]." and `Close` fails with `E_INVALIDARG`. Mapping to
+`COMMON` in copy lists alone is not enough: the debug layer tracks the layout across queues, and
+the direct queue's next barrier from `COPY_DESTINATION` draws "[1334]
+ID3D12CommandQueue1::ExecuteCommandLists: Barrier layout(D3D12_BARRIER_LAYOUT_COPY_DEST), ... does
+not match expected layout (D3D12_BARRIER_LAYOUT_COMMON)". Fix: `COPY_SOURCE` / `COPY_DESTINATION`
+are `COMMON` in a copy list, and on the before side of a barrier whose `srcQueue` is a copy queue
+and the after side of one whose `dstQueue` is (the hand-off `TextureBarrierDesc` already names; on
+Vulkan the same barriers are the queue family release and acquire). With it the upload on COPY and
+the acquire on DIRECT are clean and the readback matches. Patch attached
+(`patches/0022-d3d12-copy-list-layouts-common.patch`), thirteen lines; the upstream form drops
+the `EXTERNAL_QUEUE` term, which is patch 0002's.

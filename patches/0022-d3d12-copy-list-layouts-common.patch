@@ -1,0 +1,73 @@
+D3D12: COPY_SOURCE / COPY_DESTINATION are COMMON in copy command lists and across a copy-queue hand-off.
+
+g_BarrierLayouts maps Layout::COPY_SOURCE / COPY_DESTINATION to D3D12_BARRIER_LAYOUT_COPY_SOURCE /
+COPY_DEST whatever the command list type, and the enhanced-barrier path of
+CommandBufferD3D12::Barrier never reads m_CommandListType (the legacy path does, through
+GetResourceStates). The enhanced-barriers spec allows only D3D12_BARRIER_LAYOUT_COMMON on
+D3D12_COMMAND_LIST_TYPE_COPY ("Copy queues do not support layout transition Barriers"), so the
+barrier NRI's model asks for before a copy, {COPY_DESTINATION} on a COPY queue, is refused (1334,
+INCOMPATIBLE_BARRIER_LAYOUT) and Close fails. GENERAL (COMMON) is accepted there, but it is not
+portable: Vulkan's copies hard-code TRANSFER_SRC/DST_OPTIMAL (CommandBufferVK CopyTexture,
+ResolveTexture, UploadBufferToTexture, ReadbackTextureToBuffer), so a texture in GENERAL cannot be
+the destination of an NRI copy there (VUID-VkCopyBufferToImageInfo2-dstImageLayout-00180). No layout
+a caller can name was legal on both backends for a texture a COPY queue writes.
+
+Mapping the copy layouts to COMMON in copy lists alone moves the error: the debug layer tracks the
+layout across queues and checks LayoutBefore at ExecuteCommandLists, so the direct queue's next
+barrier, {COPY_DESTINATION} -> ..., is a COPY_DEST LayoutBefore against a tracked COMMON. NRI's
+model already names that hand-off: TextureBarrierDesc::srcQueue / dstQueue, which D3D12 ignored.
+This maps COPY_SOURCE / COPY_DESTINATION to COMMON in a copy command list, and on the before side
+of a barrier whose srcQueue is a copy queue and the after side of one whose dstQueue is a copy
+queue, in any list. Every other layout and every barrier without a copy queue is unchanged, so a
+single-queue caller keeps COPY_SOURCE / COPY_DEST. (The EXTERNAL_QUEUE term is PrismNRI patch
+0002's sentinel; upstream has no such value.)
+
+Measured on v190 with Agility 1.619, NVIDIA, debug layer and NRI validation on, a 16x16 RGBA8
+texture, COPY queue {UNDEFINED} -> {COPY_DESTINATION}, CmdUploadBufferToTexture, then on GRAPHICS
+after the fence {COPY_DESTINATION} -> {SHADER_RESOURCE}. Before: "[1334] ID3D12CommandList::Barrier:
+LayoutAfter D3D12_BARRIER_LAYOUT_COPY_DEST is incompatible with command list type
+D3D12_COMMAND_LIST_TYPE_COPY in texture barrier at group [0], index [0].", a second 1334 from
+CopyTextureRegion, Close E_INVALIDARG, and ExecuteCommandLists of the unclosed list removed
+the device (838, 232). With the copy list mapping only: the copy list is clean (UNDEFINED -> COMMON
+is accepted), and the GRAPHICS submit draws "[1334] ID3D12CommandQueue1::ExecuteCommandLists:
+Barrier layout(D3D12_BARRIER_LAYOUT_COPY_DEST), ... does not match expected layout
+(D3D12_BARRIER_LAYOUT_COMMON) using D3D12_COMMAND_LIST_TYPE_DIRECT command list"; with GENERAL as
+the GRAPHICS LayoutBefore it is clean. With this change and srcQueue = COPY on the GRAPHICS
+barrier: clean, and the readback equals the upload. On Vulkan the same barriers (a release
+{COPY_DESTINATION} -> {COPY_DESTINATION} on COPY and the matching acquire on GRAPHICS, then the
+transition) are a queue family transfer, clean for CONCURRENT and EXCLUSIVE images.
+
+diff --git a/Source/D3D12/CommandBufferD3D12.hpp b/Source/D3D12/CommandBufferD3D12.hpp
+index 777edb1..d635c0a 100644
+--- a/Source/D3D12/CommandBufferD3D12.hpp
++++ b/Source/D3D12/CommandBufferD3D12.hpp
+@@ -241,7 +241,15 @@ constexpr std::array<D3D12_BARRIER_LAYOUT, (size_t)Layout::MAX_NUM> g_BarrierLay
+ };
+ NRI_VALIDATE_ARRAY(g_BarrierLayouts);
+ 
+-static constexpr D3D12_BARRIER_LAYOUT GetBarrierLayout(Layout layout, AccessBits accessBits) {
++// Copy queues support only "D3D12_BARRIER_LAYOUT_COMMON" ("Copy queues do not support layout transition Barriers"), on both sides of a queue ownership transfer
++static inline bool IsCopyQueue(const Queue* queue) {
++    return queue && queue != EXTERNAL_QUEUE && ((QueueD3D12*)queue)->GetType() == D3D12_COMMAND_LIST_TYPE_COPY; // PrismNRI patch 0002: "EXTERNAL_QUEUE" is a sentinel
++}
++
++static constexpr D3D12_BARRIER_LAYOUT GetBarrierLayout(Layout layout, AccessBits accessBits, bool isCopyQueue) {
++    if (isCopyQueue && (layout == Layout::COPY_SOURCE || layout == Layout::COPY_DESTINATION))
++        return D3D12_BARRIER_LAYOUT_COMMON;
++
+     // Special case
+     if (layout == Layout::INPUT_ATTACHMENT && (accessBits & AccessBits::INPUT_ATTACHMENT) != 0)
+         return D3D12_BARRIER_LAYOUT_SHADER_RESOURCE;
+@@ -2452,8 +2460,10 @@ NRI_INLINE void CommandBufferD3D12::Barrier(const BarrierDesc& barrierDesc) {
+ 
+                 out.AccessBefore = GetBarrierAccessFlags(in.before.access);
+                 out.AccessAfter = GetBarrierAccessFlags(in.after.access);
+-                out.LayoutBefore = GetBarrierLayout(in.before.layout, in.before.access);
+-                out.LayoutAfter = GetBarrierLayout(in.after.layout, in.after.access);
++                // "COPY_SOURCE" and "COPY_DESTINATION" are "COMMON" in a copy command list and on the other side of an ownership transfer to or from a copy queue
++                bool isCopyCommandList = m_CommandListType == D3D12_COMMAND_LIST_TYPE_COPY;
++                out.LayoutBefore = GetBarrierLayout(in.before.layout, in.before.access, isCopyCommandList || IsCopyQueue(in.srcQueue));
++                out.LayoutAfter = GetBarrierLayout(in.after.layout, in.after.access, isCopyCommandList || IsCopyQueue(in.dstQueue));
+                 out.pResource = texture;
+                 out.Subresources.IndexOrFirstMipLevel = in.mipOffset;
+                 out.Subresources.NumMipLevels = mipNum;
