@@ -92,7 +92,7 @@ ref readonly DeviceDesc caps = ref device.Desc;
 |---|---|
 | `NriDeviceOptions` | mirrors `DeviceCreationDesc` field for field |
 | `QueueFamilies` | empty means one graphics queue. Request every family up front: NRI trims the device's queue counts to what was created, so `Video` is `UNSUPPORTED` unless `VIDEO_DECODE` / `VIDEO_ENCODE` were requested |
-| `MessageHandler` | receives NRI and validation-layer messages. A throwing handler loses that one message. `device.LastError` holds the last error text and is attached to the `NriException` of the call that failed |
+| `MessageHandler` | receives NRI and validation-layer messages. A throwing handler loses that one message. `device.LastError` holds the last error text and is attached to the `NriException` of the call that failed. A Khronos layer message arrives as `[id] name: text` (patch 0015 adds the name, e.g. `BestPractices-vkBindImageMemory-small-dedicated-allocation`; upstream forwards the number and the text, and current layers no longer embed the name in the text) |
 | `BreakOnError` | breaks only when a debugger is attached; otherwise errors never terminate the process |
 | `Allocator` | `INriAllocator` for NRI's own host allocations; `NriCountingAllocator` counts them. A throwing allocator returns null, which NRI reports as out of memory |
 | `ForwardAllocatorToThirdParty` | also routes VMA / D3D12MA host allocations; off by default (chatty) |
@@ -117,6 +117,19 @@ Caveats:
   runner (Developer Mode off) runs the Agility tests.
 - **Software adapters are enumerated**: WARP and lavapipe have `Architecture.SOFTWARE`. Filter
   them out when picking a GPU.
+- **Enumerate once and pass the adapter.** Every `nriEnumerateAdapters` creates and destroys a
+  Vulkan instance (API 1.2, every implicit layer loaded and unloaded) and a DXGI factory with up
+  to three `D3D12CreateDevice` probes per adapter. `NriAdapter.Enumerate()` makes one such call
+  (one 32-entry buffer, no count call first). `NriDevice.Create` with `Adapter` null enumerates
+  once more inside NRI, so keep the `NriAdapter` and pass it: the device's own instance is then
+  the process's second, not its third or fourth.
+- **RivaTuner Statistics Server's implicit layer** (`VK_LAYER_RTSS`) kills a presenting Vulkan
+  process at the first present: the loader logs `vkEnumeratePhysicalDevices: Invalid instance`
+  and the process fail-fasts (exit 0xC0000409). Measured here that it does so even when the
+  device's instance is the only one the layer ever saw (enumeration ran with the layer's own
+  switch off), with and without the Khronos layer, so the number of instances is not the cause.
+  The remedy is the layer's switch, `DISABLE_RTSS_LAYER=1` in the process environment before the
+  first instance, or `VK_LOADER_LAYERS_DISABLE=~implicit~` as the tests use.
 - **Adapter uid** (`NriAdapter.Uid`): LUID when `high` is 0, UUID otherwise. On Linux
   `deviceLUIDValid` is false, so NRI builds it from `VkPhysicalDeviceIDProperties.deviceUUID`;
   match on the UUID there.
@@ -212,6 +225,14 @@ queue.UploadData(
   Stale or foreign bytes throw `NriException` with `Result.OUT_OF_DATE` and create nothing (no
   leak, measured); catch it and create an empty cache.
 
+- An `EXCLUSIVE` texture (`TextureDesc.sharingMode`) is created with no queue family indices
+  (patch 0013). Upstream passes every active family's index, one per family `GetQueue` has
+  handed out, whatever the sharing mode; Vulkan ignores them for `EXCLUSIVE`, and the Khronos
+  best-practices checks report `BestPractices-vkCreateImage-sharing-mode-exclusive` for every
+  such image on a device with more than one active family (measured with graphics, compute and
+  copy queues on NVIDIA). Buffers have no sharing mode: they are `CONCURRENT` with more than one
+  active family.
+
 ## Descriptors and layouts
 
 ```csharp
@@ -258,6 +279,11 @@ set.Update(rangeIndex: 1, descriptorIndex: 0, outputView);
   (3,1), (6,2); back to (0,0) after `Reset`. Vulkan: (0,0) always.
 - `Nri.FitPipelineLayoutSettingsIntoDeviceLimits(device.Desc, wanted)` clamps counts and sizes in
   NRI's priority order.
+- `ShaderStages = StageBits.ALL` on a layout means every shader stage. `ALL` is 0 in NRI (the
+  barrier default); the D3D12 backend reads it as all shaders and patch 0016 makes NRI validation
+  agree. Upstream validation masked each range's stages with 0 and refused a range with explicit
+  stages ("not compatible with 'shaderStages'"), and any graphics pipeline on an all-`ALL` layout
+  ("not enabled in the pipeline layout").
 
 ## Recording and submitting
 
@@ -288,6 +314,12 @@ fence.Wait(1);
   `NriAttachment`, `NriVertexBuffer`, `NriFenceSubmit`. Native arrays are built on the stack;
   a whole frame allocates nothing ([Zero allocation](#zero-allocation)).
 - Barriers are never inserted for you. `AccessStage` / `AccessLayoutStage` are NRI's before/after.
+- **Vertex stride comes from `SetVertexBuffers`**, not the pipeline, on D3D12 and on Vulkan with
+  `features.extendedDynamicState` (every Vulkan 1.3+ device; NRI binds with
+  `vkCmdBindVertexBuffers2`). `VertexStreamDesc.stride` is the fallback for a Vulkan device
+  without the feature only. A stride of 0 reads every vertex from the offset, with no message
+  from any layer (it is legal), so `NriVertexBuffer.Stride` and `SetVertexBuffer`'s stride have no
+  default.
 - Fences are timelines on both backends: `fence.Wait(value)`, `fence.Value`, and in a submit
   `NriFenceSubmit(fence, value, stages)`.
 - **`fence.Wait` throws `TimeoutException` after 5 s** (NRI's `NRI_TIMEOUT_FENCE`, Vulkan and
@@ -515,6 +547,16 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 - `EndStreamerFrame` discards every copy batch not yet recorded with `CopyStreamedData`: fill and
   record a batch within one streamer frame. A batch filled on another thread must reach the
   recording thread before that frame's `EndStreamerFrame`.
+- **`StreamerDesc.dynamicBufferDesc.size` is the initial per-frame size of the dynamic buffer**
+  (patch 0012; upstream's header says it is ignored, and the ring grows from empty). The buffer is
+  allocated at creation as `size` rounded up to 64 KiB times `queuedFrameNum`; frames that stream
+  less never allocate, and a frame that streams more still grows it: a new committed buffer, the
+  old one destroyed `queuedFrameNum` frames later inside `EndStreamerFrame`, on the thread that
+  calls it. Measured: 100 KiB x 2 frames gives a 256 KiB buffer at creation; one 192 KiB frame
+  grows it to 384 KiB. Growth is to the exact 64 KiB-rounded high-water mark, not geometric, so
+  size the ring for the biggest frame rather than rely on growth. The host copy runs under the
+  streamer's lock; NRI's `MapBuffer` on the dynamic buffer is a pointer add (it is persistently
+  mapped on both backends).
 
 ### SwapChain
 
@@ -535,6 +577,14 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 - A wrapped Vulkan device that uses the swap chain needs `VK_KHR_surface`, the platform surface
   extension and `VK_KHR_get_surface_capabilities2` on its instance: NRI calls
   `vkGetPhysicalDeviceSurfaceCapabilities2KHR` unconditionally (an access violation without it).
+- **With present scaling the requested extent need not be the window's current size** (patch
+  0014). Vulkan accepts any extent in the surface's scaled range when the swap chain has present
+  scaling; upstream v190 checked the unscaled range, which on Windows is exactly the current
+  client size, and refused a size that lagged a resize, or a window minimised at creation, with
+  `INVALID_ARGUMENT` ("swapChainDesc.width is out of [w, w] range"). Measured on NVIDIA: a 100x80
+  swap chain on a 64x64 window creates with 100x80 textures and presents. Without scaling (a
+  wrapped device with only `VK_KHR_swapchain`) the refusal stays, as Vulkan requires. A 0x0
+  extent is refused either way: do not create or rebuild for a minimised window.
 
 ### MeshShader, DescriptorHeap, Imgui
 

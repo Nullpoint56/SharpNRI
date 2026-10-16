@@ -41,6 +41,52 @@ public sealed class PipelineTests
             Cache = cache,
         });
 
+    /// <summary>
+    /// A pipeline layout whose ShaderStages is ALL (0, NRI's "lazy default" for barriers) takes a
+    /// range with explicit stages, and compute and graphics pipelines create on it (patch 0016).
+    /// The D3D12 backend reads ALL on the layout as every shader stage; upstream validation masked
+    /// the range's stages with 0 and refused the layout ("not compatible with 'shaderStages'"), and
+    /// a graphics pipeline on a layout whose ranges are all ALL as "not enabled in the pipeline
+    /// layout", so the lazy default could not be used on a layout at all.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void A_layout_with_ShaderStages_ALL_takes_explicit_range_stages_and_pipelines(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        var spirv = backend.Api == GraphicsAPI.VK;
+
+        using var layout = device.CreatePipelineLayout(new NriPipelineLayoutDesc
+        {
+            DescriptorSets =
+            [
+                new NriDescriptorSetDesc(0,
+                [
+                    new DescriptorRangeDesc { baseRegisterIndex = 0, descriptorNum = 1, descriptorType = DescriptorType.STORAGE_STRUCTURED_BUFFER, shaderStages = StageBits.COMPUTE_SHADER },
+                ]),
+            ],
+            ShaderStages = StageBits.ALL,
+        });
+        using var compute = CreateFill(device, layout);
+        using var graphics = device.CreateGraphicsPipeline(new NriGraphicsPipelineDesc
+        {
+            PipelineLayout = layout,
+            InputAssembly = new InputAssemblyDesc { topology = Topology.TRIANGLE_LIST },
+            Rasterization = new RasterizationDesc { fillMode = FillMode.SOLID, cullMode = CullMode.NONE },
+            OutputMerger = new NriOutputMergerDesc { Colors = [new ColorAttachmentDesc { format = Format.RGBA8_UNORM, colorWriteMask = ColorWriteBits.RGBA }] },
+            Shaders =
+            [
+                new NriShaderDesc(StageBits.VERTEX_SHADER, Bytecode(device, "Triangle.vs"), "vsMain"),
+                new NriShaderDesc(StageBits.FRAGMENT_SHADER, Bytecode(device, "Triangle.ps"), "psMain"),
+            ],
+        });
+        Assert.Equal(BindPoint.COMPUTE, compute.BindPoint);
+        Assert.Equal(BindPoint.GRAPHICS, graphics.BindPoint);
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
     public void Compute_dispatch_writes_a_known_pattern_into_a_storage_buffer(Backend backend)

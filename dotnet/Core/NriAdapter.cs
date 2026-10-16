@@ -1,8 +1,8 @@
 // L2 — adapters, before there is a device.
 //
-// nriEnumerateAdapters is a two-call pattern over AdapterDesc. The desc is kept whole because
-// nriCreateDevice takes a pointer to it to select the adapter; the properties are the same bytes
-// read out by name.
+// nriEnumerateAdapters fills up to the caller's count and returns how many it copied. The desc is
+// kept whole because nriCreateDevice takes a pointer to it to select the adapter; the properties
+// are the same bytes read out by name.
 
 using PrismNRI.Interop;
 using PrismNRI.Native;
@@ -47,14 +47,19 @@ public sealed class NriAdapter
 
     public bool Supports(GraphicsAPI api) => (_desc.supportedGraphicsAPIs & api) != 0;
 
-    /// <summary>Every adapter NRI can see, in NRI's order: hardware first, as NRI sorts them.</summary>
+    /// <summary>
+    /// Every adapter NRI can see, in NRI's order: hardware first, as NRI sorts them. One native
+    /// call: every <c>nriEnumerateAdapters</c> creates and destroys a Vulkan instance (loading every
+    /// implicit layer) and a DXGI factory, so the count-then-fill pattern would pay that twice.
+    /// Hand the chosen adapter to <see cref="NriDeviceOptions.Adapter"/>: <c>nriCreateDevice</c>
+    /// enumerates once more on its own when it is null.
+    /// </summary>
     public static unsafe IReadOnlyList<NriAdapter> Enumerate()
     {
-        uint count = 0;
-        NriException.Check(NriApi.nriEnumerateAdapters(null, &count), "nriEnumerateAdapters");
-        if (count == 0) return [];
-
-        var descs = new AdapterDesc[count];
+        // NRI itself sees at most 32 adapters (Creation.cpp), so the buffer is never short; it
+        // returns min(count, found).
+        var descs = new AdapterDesc[32];
+        var count = (uint)descs.Length;
         fixed (AdapterDesc* p = descs)
         {
             NriException.Check(NriApi.nriEnumerateAdapters(p, &count), "nriEnumerateAdapters");

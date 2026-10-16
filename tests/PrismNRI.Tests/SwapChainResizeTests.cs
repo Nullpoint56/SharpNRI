@@ -63,7 +63,86 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
         // throws) and on any ERROR message from NRI or the validation layer.
         Assert.True(child.ExitCode == 0, $"child exit code {child.ExitCode}: " + string.Join(" | ", lines.Where(l => l.StartsWith("FAIL ", StringComparison.Ordinal))));
         foreach (var result in lines.Where(l => l.StartsWith("RESULT ", StringComparison.Ordinal))) GpuWork.Record(result);
-        Assert.Equal(2, lines.Count(l => l.StartsWith("RESULT ", StringComparison.Ordinal)));
+        Assert.Equal(3, lines.Count(l => l.StartsWith("RESULT ", StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// A swap chain asked for at an extent that is not the window's current client size: with
+    /// present scaling (swapchain_maintenance1) Vulkan allows any extent in the surface's scaled
+    /// range, and patch 0014 makes NRI check that range instead of the unscaled one, which on
+    /// Windows is exactly the current size. Upstream v190 refused it with INVALID_ARGUMENT
+    /// ("swapChainDesc.width is out of [w, w] range"), so a size snapshot that lagged a resize, or a
+    /// window minimised at creation, threw. Without scaling the refusal is Vulkan's rule and stays.
+    /// </summary>
+    private static bool StaleExtent(NriDevice device, List<NriMessage> messages)
+    {
+        var hwnd = CreateWindowExW(0, "STATIC", "PrismNRI stale extent", WS_POPUP, 0, 0, 64, 64, 0, 0, 0, 0);
+        if (hwnd == 0) throw new InvalidOperationException($"CreateWindowEx failed with error {Marshal.GetLastPInvokeError()}");
+        var firstMessage = messages.Count;
+        var scaling = device.Desc.features.resizableSwapChain != 0;
+        try
+        {
+            GetClientRect(hwnd, out var rect);
+            int width = rect.Right - rect.Left, height = rect.Bottom - rect.Top;
+            var queue = device.GetQueue(QueueType.GRAPHICS);
+            var desc = new NriSwapChainDesc
+            {
+                Window = new NriWindow { Windows = new NriWindowsWindow(Hwnd: hwnd) },
+                Queue = queue,
+                Width = (ushort)(width + 36),
+                Height = (ushort)(height + 16),
+                TextureNum = 2,
+                Format = SwapChainFormat.BT709_G22_8BIT,
+            };
+            NriSwapChain swapChain;
+            try
+            {
+                swapChain = device.SwapChain.CreateSwapChain(desc);
+            }
+            catch (NriException e) when (!scaling && e.Result == Result.INVALID_ARGUMENT)
+            {
+                Console.WriteLine($"RESULT stale extent {desc.Width}x{desc.Height} on a {width}x{height} window, features.resizableSwapChain=0: refused with INVALID_ARGUMENT, as Vulkan requires without present scaling");
+                messages.RemoveRange(firstMessage, messages.Count - firstMessage); // the refusal's ERROR is the expected answer here
+                return true;
+            }
+
+            var presented = 0;
+            using (swapChain)
+            using (var acquire = device.CreateFence(NriSwapChainExtension.SwapChainSemaphore))
+            using (var allocator = queue.CreateCommandAllocator())
+            using (var commandBuffer = allocator.CreateCommandBuffer())
+            {
+                var release = swapChain.Textures.Select(_ => device.CreateFence(NriSwapChainExtension.SwapChainSemaphore)).ToArray();
+                var present = new AccessLayoutStage { access = AccessBits.NONE, layout = Layout.PRESENT, stages = StageBits.NONE };
+                for (var frame = 0; frame < 2; frame++)
+                {
+                    if (device.SwapChain.AcquireNextTexture(swapChain, acquire, out var index) == NriSwapChainStatus.OutOfDate) break;
+                    allocator.Reset();
+                    commandBuffer.Begin();
+                    commandBuffer.Barrier(new NriTextureBarrier(swapChain.Textures[(int)index], GpuWork.Undefined, present));
+                    commandBuffer.End();
+                    queue.Submit([commandBuffer], [new NriFenceSubmit(acquire, 0)], [new NriFenceSubmit(release[index], 0)]);
+                    if (device.SwapChain.QueuePresent(swapChain, release[index]) == NriSwapChainStatus.OutOfDate) break;
+                    presented++;
+                    device.WaitIdle();
+                }
+                device.WaitIdle();
+                foreach (var f in release) f.Dispose();
+                Console.WriteLine($"RESULT stale extent {desc.Width}x{desc.Height} on a {width}x{height} window, features.resizableSwapChain={(scaling ? 1 : 0)}: " +
+                    $"swap chain created with textures {swapChain.Textures[0].Desc.width}x{swapChain.Textures[0].Desc.height}, {presented} of 2 frames presented");
+            }
+            var ok = true;
+            foreach (var m in messages.Skip(firstMessage))
+            {
+                Console.WriteLine($"{(m.IsError ? "FAIL " : "")}message {m}");
+                ok &= !m.IsError;
+            }
+            return ok && presented == 2;
+        }
+        finally
+        {
+            DestroyWindow(hwnd);
+        }
     }
 
     // ================================================================================= the child
@@ -105,6 +184,7 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
                 return 0;
             }
             if (!RunFrames(device, "NRI-created VK device", messages, [])) failed = true;
+            if (!StaleExtent(device, messages)) failed = true;
         }
 
         // 2. A raw VkDevice with VK_KHR_swapchain only, wrapped: no present scaling.

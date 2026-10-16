@@ -33,7 +33,12 @@ public sealed class NriPipelineLayoutDesc
     public RootSamplerDesc[] RootSamplers { get; init; } = [];
     public NriDescriptorSetDesc[] DescriptorSets { get; init; } = [];
 
-    /// <summary>Every stage any part of the layout is visible to.</summary>
+    /// <summary>
+    /// Every stage any part of the layout is visible to. <c>StageBits.ALL</c> is 0 in NRI (the
+    /// barrier default) and the backends read it here as every shader stage; patch 0016 makes NRI
+    /// validation agree (upstream masked each range's stages with 0 and refused the layout as
+    /// "not compatible with 'shaderStages'").
+    /// </summary>
     public StageBits ShaderStages { get; init; }
 
     public PipelineLayoutBits Flags { get; init; }

@@ -204,6 +204,52 @@ public sealed class StreamerExtensionTests
     }
 
     /// <summary>
+    /// dynamicBufferDesc.size is the initial per-frame size of the dynamic buffer (patch 0012;
+    /// upstream v190 ignores it and grows from empty, one committed buffer per new per-frame
+    /// high-water mark, each parked and destroyed queuedFrameNum frames later). Frames that stream
+    /// less than that size all get the same buffer, sized the 64 KiB-rounded per-frame size times
+    /// queuedFrameNum; a frame that streams more still grows it.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void The_dynamic_buffer_starts_at_the_requested_per_frame_size_and_grows_only_past_it(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        var ext = device.Streamer;
+        const ulong perFrame = 100 * 1024; // not a multiple of NRI's 64 KiB chunk: rounds up to 128 KiB
+        const uint queued = 2;
+        var desc = Desc() with { queuedFrameNum = queued };
+        desc.dynamicBufferDesc.size = perFrame;
+        using var streamer = ext.CreateStreamer(desc);
+
+        var data = new byte[64 * 1024];
+        var first = ext.StreamBufferData(streamer, data);
+        Assert.NotNull(first.Buffer);
+        ext.EndStreamerFrame(streamer);
+        for (var frame = 1; frame < 4; frame++)
+        {
+            var placed = ext.StreamBufferData(streamer, data);
+            Assert.Same(first.Buffer, placed.Buffer); // under the per-frame size: no growth, the buffer from creation
+            ext.EndStreamerFrame(streamer);
+        }
+        var initialSize = first.Buffer.Desc.size;
+        Assert.Equal(128 * 1024 * (ulong)queued, initialSize);
+
+        // 192 KiB in one frame outgrows the 128 KiB per-frame region: a new, larger buffer.
+        ext.StreamBufferData(streamer, data);
+        ext.StreamBufferData(streamer, data);
+        var grown = ext.StreamBufferData(streamer, data);
+        Assert.NotSame(first.Buffer, grown.Buffer);
+        Assert.True(grown.Buffer!.Desc.size > initialSize, $"grown buffer {grown.Buffer.Desc.size} B is not larger than {initialSize} B");
+        ext.EndStreamerFrame(streamer);
+        GpuWork.Record($"{backend}: per-frame size {perFrame} B x {queued} frames: dynamic buffer {initialSize} B at creation, {grown.Buffer.Desc.size} B after a 192 KiB frame");
+
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
     /// A block-compressed texture is staged in rows of blocks, the layout CmdUploadBufferToTexture
     /// reads: every mip of a 64x64 BC1 texture, down to the 2x2 and 1x1 mips that are one partial
     /// block, is streamed with its block-row pitch, copied and read back byte for byte, and each mip
