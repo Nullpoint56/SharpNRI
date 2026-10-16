@@ -146,6 +146,16 @@ public sealed unsafe class NriCommandBuffer : NriObject
         }
     }
 
+    /// <summary>
+    /// Binds a buffer view (or an acceleration structure) as root descriptor
+    /// <paramref name="rootDescriptorIndex"/>, <paramref name="offset"/> bytes past the view's start.
+    /// The backends disagree on what the offset means: Vulkan slides the view's fixed window
+    /// (the push-descriptor write takes the view's offset plus this one and keeps the view's range),
+    /// D3D12 binds the view's address plus this offset with no range at all. NRI validation caps the
+    /// offset at buffer size minus view offset minus view size, with a <c>WHOLE_SIZE</c> view
+    /// resolved to the rest of the buffer, so a whole-buffer view accepts offset 0 only. For a
+    /// sliding window, make the view as large as the window. See the guide (root descriptors).
+    /// </summary>
     public void SetRootDescriptor(uint rootDescriptorIndex, NriDescriptor descriptor, uint offset = 0, BindPoint bindPoint = BindPoint.INHERIT)
     {
         var desc = new SetRootDescriptorDesc { rootDescriptorIndex = rootDescriptorIndex, descriptor = descriptor.Raw, offset = offset, bindPoint = bindPoint };

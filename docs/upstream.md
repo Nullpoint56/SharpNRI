@@ -16,6 +16,8 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2: after the maintainer engages; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
 | 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2: after the maintainer engages; the uncapped order is his and stays |
+| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | phase 2: after the maintainer engages; the default (break) is his and stays |
+| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2: after the maintainer engages |
 | 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2: enhancement issue; per-frame vs total semantics is his call |
 | 0001 Agility SDK from a path | proposal | phase 2: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
 | 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
@@ -315,3 +317,42 @@ support. Measured on v190, NVIDIA (the surface offers `FIFO_LATEST_READY` and `M
 with the Khronos layer clean; the same mode forced on a device without the feature is reported
 ("presentMode is VK_PRESENT_MODE_FIFO_LATEST_READY_KHR, but feature presentModeFifoLatestReady is
 not enabled"). Patch attached (`patches/0017-swapchain-latest-ready-bit.patch`), thirteen lines.
+
+## 0018 — `disableD3D12BreakOnError`: the D3D12 info-queue break as a switch
+
+**Title:** D3D12: a switch to skip `SetBreakOnSeverity` with `enableGraphicsAPIValidation`
+
+With `enableGraphicsAPIValidation`, `DeviceD3D12::Create` calls
+`ID3D12InfoQueue::SetBreakOnSeverity` for `CORRUPTION` and `ERROR` unconditionally
+(`DeviceD3D12.hpp:591-595`, since d003e22). With the Agility SDK the same block registers
+`ID3D12InfoQueue1::RegisterMessageCallback` (`:620`, 503f448), whose `MessageCallback` (`:191`) reports
+every message below `WARNING` as `Message::ERROR` through `CallbackInterface`, where
+`AbortExecution` already lets the caller decide whether to stop. The info-queue break comes first
+and cannot be turned off, so in a process without a debugger the first debug-layer error is a
+breakpoint exception out of the call that recorded it, or the end of a headless process, before
+the caller sees the message. Proposal: `disableD3D12BreakOnError` among the "enabled by default"
+switches, skipping the two calls; the deny list and the callback stay, and the default keeps the
+break. Measured on v190 with Agility 1.619, NVIDIA and WARP, NRI validation off: `CmdCopyBuffer`
+of 512 bytes into a 256-byte buffer reports "[841] ID3D12CommandList::CopyBufferRegion: The
+destination region extends past the end of the destination resource" and throws a breakpoint
+exception out of the call; with the switch the call returns, the message arrives through
+`CallbackInterface`, and `EndCommandBuffer` fails `Close` with `E_INVALIDARG`. Patch attached
+(`patches/0018-d3d12-break-on-error-switch.patch`), seven lines.
+
+## 0019 — `enableD3D12GpuBasedValidation`: GPU-based validation as a switch
+
+**Title:** D3D12: a switch for `ID3D12Debug1::SetEnableGPUBasedValidation`
+
+With `enableGraphicsAPIValidation`, `DeviceD3D12::Create` enables the debug layer through
+`ID3D12Debug::EnableDebugLayer` before the device is created (`DeviceD3D12.hpp:493-497`) but never
+calls `ID3D12Debug1::SetEnableGPUBasedValidation`, which has to be called at the same point and is
+process-global like the debug layer. The CPU-side debug layer does not know which descriptors a
+shader accesses, so an access through an uninitialized descriptor in a volatile range is invisible
+without it, and the only way to get it is a D3D12 call of the caller's own before NRI creates the
+device. Proposal: `enableD3D12GpuBasedValidation` among the "disabled by default" switches beside
+`enableD3D12RayTracingValidation`; with `enableGraphicsAPIValidation`, the debug controller is
+queried for `ID3D12Debug1` after `EnableDebugLayer` and GPU-based validation is enabled. Measured on
+v190 with Agility 1.619, NVIDIA and WARP: a dispatch writing through a `PARTIALLY_BOUND` range of
+two UAVs with only slot 0 written reports "[938] GPU-BASED VALIDATION: Dispatch, Uninitialized
+descriptor accessed: ... Descriptor Heap Index FromTableStart: [1]" with the switch and nothing
+without it. Patch attached (`patches/0019-d3d12-gpu-based-validation-switch.patch`), nine lines.

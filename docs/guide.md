@@ -93,13 +93,14 @@ ref readonly DeviceDesc caps = ref device.Desc;
 | `NriDeviceOptions` | mirrors `DeviceCreationDesc` field for field |
 | `QueueFamilies` | empty means one graphics queue. Request every family up front: NRI trims the device's queue counts to what was created, so `Video` is `UNSUPPORTED` unless `VIDEO_DECODE` / `VIDEO_ENCODE` were requested |
 | `MessageHandler` | receives NRI and validation-layer messages. A throwing handler loses that one message. `device.LastError` holds the last error text and is attached to the `NriException` of the call that failed. A Khronos layer message arrives as `[id] name: text` (patch 0015 adds the name, e.g. `BestPractices-vkBindImageMemory-small-dedicated-allocation`; upstream forwards the number and the text, and current layers no longer embed the name in the text) |
-| `BreakOnError` | breaks only when a debugger is attached; otherwise errors never terminate the process |
+| `BreakOnError` | breaks only when a debugger is attached; otherwise errors never terminate the process. Also decides the D3D12 debug layer's own break (`SetBreakOnSeverity` for ERROR and CORRUPTION), evaluated at device creation: on only with `BreakOnError` and a debugger attached then (patch 0018). Otherwise a D3D12 debug-layer error arrives as an error message, `[id] text` |
+| `EnableD3D12GpuBasedValidation` | D3D12 GPU-based validation (patch 0019): checks descriptors and resource states while shaders run. Slow; needs `EnableGraphicsApiValidation`. Process-global and never switched off: every D3D12 device created later in the process has it |
 | `Allocator` | `INriAllocator` for NRI's own host allocations; `NriCountingAllocator` counts them. A throwing allocator returns null, which NRI reports as out of memory |
 | `ForwardAllocatorToThirdParty` | also routes VMA / D3D12MA host allocations; off by default (chatty) |
 | `D3D12AgilitySdkPath` | null: the `AgilitySDK` directory beside the assembly when present (`NriDevice.DefaultAgilitySdkPath`), else inbox. `""`: force inbox |
 | `VkBindingOffsets` | see [Descriptors and layouts](#descriptors-and-layouts) |
 | `VkEnumeratePhysicalDevicesAfterCreation` | Vulkan, default true: one `vkEnumeratePhysicalDevices` on NRI's instance right after creation, results discarded, so implicit layers that map physical devices from that call (RivaTuner's) know NRI's device; false skips it. Not on `CreateFromVulkan` (the instance is yours) |
-| `Robustness`, `DeviceLostInfoLevel`, `EnableD3D12RayTracingValidation` | only on `NriDevice.Create`, not on the wrapped routes |
+| `Robustness`, `DeviceLostInfoLevel`, `EnableD3D12RayTracingValidation`, `EnableD3D12GpuBasedValidation` | only on `NriDevice.Create`, not on the wrapped routes (a wrapped D3D12 device has the debug layer its creator gave it, and NRI sets no break on it) |
 
 Caveats:
 
@@ -116,6 +117,19 @@ Caveats:
   `DeviceLostInfoLevel`, D3D12 ray tracing validation and debug-layer message filtering.
 - **Developer Mode** is not required by Microsoft's documentation for either route; the Windows CI
   runner (Developer Mode off) runs the Agility tests.
+- **D3D12 debug-layer errors are messages, not breaks.** Upstream NRI sets the info queue's break
+  on ERROR and CORRUPTION for every debug-layer device; without a debugger the first error is a
+  `DebugBreak` that surfaces as an `SEHException` out of the call that caused it (measured: a
+  512-byte `CopyBuffer` into a 256-byte buffer) or kills a headless process. With patch 0018 the
+  binding asks for the break only with `BreakOnError` and a debugger attached, so the same copy
+  returns and reports `[841] ID3D12CommandList::CopyBufferRegion: The destination region extends
+  past the end of the destination resource...` as an error message. A command list with such an
+  error fails `End` (D3D12 `Close` returns `E_INVALIDARG`).
+- **GPU-based validation** (`EnableD3D12GpuBasedValidation`) finds what the CPU-side layer cannot,
+  for example a shader writing through a never-written descriptor in a `PARTIALLY_BOUND` range:
+  `[938] GPU-BASED VALIDATION: Dispatch, Uninitialized descriptor accessed: ...`, reported after
+  the work executes. On a range without `PARTIALLY_BOUND` the CPU-side layer already reports a
+  never-written descriptor at `SetDescriptorSet` ([646]) and at the dispatch ([1023]).
 - **Software adapters are enumerated**: WARP and lavapipe have `Architecture.SOFTWARE`. Filter
   them out when picking a GPU.
 - **Enumerate once and pass the adapter.** Every `nriEnumerateAdapters` creates and destroys a
@@ -288,6 +302,13 @@ set.Update(rangeIndex: 1, descriptorIndex: 0, outputView);
   agree. Upstream validation masked each range's stages with 0 and refused a range with explicit
   stages ("not compatible with 'shaderStages'"), and any graphics pipeline on an all-`ALL` layout
   ("not enabled in the pipeline layout").
+- **Root descriptor offsets mean different things per backend.** `SetRootDescriptor(index, view,
+  offset)` on Vulkan slides the view's window: the offset is added to the view's own offset and the
+  view's range is kept. D3D12 binds the view's address plus the offset with no range. NRI
+  validation caps the offset at buffer size minus view offset minus view size (a `WHOLE_SIZE` view
+  counts as the rest of the buffer), so a whole-buffer view takes offset 0 only. For a sliding
+  window over a large buffer, create the view as large as the window. Not patched: making the
+  backends agree is a semantic choice for upstream.
 
 ## Recording and submitting
 

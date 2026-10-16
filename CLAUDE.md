@@ -295,6 +295,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | 0015 vulkan-message-id-name | the debug-utils callback forwards `pMessageIdName` as `[id] name: text` when the layer provides one | upstream forwards number and text; current Khronos layers keep the VUID / check name only in `pMessageIdName`, so the forwarded text had no name |
 | 0016 validation-pipeline-layout-all-stages | `DeviceVal::CreatePipelineLayout` and `CreateGraphicsPipeline` read a layout `shaderStages` of `ALL` (0) as `ALL_SHADERS`, as `PipelineLayoutD3D12` does | upstream masked the ranges' stages with 0: a layout with `ALL` refused every range with explicit stages ("not compatible with 'shaderStages'") and every graphics pipeline ("not enabled in the pipeline layout") |
 | 0017 swapchain-latest-ready-bit | `SwapChainBits::LATEST_READY` + `DeviceDesc::features.latestReadySwapChain` (VK: swap chain + `fifoLatestReady`); with `VSYNC` the capped list is FIFO_LATEST_READY, FIFO_RELAXED/FIFO, FIFO; the bit is cleared from `m_Flags` unless that mode was chosen; D3D11/D3D12 clear it | upstream reaches FIFO_LATEST_READY only without `VSYNC` and after MAILBOX, which NVIDIA always offers, so it is never chosen there; NRI never reports the chosen mode |
+| 0018 d3d12-break-on-error-switch | `DeviceCreationDesc::disableD3D12BreakOnError` ("enabled by default" switches) wraps the two `SetBreakOnSeverity` calls in `DeviceD3D12::Create` (7 lines); the binding passes it unless `BreakOnError` and a debugger is attached | upstream sets the info-queue break on ERROR and CORRUPTION for every debug-layer device: without a debugger the first D3D12 error is an `SEHException` out of the NRI call, or a dead headless process, although the message callback already reports it |
+| 0019 d3d12-gpu-based-validation-switch | `DeviceCreationDesc::enableD3D12GpuBasedValidation` ("disabled by default", beside `enableD3D12RayTracingValidation`): `ID3D12Debug1::SetEnableGPUBasedValidation(true)` after `EnableDebugLayer` (9 lines) | upstream never enables GPU-based validation, which must be enabled before the device is created; the alternative is a D3D12 COM sequence in the binding |
 
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
@@ -304,8 +306,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0017 each also apply alone onto the bare tag. Patches to a
-  file an earlier patch touches (0012-0017 all are) are cut from a scratch clone at the tag with
+  `git diff --cached HEAD`); 0003-0019 each also apply alone onto the bare tag. Patches to a
+  file an earlier patch touches (0012-0019 all are) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit. There is no 0011: it corrected
   the `queuedFrameNum` header comment only, and a comment is knowledge, not a patch (owner,
   2026-10-16); the fact lives below under Extensions and in the binding's docs.
@@ -509,6 +511,17 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   stride 0 reads every vertex from the offset and no layer objects (legal in both APIs). The
   binding's `NriVertexBuffer.Stride` / `SetVertexBuffer` stride had a default of 0, which invited
   it; no default now. Not a validation check: a false positive for intended stride 0.
+- **Root descriptor offset: a sliding window on Vulkan, an address on D3D12.** Vulkan
+  (`CommandBufferVK.hpp` `SetRootDescriptor`, push-descriptor path) adds `SetRootDescriptorDesc::offset`
+  to `VkDescriptorBufferInfo.offset` and keeps the view's range; `DescriptorVK.hpp` resolves a
+  `WHOLE_SIZE` (0) view to `bufferSize - viewOffset`. D3D12 (`PipelineLayoutD3D12.hpp`
+  `SetRootDescriptor`) binds `GetDeviceAddress() + offset`, no range (root views have none); so
+  does Vulkan's descriptor-heap path. NRI validation (`DescriptorVal.hpp:11`, with the size
+  resolved in `DeviceVal::CreateDescriptor`) caps the offset at `bufferSize - view.offset -
+  view.size`, so a whole-buffer view accepts offset 0 only; a sliding window needs a view the
+  size of the window. Not patched: making the backends agree (clamp, or shrink the Vulkan range)
+  is a semantic choice for upstream, a phase 2 design question. Guide and the
+  `NriCommandBuffer.SetRootDescriptor` doc say the same.
 - Pipeline cache after one compute pipeline: VK 6,872 B, D3D12 3,318 B; rebuilt from bytes, same size.
   Stale or foreign bytes: `CreatePipelineCache` throws `NriException` with `OUT_OF_DATE` and hands
   nothing back to leak. NRI's `CreateImplementation` (`DeviceVK.h`, `DeviceD3D12.h`) destroys the
@@ -547,6 +560,44 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - `NriDeviceOptions.D3D12AgilitySdkPath`: null = `AgilitySDK` beside the assembly if present, `""`
   = inbox.
 - **Reflex on Vulkan poisons later D3D12 device creation** in the process: see Extensions.
+- **Info-queue break (patch 0018).** With `enableGraphicsAPIValidation`, `DeviceD3D12::Create`
+  calls `ID3D12InfoQueue::SetBreakOnSeverity(CORRUPTION, true)` and `(ERROR, true)`
+  unconditionally (upstream `DeviceD3D12.hpp:591-595`, since d003e22, v1.150). With
+  `NRI_ENABLE_AGILITY_SDK_SUPPORT` (our builds) it also registers
+  `ID3D12InfoQueue1::RegisterMessageCallback` (`:620`, since 503f448), whose `MessageCallback`
+  (`:191`) reports every message below WARNING as `Message::ERROR` / `FAILURE` through
+  `CallbackInterface`, `[id] text`; `ReportMessage` then calls `AbortExecution`, which
+  `MessageBridge` handles. So the break adds nothing but the stop: without a debugger it is a
+  `DebugBreak` that surfaces as an `SEHException` out of the NRI call (the micromap error 1162
+  case, Ray tracing) or kills a headless process. Binding: `disableD3D12BreakOnError =
+  !(BreakOnError && Debugger.IsAttached)` at device creation (`NriDevice.cs`), the same rule as
+  `MessageBridge`. Not on the wrapped route: `DeviceCreationD3D12Desc` has no
+  `enableGraphicsAPIValidation`, NRI sets no break there. Measured (`D3D12DebugLayerTests`, NVIDIA
+  and WARP, Agility 1.619, NRI validation off so NRI does not refuse first): `CopyBuffer` of 512
+  bytes into a 256-byte buffer gives `[841] ID3D12CommandList::CopyBufferRegion: The destination
+  region extends past the end of the destination resource. When DstOffset is 0 and NumBytes is
+  512, ...` as an ERROR message and returns; `End` then throws `INVALID_ARGUMENT` (`Close`
+  `E_INVALIDARG`). With the break forced on (one-off run, no debugger) the same copy threw
+  `SEHException` out of `CopyBuffer` right after the message; the test host survived.
+- **GPU-based validation (patch 0019).** The same block enables the debug layer
+  (`ID3D12Debug::EnableDebugLayer`, upstream `:493-497`) and the DXGI debug factory, and never
+  calls `ID3D12Debug1::SetEnableGPUBasedValidation`, which must come before device creation and
+  is process-global like the debug layer (NRI never switches it off again).
+  `NriDeviceOptions.EnableD3D12GpuBasedValidation` maps 1:1. Measured (`D3D12DebugLayerTests`,
+  children with `PRISMNRI_TEST_CHILD=d3d12-gbv-on` / `-off`, NVIDIA and WARP): a dispatch writing
+  through a `PARTIALLY_BOUND` range of two UAVs with only slot 0 written
+  (`Shaders/GpuValidation.hlsl`) reports `[938] GPU-BASED VALIDATION: Dispatch, Uninitialized
+  descriptor accessed: Descriptor Heap Index To DescriptorTableStart: [0], Descriptor Heap Index
+  FromTableStart: [1], Register Type: D3D12_DESCRIPTOR_RANGE_TYPE_UAV, ...` with the option, no
+  error without it; dispatch + wait 13-40 ms on, 7-10 ms off (NVIDIA). Without `PARTIALLY_BOUND` (a static
+  range, no `DESCRIPTORS_VOLATILE`) the CPU-side layer reports the slot with or without GBV:
+  `[646] SetComputeRootDescriptorTable ... has not been initialized` and `[1023] Dispatch: Static
+  Descriptor UAV resource dimensions (D3D12_UAV_DIMENSION_UNKNOWN) differs ...`, so that is no
+  test of GBV. The test runs in child processes because the setting would stay on for every later
+  D3D12 device in the test process.
+- A host could call `D3D12GetDebugInterface` + `ID3D12Debug1` itself before NRI creates the device
+  (process-global, so it would take), but the repo keeps D3D12 COM sequences out of the binding
+  (the Agility decision under Decisions), hence the switch.
 
 ### Vulkan loader and validation layers
 
@@ -683,8 +734,9 @@ extensions.
   Index-less OMM (NONE, address 0) draws VUID-...-pInfos-10904 from VVL 1.4.341, likely a false
   positive; with an index buffer it is clean.
 - **Micromaps, D3D12**: NRI's prebuild query passes no input buffer or per-OMM descs: debug error
-  1162, SEH via break-on-error. So that test runs D3D12 without the debug layer (NRI validation on).
-  Then the BLAS build linking the micromap fails `Close` with `E_INVALIDARG`: skipped on D3D12 naming
+  1162, SEH via break-on-error (measured before patch 0018; without a debugger the break is now
+  off and 1162 would be an ERROR message that fails the test instead). So that test runs D3D12
+  without the debug layer (NRI validation on). Then the BLAS build linking the micromap fails `Close` with `E_INVALIDARG`: skipped on D3D12 naming
   that.
 
 ### Upscalers and vendor runtimes

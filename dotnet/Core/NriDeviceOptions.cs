@@ -40,7 +40,15 @@ public sealed class NriDeviceOptions
     /// <summary>Receives every message NRI produces. The device records the last error regardless.</summary>
     public NriMessageHandler? MessageHandler { get; init; }
 
-    /// <summary>Break into an attached debugger after an error message. No-op without one.</summary>
+    /// <summary>
+    /// Break into an attached debugger after an error message. No-op without one. Also governs the
+    /// D3D12 debug layer's own break (<c>ID3D12InfoQueue::SetBreakOnSeverity</c> for ERROR and
+    /// CORRUPTION, which NRI sets whenever <see cref="EnableGraphicsApiValidation"/> is on): NRI
+    /// sets it only when this is true and a debugger is attached when the device is created
+    /// (<c>disableD3D12BreakOnError</c>, patches/0018). Otherwise a D3D12 debug-layer error arrives
+    /// as an error message (<c>[id] text</c>) instead of a <c>DebugBreak</c> that surfaces as an SEH
+    /// exception out of the NRI call, or kills a process with no debugger.
+    /// </summary>
     public bool BreakOnError { get; init; }
 
     /// <summary>Host allocator for NRI's bookkeeping. NRI's own when null.</summary>
@@ -96,6 +104,15 @@ public sealed class NriDeviceOptions
 
     /// <summary>D3D12 only, slow, and needs <c>NV_ALLOW_RAYTRACING_VALIDATION=1</c> in the environment.</summary>
     public bool EnableD3D12RayTracingValidation { get; init; }
+
+    /// <summary>
+    /// D3D12: GPU-based validation (<c>ID3D12Debug1::SetEnableGPUBasedValidation</c>, patches/0019),
+    /// which checks descriptors and resource states while shaders execute. Slow. Needs
+    /// <see cref="EnableGraphicsApiValidation"/>; ignored without it. Process-global like the debug
+    /// layer and never switched off again: every D3D12 device created later in the process runs
+    /// with it, whatever its own options say.
+    /// </summary>
+    public bool EnableD3D12GpuBasedValidation { get; init; }
 
     /// <summary>Clear memory on allocation. Off by default on both backends.</summary>
     public bool EnableMemoryZeroInitialization { get; init; }
