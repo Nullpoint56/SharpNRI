@@ -69,7 +69,13 @@ public readonly unsafe record struct NriAttachment(
 }
 
 /// <summary><c>VertexBufferDesc</c> naming the wrapper.</summary>
-public readonly unsafe record struct NriVertexBuffer(NriBuffer Buffer, ulong Offset = 0, uint Stride = 0)
+/// <param name="Stride">
+/// The vertex stride. It is what the draw uses on D3D12 and on Vulkan devices with
+/// <c>features.extendedDynamicState</c> (every Vulkan 1.3+ device), where the pipeline's
+/// <c>VertexStreamDesc.stride</c> is ignored; 0 there reads every vertex from <paramref name="Offset"/>,
+/// silently. Only a Vulkan device without the feature falls back to the pipeline's stride.
+/// </param>
+public readonly unsafe record struct NriVertexBuffer(NriBuffer Buffer, ulong Offset, uint Stride)
 {
     internal VertexBufferDesc ToNative() => new() { buffer = Buffer.Raw, offset = Offset, stride = Stride };
 }
@@ -189,7 +195,8 @@ public sealed unsafe class NriCommandBuffer : NriObject
         Core.CmdSetVertexBuffers(Raw, baseSlot, native, (uint)buffers.Length);
     }
 
-    public void SetVertexBuffer(uint slot, NriBuffer buffer, ulong offset = 0, uint stride = 0)
+    /// <summary>One vertex buffer; <paramref name="stride"/> as on <see cref="NriVertexBuffer"/> (the pipeline's stride is ignored on D3D12 and on Vulkan with <c>extendedDynamicState</c>).</summary>
+    public void SetVertexBuffer(uint slot, NriBuffer buffer, ulong offset, uint stride)
     {
         var native = new VertexBufferDesc { buffer = buffer.Raw, offset = offset, stride = stride };
         Core.CmdSetVertexBuffers(Raw, slot, &native, 1);

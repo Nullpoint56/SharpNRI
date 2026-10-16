@@ -281,13 +281,24 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | 0009 vulkan-swapchain-out-of-date-not-an-error | `AcquireNextTexture` / `Present` return `OUT_OF_DATE` for exactly `VK_ERROR_OUT_OF_DATE_KHR` before `NRI_RETURN_ON_BAD_VKRESULT` (no report); return values unchanged | upstream reporting defect: a documented, expected result reported as `Message::ERROR` on every resize |
 | 0010 streamer-block-compressed-rows | `StreamTextureData` sizes and copies compressed formats in rows of blocks: `ceil(w / blockWidth) * stride` per row, `ceil(h / blockHeight)` rows; other formats (the planar video ones included) unchanged | upstream bug: texel rows, 16x the dynamic-buffer space for 4x4 blocks and a read past the end of the caller's data; the texels still landed right (same oversized pitch on both sides) |
 | 0011 streamer-queued-frame-num-comment | `NRIStreamer.h` comment only: `queuedFrameNum` counts the current frame; data streamed in a frame is overwritten `queuedFrameNum` frames later | upstream doc defect: the comment says NRI adds 1, which 6f80a7c (May 2025) stopped doing; the code is the contract |
+| 0012 streamer-dynamic-buffer-initial-size | `StreamerDesc::dynamicBufferDesc.size` is the initial per-frame size of the dynamic buffer, allocated in `Create` through `Grow` (`size` rounded up to 64 KiB, times `queuedFrameNum`); 0 keeps the on-demand growth | upstream ignores the field (header: `"size" is ignored`) and grows from empty, one committed buffer per new per-frame high-water mark, each parked and destroyed `queuedFrameNum` frames later inside `EndStreamerFrame`; a consumer measured 222 stream calls at 477 ms and `EndStreamerFrame` at 189 ms per level load from that |
+| 0013 vulkan-exclusive-image-no-family-indices | `DeviceVK::FillCreateInfo` passes `queueFamilyIndexCount = 0` and null indices for `VK_SHARING_MODE_EXCLUSIVE` images | upstream passes every active family's index whatever the sharing mode; Vulkan ignores them for EXCLUSIVE, and the Khronos best-practices checks report `BestPractices-vkCreateImage-sharing-mode-exclusive` ("queueFamilyIndexCount of 3", measured) per image |
+| 0014 vulkan-swapchain-scaled-extent-check | `SwapChainVK::Create` checks the requested extent against `VkSurfacePresentScalingCapabilitiesKHR::min/maxScaledImageExtent` when it creates the swap chain with present scaling, the unscaled range otherwise | upstream always checked the unscaled range, which on Windows is exactly the current client size, so with scaling (where Vulkan allows the scaled range) a size that lagged a resize was refused with `INVALID_ARGUMENT`; measured: 100x80 on a 64x64 window creates and presents |
+| 0015 vulkan-message-id-name | the debug-utils callback forwards `pMessageIdName` as `[id] name: text` when the layer provides one | upstream forwards number and text; current Khronos layers keep the VUID / check name only in `pMessageIdName`, so the forwarded text had no name |
+| 0016 validation-pipeline-layout-all-stages | `DeviceVal::CreatePipelineLayout` and `CreateGraphicsPipeline` read a layout `shaderStages` of `ALL` (0) as `ALL_SHADERS`, as `PipelineLayoutD3D12` does | upstream masked the ranges' stages with 0: a layout with `ALL` refused every range with explicit stages ("not compatible with 'shaderStages'") and every graphics pipeline ("not enabled in the pipeline layout") |
 
-- Applied by both `build-native.ps1` and `generate-native.ps1` (a header patch changes L0), each
-  skipping already-applied patches (reverse applies cleanly).
+- Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
+  patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
+  because a later patch may change a line inside an earlier patch's context (0012 changes the
+  line above 0011's) and with full context the earlier patch then looks unapplied and the script
+  throws.
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0011 each also apply alone onto the bare tag.
+  `git diff --cached HEAD`); 0003-0011 and 0013-0016 each also apply alone onto the bare tag;
+  0012 applies after 0011 (its header hunk's context carries 0011's comment line). Patches to a
+  file an earlier patch touches (0012-0016 all are) are cut from a scratch clone at the tag with
+  the earlier patches committed, `git diff` against that commit.
 - Patch 0007 inserts three lines at `CMakeLists.txt:126`; upstream line numbers past that are three
   lower than the patched tree's.
 - 0001 stays even though the wrapped-device route also loads Agility (see D3D12 and the Agility
@@ -382,6 +393,28 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   `BreakOnError` and a debugger is attached (`dotnet/Interop/MessageBridge.cs`).
 - **`GetQueue` out of range**: `INVALID_ARGUMENT` on VK and D3D12 with no message; NONE returns
   `SUCCESS` even for index 1000. Tests wanting a message must provoke the validation layer.
+- **Every `nriEnumerateAdapters` creates and destroys a VkInstance** (API 1.2, no layers asked
+  for, so every implicit layer is loaded and unloaded) and a DXGI factory with up to three
+  `D3D12CreateDevice` probes per adapter (`Creation.cpp` `UpdateAdaptersVK` / `UpdateAdaptersD3D`,
+  no caching). `nriCreateDevice` with a null `adapterDesc` enumerates once more and takes the
+  first sorted entry supporting the API; with a desc it reads `supportedGraphicsAPIs` (must carry
+  the API), `uid` (VK matches by it on its own instance, D3D12 `EnumAdapterByLuid`) and clamps
+  `queueNum`, and `DeviceVK` never refills the desc from the physical device. `NriAdapter.Enumerate`
+  makes one call with a 32-entry buffer (NRI's own maximum); the count-then-fill pattern cost two.
+  Not patched: moving selection into `DeviceVK::Create` is 50-70 lines that change an existing
+  call's observable answer (`supportedGraphicsAPIs` merged bits, tie order).
+- **RivaTuner's implicit layer kills a presenting Vulkan process** at the first present: loader
+  log `vkEnumeratePhysicalDevices: Invalid instance`, exit 0xC0000409. Measured on the dev
+  machine with `VK_LOADER_DEBUG=layer`: three instances before the crash in the normal flow (two
+  from `Enumerate`, the device's); and with enumeration run under `DISABLE_RTSS_LAYER=1` so the
+  device's instance is the only one the layer ever saw, with and without the Khronos layer, the
+  same crash. The instance count is not the cause; a consumer's claim that the layer "latches the
+  first instance" is not supported. Remedy: the layer's switch, or `VK_LOADER_LAYERS_DISABLE=~implicit~`
+  (the resize test's child).
+- **Khronos messages carry the id name (patch 0015)**: `[1809909096] BestPractices-vkCreateImage-sharing-mode-exclusive: vkCreateImage(): ...`.
+  Upstream forwards `"[%u] %s"` (number, `pMessage`); the SDK 1.4.3xx layer's `pMessage` no
+  longer starts with "Validation Warning: [ name ]", so the name was lost. Messages with id 0
+  (loader) are dropped by NRI before that.
 - **NONE is never validated**: `Creation.cpp` wraps only when `enableNRIValidation && graphicsAPI !=
   NONE`. NONE answers `{size=1}` for every buffer, one static texture desc, `MapBuffer` null, 0
   allocations from `AllocateAndBindMemory` (`ImplNONE.cpp`).
@@ -425,6 +458,29 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   Upload row/slice alignment: VK 1/16, D3D12 1/1.
 - D3D12 descriptor-set heap offsets for three sets: (0,0), (3,1), (6,2); (0,0) after `Reset`. VK
   (0,0) always.
+- **EXCLUSIVE images get no queue family indices (patch 0013).** `DeviceVK::FillCreateInfo` set
+  `queueFamilyIndexCount = m_NumActiveFamilyIndices` (one index per family `GetQueue` handed out)
+  whatever the sharing mode; `VK_SHARING_MODE_EXCLUSIVE` ignores them, and with best practices on
+  the layer reports `BestPractices-vkCreateImage-sharing-mode-exclusive` "while specifying
+  multiple queues (queueFamilyIndexCount of 3)" per image (measured, graphics + compute + copy
+  queues, NVIDIA, layer 1.4.341). Buffers have no sharing mode (CONCURRENT with more than one
+  active family); the swap chain passes one index with EXCLUSIVE, which the check (count > 1)
+  does not flag. `TextureTests.An_EXCLUSIVE_texture_is_created_without_queue_family_indices`
+  turns best practices on through `VK_KHRONOS_VALIDATION_VALIDATE_BEST_PRACTICES` in the process
+  environment before device creation (the layer reads it at instance creation; .NET on Unix does
+  not write the native environment, so the test skips there) and uses a committed 64 KiB buffer's
+  `small-dedicated-allocation` warning as the marker that the checks are active.
+- **Layout `shaderStages = ALL` (patch 0016)**: `StageBits::ALL` is 0 ("lazy default for
+  barriers"); `PipelineLayoutD3D12` maps it to `ALL_SHADERS`, `PipelineLayoutVK` never reads it,
+  and upstream `DeviceVal` masked each range's stages with it (0), refusing any explicit range
+  ("not compatible with 'shaderStages'") and, in `CreateGraphicsPipeline`, every shader ("not
+  enabled in the pipeline layout"). The patch maps it the D3D12 way in both checks.
+- **Vertex stride**: `VertexBufferDesc::stride` is what the draw uses on D3D12 (always) and on
+  Vulkan with `features.extendedDynamicState` (forced on for 1.3+; `vkCmdBindVertexBuffers2`),
+  where the pipeline's `VertexStreamDesc::stride` is not even written into the pipeline;
+  stride 0 reads every vertex from the offset and no layer objects (legal in both APIs). The
+  binding's `NriVertexBuffer.Stride` / `SetVertexBuffer` stride had a default of 0, which invited
+  it; no default now. Not a validation check: a false positive for intended stride 0.
 - Pipeline cache after one compute pipeline: VK 6,872 B, D3D12 3,318 B; rebuilt from bytes, same size.
   Stale or foreign bytes: `CreatePipelineCache` throws `NriException` with `OUT_OF_DATE` and hands
   nothing back to leak. NRI's `CreateImplementation` (`DeviceVK.h`, `DeviceD3D12.h`) destroys the
@@ -697,6 +753,32 @@ extensions.
   the Streamer). Batches not recorded by `EndStreamerFrame` are discarded (`EndFrame` clears them);
   NRI's generation check on a stale batch is an `NRI_CHECK`, an `assert`, gone in release builds;
   only NRI validation refuses it.
+- **Streamer initial size (patch 0012).** Upstream `StreamerImpl::Create` never reads
+  `dynamicBufferDesc.size` (header: `"size" is ignored`): the ring starts empty, `Grow` sizes the
+  new buffer to exactly `Align(offset, 64 KiB) * queuedFrameNum` (no geometric factor), parks the
+  old one in `m_GarbageInFlight` and `EndFrame` destroys it `queuedFrameNum + 1` frames later on
+  the caller's thread under the streamer's lock. `StreamBufferData` / `StreamTextureData` hold the
+  spin lock across `Grow`, `MapBuffer`, the memcpy and `UnmapBuffer`; `MapBuffer` is a pointer add
+  on both backends (VMA persistently mapped; D3D12 mapped once at creation, `UnmapBuffer` empty).
+  The patch pre-allocates through `Grow` in `Create`; measured (VK, D3D12): 100 KiB x 2 gives
+  262,144 B at creation, unchanged over frames streaming 64 KiB, 393,216 B after one 192 KiB
+  frame. Not taken, by this repo's rule and by the code: geometric growth (policy, not a bug; a
+  sized ring never grows), freeing outside `EndFrame` (the header makes `EndStreamerFrame` the
+  synchronisation point), memcpy outside the lock (a concurrent `Grow` replaces `m_DynamicBuffer`,
+  so the pointer and buffer must be captured under the lock, and non-coherent VK memory keeps one
+  flush range per `BufferVK`, which two unlocked callers would clobber), and a reserve-then-fill or
+  fence-retired mode (a second allocator inside NRI's streamer; the same ring on core objects
+  belongs above NRI).
+- **Swap chain extent with present scaling (patch 0014).** `SwapChainVK::Create` queried
+  `VkSurfacePresentScalingCapabilitiesKHR` but validated `width`/`height` against
+  `surfaceCaps.minImageExtent/maxImageExtent` (on Windows both equal the current client size),
+  then decided `isScalingSupported` after the check; `minScaledImageExtent` was never read. With
+  scaling, Vulkan requires the extent in the scaled range (VUID-VkSwapchainCreateInfoKHR-pNext-07782).
+  The patch decides scaling first and checks the scaled range when it applies. Measured in the
+  resize child (NVIDIA): a 100x80 swap chain on a 64x64 window, refused before
+  ("swapChainDesc.width is out of [64, 64] range"), now creates 100x80 textures and presents 2 of
+  2; the wrapped device without scaling still refuses, as it must. Not a clamp: a silently
+  resized swap chain would change what `GetSwapChainDesc` answers.
 - SwapChain / Streamer tests on NONE only prove the marshalling: NONE has no validation, nothing
   says the calls are legal.
 - **Video**: H.265 Annex-B writing returns `UNSUPPORTED` for short/long-term reference sets, VUI,

@@ -11,7 +11,7 @@ $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..' '..')).Path
 $nri = Join-Path $root 'nri'
 foreach ($p in @(Get-ChildItem (Join-Path $root 'patches') -Filter '*.patch' -File | Sort-Object Name)) {
-    git -C $nri apply --check --reverse $p.FullName 2>$null
+    git -C $nri apply --check --reverse -C0 $p.FullName 2>$null  # -C0: a later patch may change a line within this one's context
     if ($LASTEXITCODE -eq 0) { Write-Host "$($p.Name): already applied, skipped"; continue }
     git -C $nri apply --check $p.FullName
     if ($LASTEXITCODE -ne 0) { throw "patch $($p.Name) does not apply to nri/" }

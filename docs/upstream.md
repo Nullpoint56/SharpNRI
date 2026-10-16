@@ -15,6 +15,11 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | bug (reporting) | to file with 0003 |
 | 0010 Streamer stages compressed textures in texel rows | bug | to file with 0003 |
 | 0011 Streamer `queuedFrameNum` comment promises a +1 the code dropped | bug (docs) | to file with 0003 |
+| 0013 EXCLUSIVE images created with queue family indices | bug (validation noise) | to file with 0003 |
+| 0014 Swap chain extent checked against the unscaled range with present scaling | bug | to file with 0003 |
+| 0015 Khronos message id name not forwarded | bug (reporting) | to file with 0003 |
+| 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | bug (validation) | to file with 0003 |
+| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | to file after 0003 |
 | 0001 Agility SDK from a path | proposal | to file after 0003 |
 | 0002 SharedHandle extension | proposal | to file once the editor has used it |
 
@@ -224,3 +229,78 @@ in one buffer. A caller who believes the comment gets one region too few, and th
 filled overwrites data the oldest queued frame may still read. Fix: the comment (the patch), or
 restore the `++`; the patch takes the comment so no caller's memory use changes. Patch attached
 (`patches/0011-streamer-queued-frame-num-comment.patch`), one line.
+
+## 0013 — EXCLUSIVE images are created with queue family indices
+
+**Title:** VK: `queueFamilyIndexCount` is passed for `VK_SHARING_MODE_EXCLUSIVE` images
+
+`DeviceVK::FillCreateInfo` (`Source/VK/DeviceVK.hpp`) sets `queueFamilyIndexCount =
+m_NumActiveFamilyIndices` and `pQueueFamilyIndices` whatever `sharingMode` it chose. Vulkan
+ignores both for `VK_SHARING_MODE_EXCLUSIVE`, and the Khronos best-practices checks report
+`BestPractices-vkCreateImage-sharing-mode-exclusive` ("pCreateInfo->sharingMode is
+VK_SHARING_MODE_EXCLUSIVE while specifying multiple queues (queueFamilyIndexCount of 3)") for
+every such image once more than one family is active. Measured on v190, NVIDIA, layer 1.4.341,
+with graphics, compute and copy queues fetched and `TextureDesc::sharingMode = EXCLUSIVE`. Fix:
+pass the indices only for `VK_SHARING_MODE_CONCURRENT`. Patch attached
+(`patches/0013-vulkan-exclusive-image-no-family-indices.patch`), two lines.
+
+## 0014 — Swap chain extent is checked against the unscaled range with present scaling
+
+**Title:** VK: `SwapChainVK::Create` refuses extents the scaled range allows
+
+`SwapChainVK::Create` queries `VkSurfacePresentScalingCapabilitiesKHR` when
+`swapChainMaintenance1` is supported and chains `VkSwapchainPresentScalingCreateInfoKHR` into the
+swap chain, but validates `swapChainDesc.width` / `height` against
+`surfaceCaps.minImageExtent` / `maxImageExtent`, never reads `minScaledImageExtent` /
+`maxScaledImageExtent`, and decides `isScalingSupported` only after the check. With a scaling
+create info the spec requires the extent in the scaled range
+(VUID-VkSwapchainCreateInfoKHR-pNext-07782), and on a Win32 surface the unscaled minimum and
+maximum are both the current extent, so every size other than the window's client size at that
+instant is refused with `INVALID_ARGUMENT` ("swapChainDesc.width is out of [64, 64] range"): a size
+that lagged a resize, or a window minimised at creation. Measured on v190, NVIDIA: a 100x80 swap
+chain on a 64x64 window is refused; with the patch it creates 100x80 images and presents; a
+device without the extension is still refused, as required. Fix: decide scaling first and check
+the scaled range when scaling is used. Patch attached
+(`patches/0014-vulkan-swapchain-scaled-extent-check.patch`), about twelve lines.
+
+## 0015 — Khronos message id name is not forwarded
+
+**Title:** VK: forward `pMessageIdName` from the debug-utils callback
+
+`DeviceVK::MessageCallback` reports `"[%u] %s"` with `messageIdNumber` and `pMessage`. The layers
+of the 1.4.3xx SDKs put the check name (`VUID-...`, `BestPractices-...`, `WARNING-...`) only in
+`pMessageIdName`; `pMessage` starts with the function name. The forwarded text therefore has a
+number and no name to read or search for (measured: `[1734198062] vkCreateDevice(): Attempting to
+enable extension VK_EXT_custom_border_color, ...`). Fix: `"[%u] %s: %s"` when `pMessageIdName` is
+non-null. Patch attached (`patches/0015-vulkan-message-id-name.patch`), four lines.
+
+## 0016 — Validation refuses a pipeline layout whose `shaderStages` is `ALL`
+
+**Title:** Validation: `PipelineLayoutDesc::shaderStages = ALL` is treated as no stages
+
+`StageBits::ALL` is 0. `PipelineLayoutD3D12` maps a layout `shaderStages` of `ALL` to
+`ALL_SHADERS` and `PipelineLayoutVK` does not read it, so the backends accept it.
+`DeviceVal::CreatePipelineLayout` computes `range.shaderStages & pipelineLayoutDesc.shaderStages`
+and refuses every range with explicit stages ("'descriptorSets[0].ranges[0].shaderStages' is not
+compatible with 'shaderStages'"), and `DeviceVal::CreateGraphicsPipeline` checks
+`shaderDesc->stage & shaderStages` and refuses every shader ("'shaders[0].stage' is not enabled in
+the pipeline layout"). Measured on v190, Vulkan and D3D12. Fix: map `ALL` to `ALL_SHADERS` in both
+checks, as the D3D12 backend does. Patch attached
+(`patches/0016-validation-pipeline-layout-all-stages.patch`), three lines.
+
+## 0012 — `StreamerDesc::dynamicBufferDesc.size` as the initial size of the dynamic buffer
+
+**Title:** Streamer: honour `dynamicBufferDesc.size` as the initial per-frame size
+
+`StreamerImpl::Create` stores `dynamicBufferDesc` and never reads `size` (the header says `"size"
+is ignored`). The dynamic buffer starts empty; `Grow` creates a committed buffer of
+`Align(offset, 64 KiB) * queuedFrameNum` at every new per-frame high-water mark and parks the
+previous one, which `EndFrame` destroys `queuedFrameNum + 1` frames later on the calling thread
+under the streamer's lock. A loader that streams a level through the Streamer pays one committed
+allocation per high-water mark, the page faults of each fresh buffer inside the copy, and the
+frees inside `EndStreamerFrame` (a consumer measured 222 stream calls at 477 ms, single calls up
+to 62 ms, and `EndStreamerFrame` at 189 ms per level load). Proposal: `size` is the initial
+per-frame size; `Create` runs `Grow` with it; 0 keeps today's behaviour. Measured with the patch
+on v190, Vulkan and D3D12: 100 KiB with `queuedFrameNum = 2` gives one 262,144-byte buffer at
+creation that frames streaming 64 KiB keep, and a 192 KiB frame grows it to 393,216 bytes. Patch
+attached (`patches/0012-streamer-dynamic-buffer-initial-size.patch`), eight lines and the comment.

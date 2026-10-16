@@ -1,0 +1,49 @@
+Streamer: dynamicBufferDesc.size is the initial per-frame size of the dynamic buffer.
+
+StreamerImpl::Create stores dynamicBufferDesc and never reads its size (the header says it is
+ignored): the dynamic buffer starts empty, and Grow creates a committed buffer of
+Align(offset, 64 KiB) * queuedFrameNum at every new per-frame high-water mark, parking the previous
+one until EndFrame destroys it queuedFrameNum + 1 frames later, on the calling thread. A caller
+that knows its per-frame volume pays one allocation per high-water mark, the first-touch page
+faults of each fresh buffer inside the copy, and the frees inside EndStreamerFrame, for nothing.
+
+This gives the field a meaning: a non-zero size is the initial per-frame size, allocated at
+creation through Grow (rounded up to the 64 KiB chunk, times queuedFrameNum); a frame that streams
+more still grows the buffer as before. 0 keeps the on-demand growth, so no existing caller changes.
+Measured on v190, Vulkan and D3D12: 100 KiB with queuedFrameNum 2 gives one 262,144-byte buffer at
+creation that frames streaming 64 KiB keep; a 192 KiB frame grows it to 393,216 bytes.
+
+Applies after 0011 (the header hunk's context carries 0011's queuedFrameNum comment).
+
+diff --git a/Include/Extensions/NRIStreamer.h b/Include/Extensions/NRIStreamer.h
+index 86fe2f8..2ca041a 100644
+--- a/Include/Extensions/NRIStreamer.h
++++ b/Include/Extensions/NRIStreamer.h
+@@ -32,7 +32,7 @@ NriStruct(StreamerDesc) {
+ 
+     // Dynamically (re)allocated ring-buffer for copying and rendering
+     Nri(MemoryLocation) dynamicBufferMemoryLocation;                // UPLOAD or DEVICE_UPLOAD
+-    Nri(BufferDesc) dynamicBufferDesc;                              // "size" is ignored
++    Nri(BufferDesc) dynamicBufferDesc;                              // "size" is the initial per-frame size (0 - allocate on demand), the buffer still grows if a frame streams more
+     uint32_t queuedFrameNum;                                        // number of frames "in-flight" (usually 2-3), including the current "not-yet-committed" frame, i.e. data streamed in a frame is overwritten "queuedFrameNum" frames later
+ 
+     // Statically allocated read/write ring-buffer for generic CPU data
+diff --git a/Source/Shared/StreamerInterface.hpp b/Source/Shared/StreamerInterface.hpp
+index b783061..9b74bd5 100644
+--- a/Source/Shared/StreamerInterface.hpp
++++ b/Source/Shared/StreamerInterface.hpp
+@@ -59,6 +59,14 @@ Result StreamerImpl::Create(const StreamerDesc& desc) {
+ 
+     m_Desc = desc;
+ 
++    // Pre-allocate the dynamic buffer if an initial per-frame size is requested (otherwise it grows on demand)
++    if (desc.dynamicBufferDesc.size) {
++        m_DynamicBufferOffset = desc.dynamicBufferDesc.size;
++        if (!Grow())
++            return Result::FAILURE;
++        m_DynamicBufferOffset = 0;
++    }
++
+     return Result::SUCCESS;
+ }
+ 

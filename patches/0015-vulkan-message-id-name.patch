@@ -1,0 +1,26 @@
+VK: the debug-utils callback forwards pMessageIdName.
+
+DeviceVK::MessageCallback reports "[%u] %s" with messageIdNumber and pMessage. The layers of the
+1.4.3xx SDKs put the check name (VUID-..., BestPractices-..., WARNING-...) only in pMessageIdName
+and start pMessage with the function name, so the forwarded text has a number and no name to
+read or search for: "[1734198062] vkCreateDevice(): Attempting to enable extension
+VK_EXT_custom_border_color, ...".
+
+This reports "[%u] %s: %s" when pMessageIdName is set; messages without a name are unchanged.
+
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index 0bf9234..d772481 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -284,7 +284,10 @@ static VkBool32 VKAPI_PTR MessageCallback(VkDebugUtilsMessageSeverityFlagBitsEXT
+     } else if (messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
+         severity = Message::WARNING;
+ 
+-    device.ReportMessage(severity, result, __FILE__, __LINE__, "[%u] %s", callbackData->messageIdNumber, callbackData->pMessage);
++    if (callbackData->pMessageIdName)
++        device.ReportMessage(severity, result, __FILE__, __LINE__, "[%u] %s: %s", callbackData->messageIdNumber, callbackData->pMessageIdName, callbackData->pMessage);
++    else
++        device.ReportMessage(severity, result, __FILE__, __LINE__, "[%u] %s", callbackData->messageIdNumber, callbackData->pMessage);
+ 
+     return VK_FALSE;
+ }

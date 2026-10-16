@@ -151,7 +151,12 @@ public sealed unsafe class NriStreamerExtension
     }
 
     /// <summary>
-    /// A streamer. <c>dynamicBufferDesc.size</c> is ignored (the buffer grows on demand).
+    /// A streamer. <c>dynamicBufferDesc.size</c> is the initial per-frame size of the dynamic
+    /// buffer, allocated at creation (patch 0012; upstream ignores it and grows from empty): the
+    /// buffer is <c>size</c> rounded up to 64 KiB times <c>queuedFrameNum</c>, and a frame that
+    /// streams more than the per-frame size still grows it (a new committed buffer, the old one
+    /// destroyed <c>queuedFrameNum</c> frames later by <see cref="EndStreamerFrame"/>). 0 grows on
+    /// demand from empty, one committed buffer per new per-frame high-water mark.
     /// <c>queuedFrameNum</c> is the number of per-frame regions in the dynamic buffer, the frame
     /// being filled included: data streamed in a frame is overwritten <c>queuedFrameNum</c> frames
     /// later, so the GPU must be done with frame N before frame N + <c>queuedFrameNum</c> streams

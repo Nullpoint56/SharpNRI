@@ -51,7 +51,7 @@ if ($headerVersion -ne $NriVersion) { throw "nri/ is at NRI_VERSION $headerVersi
 # patched headers, because the native library is built from them and the ABI oracle measures them.
 $patches = @(Get-ChildItem (Join-Path $root "patches") -Filter "*.patch" -File -ErrorAction SilentlyContinue | Sort-Object Name)
 foreach ($p in $patches) {
-    git -C $nri apply --check --reverse $p.FullName 2>$null
+    git -C $nri apply --check --reverse -C0 $p.FullName 2>$null  # -C0: a later patch may change a line within this one's context
     if ($LASTEXITCODE -eq 0) { Write-Host "==> patch $($p.Name): already applied"; continue }
     git -C $nri apply --check $p.FullName
     if ($LASTEXITCODE -ne 0) { throw "patch $($p.Name) does not apply to nri/ at v$NriVersion" }

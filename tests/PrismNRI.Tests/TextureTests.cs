@@ -42,6 +42,65 @@ public sealed class TextureTests
         sampleNum = 1,
     };
 
+    /// <summary>
+    /// An EXCLUSIVE texture reaches vkCreateImage with no queue family indices (patch 0013).
+    /// Upstream NRI passes every active family's index whatever the sharing mode; Vulkan ignores
+    /// them for EXCLUSIVE, and the Khronos best-practices checks warn about the ignored indices
+    /// on every such image. Three queue families are fetched so the device has three active
+    /// indices, like an engine with graphics, compute and copy queues; the best-practices checks
+    /// are switched on through the layer's environment variable for this device only, with a
+    /// committed 64 KiB buffer's dedicated-allocation warning as the marker that they are active
+    /// (the layer reads the process environment, which .NET on Unix does not update, so the test
+    /// skips there). The marker also shows that a forwarded message carries the layer's id name
+    /// (patch 0015): upstream NRI forwards the number and the text, and the name is only in
+    /// pMessageIdName.
+    /// </summary>
+    [Fact]
+    public void An_EXCLUSIVE_texture_is_created_without_queue_family_indices()
+    {
+        TestDevice.RequireAvailable(new Backend(GraphicsAPI.VK));
+        const string setting = "VK_KHRONOS_VALIDATION_VALIDATE_BEST_PRACTICES";
+        var messages = new List<NriMessage>();
+        NriDevice device;
+        var previous = Environment.GetEnvironmentVariable(setting);
+        Environment.SetEnvironmentVariable(setting, "true");
+        try
+        {
+            device = TestDevice.Create(GraphicsAPI.VK, messages, b => b.QueueFamilies =
+                [new NriQueueFamily(QueueType.GRAPHICS), new NriQueueFamily(QueueType.COMPUTE), new NriQueueFamily(QueueType.COPY)]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(setting, previous);
+        }
+        using var _ = device;
+        foreach (var type in new[] { QueueType.GRAPHICS, QueueType.COMPUTE, QueueType.COPY }) device.GetQueue(type); // each makes its family index "active"
+
+        const string marker = "small-dedicated-allocation";
+        using (device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = 64 * 1024 }))
+        {
+        }
+        var markerMessages = messages.Where(m => m.Text.Contains(marker, StringComparison.Ordinal) || m.Text.Contains("fully consumed by the buffer", StringComparison.Ordinal)).ToList();
+        Assert.SkipWhen(markerMessages.Count == 0, $"the Khronos best-practices checks did not activate ({setting} is read from the process environment at instance creation; no '{marker}' warning for a committed 64 KiB buffer)");
+        Assert.Contains("] BestPractices-", markerMessages[0].Text); // the id name, forwarded by patch 0015
+
+        var before = messages.Count;
+        var desc = Texture2D(TextureUsageBits.COLOR_ATTACHMENT, Format.RGBA8_UNORM, 64, 64);
+        desc.sharingMode = SharingMode.EXCLUSIVE;
+        using (device.CreateCommittedTexture(MemoryLocation.DEVICE, desc))
+        {
+        }
+        desc.sharingMode = SharingMode.CONCURRENT;
+        using (device.CreateCommittedTexture(MemoryLocation.DEVICE, desc))
+        {
+        }
+        var during = messages.Skip(before).Where(m => m.IsWarning || m.IsError).Select(m => m.Text).ToList();
+        foreach (var text in during) GpuWork.Record("message on texture creation: " + text);
+
+        Assert.DoesNotContain(during, t => t.Contains("EXCLUSIVE", StringComparison.Ordinal) || t.Contains("sharing", StringComparison.OrdinalIgnoreCase) || t.Contains("queueFamilyIndexCount", StringComparison.Ordinal));
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
     [Theory]
     [MemberData(nameof(GpuBackendsAndUsages))]
     public void Committed_2D_texture_is_created_with_each_usage(Backend backend, TextureUsageBits usage)

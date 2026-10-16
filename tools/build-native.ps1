@@ -151,7 +151,7 @@ $patchHash = [Convert]::ToHexString($sha.ComputeHash([System.Text.Encoding]::UTF
 
 Write-Host "==> patches: $($patches.Count)"
 foreach ($p in $patches) {
-    git -C $nri apply --check --reverse $p.FullName 2>$null
+    git -C $nri apply --check --reverse -C0 $p.FullName 2>$null  # -C0: a later patch may change a line within this one's context
     if ($LASTEXITCODE -eq 0) { Write-Host "    $($p.Name): already applied, skipped"; continue }
     git -C $nri apply --check $p.FullName
     if ($LASTEXITCODE -ne 0) { throw "patch $($p.Name) does not apply to nri/ at v$NriVersion" }

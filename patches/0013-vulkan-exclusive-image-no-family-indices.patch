@@ -1,0 +1,27 @@
+VK: no queue family indices for VK_SHARING_MODE_EXCLUSIVE images.
+
+DeviceVK::FillCreateInfo sets queueFamilyIndexCount to the number of active families and
+pQueueFamilyIndices to their indices whatever sharingMode it chose. Vulkan ignores both for
+VK_SHARING_MODE_EXCLUSIVE, and the Khronos best-practices checks report
+BestPractices-vkCreateImage-sharing-mode-exclusive ("pCreateInfo->sharingMode is
+VK_SHARING_MODE_EXCLUSIVE while specifying multiple queues (queueFamilyIndexCount of 3)") for every
+such image once more than one family is active. Measured on v190, NVIDIA, layer 1.4.341, with
+graphics, compute and copy queues fetched and TextureDesc::sharingMode = EXCLUSIVE.
+
+This passes the indices for VK_SHARING_MODE_CONCURRENT only.
+
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index 0bf9234..d772481 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -1795,8 +1795,8 @@ void DeviceVK::FillCreateInfo(const TextureDesc& textureDesc, VkImageCreateInfo&
+     if ((textureDesc.usage & TextureUsageBits::HOST_TRANSFER) && m_IsSupported.hostImageCopy)
+         info.usage |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
+     info.sharingMode = (m_NumActiveFamilyIndices <= 1 || textureDesc.sharingMode == SharingMode::EXCLUSIVE) ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT;
+-    info.queueFamilyIndexCount = m_NumActiveFamilyIndices;
+-    info.pQueueFamilyIndices = m_ActiveQueueFamilyIndices.data();
++    info.queueFamilyIndexCount = info.sharingMode == VK_SHARING_MODE_CONCURRENT ? m_NumActiveFamilyIndices : 0; // ignored for EXCLUSIVE, but validation layers warn if provided
++    info.pQueueFamilyIndices = info.sharingMode == VK_SHARING_MODE_CONCURRENT ? m_ActiveQueueFamilyIndices.data() : nullptr;
+     info.initialLayout = IsMemoryZeroInitializationEnabled() ? VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT : VK_IMAGE_LAYOUT_UNDEFINED;
+ }
+ 
