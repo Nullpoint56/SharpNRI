@@ -61,10 +61,10 @@ public partial struct DeviceDesc
     [NativeTypeName("__AnonymousRecord_NRIDescs_L2226_C5")]
     public _features_e__Struct features;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2302_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2303_C5")]
     public _shaderFeatures_e__Struct shaderFeatures;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2350_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2351_C5")]
     public _videoFeatures_e__Struct videoFeatures;
 
     public partial struct _viewport_e__Struct
@@ -634,6 +634,9 @@ public partial struct DeviceDesc
         public byte resizableSwapChain;
 
         [NativeTypeName("bool")]
+        public byte latestReadySwapChain;
+
+        [NativeTypeName("bool")]
         public byte flexibleMultiview;
 
         [NativeTypeName("bool")]
@@ -870,10 +873,10 @@ public partial struct DeviceDesc
 
     public partial struct _videoFeatures_e__Struct
     {
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2351_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2352_C9")]
         public _decode_e__Struct decode;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2357_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2358_C9")]
         public _encode_e__Struct encode;
 
         public partial struct _decode_e__Struct

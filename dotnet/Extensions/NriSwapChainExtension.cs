@@ -32,6 +32,12 @@ public sealed class NriSwapChainDesc
     /// <summary>Desired format; the real one is the <c>TextureDesc</c> of a swap chain texture.</summary>
     public SwapChainFormat Format { get; init; }
 
+    /// <summary>
+    /// <c>LATEST_READY</c> with <c>VSYNC</c> asks for FIFO_LATEST_READY on Vulkan (vblank-paced, the
+    /// newest ready image, no tearing) when <c>features.latestReadySwapChain</c> is set, and is
+    /// ignored otherwise (FIFO, or FIFO_RELAXED with <c>ALLOW_TEARING</c>). NRI never reports the
+    /// present mode it chose.
+    /// </summary>
     public SwapChainBits Flags { get; init; }
 
     /// <summary>Optional, "max frame latency". 0 auto-selects 1 (waitable) or 2.</summary>
