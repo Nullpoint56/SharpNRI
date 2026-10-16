@@ -10,4 +10,5 @@ public enum SwapChainBits : byte
     WAITABLE = (1 << 1),
     ALLOW_TEARING = (1 << 2),
     ALLOW_LOW_LATENCY = (1 << 3),
+    LATEST_READY = (1 << 4),
 }

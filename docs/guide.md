@@ -585,6 +585,15 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   swap chain on a 64x64 window creates with 100x80 textures and presents. Without scaling (a
   wrapped device with only `VK_KHR_swapchain`) the refusal stays, as Vulkan requires. A 0x0
   extent is refused either way: do not create or rebuild for a minimised window.
+- **`SwapChainBits.LATEST_READY` with `VSYNC`** (patch 0017) asks for Vulkan's FIFO_LATEST_READY:
+  paced to the display like FIFO, no tearing, but at each vblank the newest ready image is shown
+  and older queued ones are dropped. It applies only when `device.Desc.features.latestReadySwapChain`
+  is set (Vulkan with `VK_EXT_present_mode_fifo_latest_ready`); otherwise, and on D3D12, the bit is
+  ignored and `VSYNC` gives FIFO (FIFO_RELAXED with `ALLOW_TEARING`). Without `VSYNC` the bit does
+  nothing: NRI's uncapped order is MAILBOX (or IMMEDIATE with tearing) first, and FIFO_LATEST_READY
+  only where MAILBOX is not offered. NRI never reports the present mode it chose, so the feature
+  bit is the only answer. Measured on NVIDIA: the feature is 1 and a `VSYNC | LATEST_READY` swap
+  chain presents with the Khronos layer clean.
 
 ### MeshShader, DescriptorHeap, Imgui
 

@@ -15,6 +15,7 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2: after the maintainer engages; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
+| 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2: after the maintainer engages; the uncapped order is his and stays |
 | 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2: enhancement issue; per-frame vs total semantics is his call |
 | 0001 Agility SDK from a path | proposal | phase 2: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
 | 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
@@ -293,3 +294,24 @@ per-frame size; `Create` runs `Grow` with it; 0 keeps today's behaviour. Measure
 on v190, Vulkan and D3D12: 100 KiB with `queuedFrameNum = 2` gives one 262,144-byte buffer at
 creation that frames streaming 64 KiB keep, and a 192 KiB frame grows it to 393,216 bytes. Patch
 attached (`patches/0012-streamer-dynamic-buffer-initial-size.patch`), eight lines and the comment.
+
+## 0017 — `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC`
+
+**Title:** SwapChain: a way to ask for `FIFO_LATEST_READY` with `VSYNC`
+
+`SwapChainVK::Create` maps `flags` on two preference lists. With `VSYNC` the list is
+`FIFO_RELAXED` (with `ALLOW_TEARING`) or `FIFO`, then `FIFO`; without `VSYNC` it is `MAILBOX`
+(`IMMEDIATE` with `ALLOW_TEARING`), then `FIFO_LATEST_READY` when
+`VK_EXT_present_mode_fifo_latest_ready` is supported, then `FIFO` (`SwapChainVK.hpp:238-242`,
+since 50d103b). Where `MAILBOX` is offered (always on NVIDIA) `FIFO_LATEST_READY` is never chosen,
+and with `VSYNC` it is not in the list, so a caller that wants a vblank-paced swap chain that
+presents the newest ready image cannot ask for it; NRI does not report the chosen present mode
+either. The uncapped order stays as it is: `NONE` means uncapped, and `FIFO_LATEST_READY` queues
+presents like `FIFO`. Proposal: `SwapChainBits::LATEST_READY`, which with `VSYNC` puts
+`FIFO_LATEST_READY` first in the capped list when the device supports it and is ignored
+otherwise (D3D11/D3D12 drop it), and `DeviceDesc::features.latestReadySwapChain` reporting the
+support. Measured on v190, NVIDIA (the surface offers `FIFO_LATEST_READY` and `MAILBOX`):
+`features.latestReadySwapChain = 1`, a `VSYNC | LATEST_READY` swap chain creates and presents
+with the Khronos layer clean; the same mode forced on a device without the feature is reported
+("presentMode is VK_PRESENT_MODE_FIFO_LATEST_READY_KHR, but feature presentModeFifoLatestReady is
+not enabled"). Patch attached (`patches/0017-swapchain-latest-ready-bit.patch`), thirteen lines.

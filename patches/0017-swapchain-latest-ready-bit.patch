@@ -1,0 +1,110 @@
+VK: SwapChainBits::LATEST_READY prefers FIFO_LATEST_READY with VSYNC; features.latestReadySwapChain reports it.
+
+SwapChainVK::Create maps "flags" on two preference lists. With VSYNC the list is FIFO_RELAXED (with
+ALLOW_TEARING) or FIFO, then FIFO; without VSYNC it is MAILBOX (IMMEDIATE with ALLOW_TEARING),
+then FIFO_LATEST_READY when VK_EXT_present_mode_fifo_latest_ready is supported, then FIFO. Where
+MAILBOX is offered (always on NVIDIA) the FIFO_LATEST_READY entry hooked up in 50d103b is never
+reached, and with VSYNC it is not in the list at all, so a caller that wants a vblank-paced
+swap chain presenting the newest ready image has no way to ask for it. NRI doesn't report the
+chosen present mode, so the caller can't find out either.
+
+This adds SwapChainBits::LATEST_READY: with VSYNC, FIFO_LATEST_READY goes first in the capped
+list when the device supports it, and the bit is dropped from the swap chain's flags unless that
+mode was chosen. features.latestReadySwapChain reports the support (VK only; D3D11 and D3D12 drop
+the bit, DXGI has no such mode). The uncapped list and every existing combination of flags
+choose what they chose before. Measured on v190, NVIDIA (the surface offers FIFO_LATEST_READY and
+MAILBOX): features.latestReadySwapChain = 1, a VSYNC | LATEST_READY swap chain creates and
+presents with the Khronos layer clean; forcing the mode on a device without the feature gives
+"presentMode is VK_PRESENT_MODE_FIFO_LATEST_READY_KHR, but feature presentModeFifoLatestReady is
+not enabled".
+
+diff --git a/Include/Extensions/NRISwapChain.h b/Include/Extensions/NRISwapChain.h
+index 6097871..b6b1b35 100644
+--- a/Include/Extensions/NRISwapChain.h
++++ b/Include/Extensions/NRISwapChain.h
+@@ -49,7 +49,8 @@ NriBits(SwapChainBits, uint8_t,
+     VSYNC               = NriBit(0), // cap framerate to the monitor refresh rate
+     WAITABLE            = NriBit(1), // unlock "WaitForPresent" reducing latency (requires "features.waitableSwapChain")
+     ALLOW_TEARING       = NriBit(2), // allow screen tearing if possible (METAL: "displaySyncEnabled = NO", may show partially rendered frames)
+-    ALLOW_LOW_LATENCY   = NriBit(3)  // allow "NRILowLatency" functionality (requires "features.lowLatency")
++    ALLOW_LOW_LATENCY   = NriBit(3), // allow "NRILowLatency" functionality (requires "features.lowLatency")
++    LATEST_READY        = NriBit(4)  // VK: with "VSYNC" prefer "FIFO_LATEST_READY" (the newest ready image at vblank, no tearing) over "FIFO" (requires "features.latestReadySwapChain", ignored otherwise)
+ );
+ 
+ NriStruct(WindowsWindow) {  // Expects "WIN32" platform macro
+diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
+index 247960d..68ee4dd 100644
+--- a/Include/NRIDescs.h
++++ b/Include/NRIDescs.h
+@@ -2229,6 +2229,7 @@ NriStruct(DeviceDesc) {
+         bool presentFromCompute;                                  // see "SwapChainDesc::queue"
+         bool waitableSwapChain;                                   // see "SwapChainDesc::waitable"
+         bool resizableSwapChain;                                  // swap chain can be resized without triggering an "OUT_OF_DATE" error
++        bool latestReadySwapChain;                                // see "SwapChainBits::LATEST_READY"
+ 
+         // Multi view
+         bool flexibleMultiview;                                   // see "Multiview::FLEXIBLE"
+diff --git a/Source/D3D11/SwapChainD3D11.hpp b/Source/D3D11/SwapChainD3D11.hpp
+index 16761da..81fe9e1 100644
+--- a/Source/D3D11/SwapChainD3D11.hpp
++++ b/Source/D3D11/SwapChainD3D11.hpp
+@@ -164,6 +164,7 @@ Result SwapChainD3D11::Create(const SwapChainDesc& swapChainDesc) {
+         m_Flags &= ~SwapChainBits::ALLOW_TEARING;
+     if (!m_FrameLatencyWaitableObject)
+         m_Flags &= ~SwapChainBits::WAITABLE;
++    m_Flags &= ~SwapChainBits::LATEST_READY; // DXGI has no such mode
+ 
+     return Result::SUCCESS;
+ }
+diff --git a/Source/D3D12/SwapChainD3D12.hpp b/Source/D3D12/SwapChainD3D12.hpp
+index 27c8a9c..1415b2f 100644
+--- a/Source/D3D12/SwapChainD3D12.hpp
++++ b/Source/D3D12/SwapChainD3D12.hpp
+@@ -163,6 +163,7 @@ Result SwapChainD3D12::Create(const SwapChainDesc& swapChainDesc) {
+         m_Flags &= ~SwapChainBits::ALLOW_TEARING;
+     if (!m_FrameLatencyWaitableObject)
+         m_Flags &= ~SwapChainBits::WAITABLE;
++    m_Flags &= ~SwapChainBits::LATEST_READY; // DXGI has no such mode
+ 
+     return Result::SUCCESS;
+ }
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index d772481..c97a530 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -1596,6 +1596,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+         m_Desc.features.presentFromCompute = true;
+         m_Desc.features.waitableSwapChain = m_Desc.features.swapChain != 0 && PresentIdFeatures.presentId != 0 && PresentWaitFeatures.presentWait != 0;
+         m_Desc.features.resizableSwapChain = m_Desc.features.swapChain != 0 && m_IsSupported.swapChainMaintenance1 != 0;
++        m_Desc.features.latestReadySwapChain = m_Desc.features.swapChain != 0 && m_IsSupported.fifoLatestReady != 0;
+         m_Desc.features.layerBasedMultiview = features11.multiview;
+         m_Desc.features.textureCompressionBC = features.features.textureCompressionBC;
+         m_Desc.features.textureCompressionETC2 = features.features.textureCompressionETC2;
+diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
+index 70a947a..22fadb9 100644
+--- a/Source/VK/SwapChainVK.hpp
++++ b/Source/VK/SwapChainVK.hpp
+@@ -230,8 +230,13 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
+         VkResult vkResult = vk.GetPhysicalDeviceSurfacePresentModesKHR(m_Device, m_Surface, &surfacePresentModeNum, surfacePresentModes.data());
+         NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkGetPhysicalDeviceSurfacePresentModesKHR");
+ 
++        // "LATEST_READY" with "VSYNC": queued like "FIFO", but the newest ready image is taken at vblank
++        bool latestReady = (swapChainDesc.flags & SwapChainBits::LATEST_READY) && m_Device.m_IsSupported.fifoLatestReady;
++        VkPresentModeKHR cappedMode = (swapChainDesc.flags & SwapChainBits::ALLOW_TEARING) ? VK_PRESENT_MODE_FIFO_RELAXED_KHR : VK_PRESENT_MODE_FIFO_KHR;
++
+         const VkPresentModeKHR cappedModes[] = {
+-            (swapChainDesc.flags & SwapChainBits::ALLOW_TEARING) ? VK_PRESENT_MODE_FIFO_RELAXED_KHR : VK_PRESENT_MODE_FIFO_KHR,
++            latestReady ? VK_PRESENT_MODE_FIFO_LATEST_READY_EXT : cappedMode,
++            cappedMode,
+             VK_PRESENT_MODE_FIFO_KHR, // guaranteed to be supported
+         };
+ 
+@@ -446,6 +451,8 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
+         m_Flags &= ~SwapChainBits::ALLOW_LOW_LATENCY;
+     if (!m_Device.GetDesc().features.waitableSwapChain)
+         m_Flags &= ~SwapChainBits::WAITABLE;
++    if (presentMode != VK_PRESENT_MODE_FIFO_LATEST_READY_EXT)
++        m_Flags &= ~SwapChainBits::LATEST_READY;
+ 
+     return Result::SUCCESS;
+ }

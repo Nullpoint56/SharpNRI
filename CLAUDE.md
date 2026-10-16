@@ -294,6 +294,7 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | 0014 vulkan-swapchain-scaled-extent-check | `SwapChainVK::Create` checks the requested extent against `VkSurfacePresentScalingCapabilitiesKHR::min/maxScaledImageExtent` when it creates the swap chain with present scaling, the unscaled range otherwise | upstream always checked the unscaled range, which on Windows is exactly the current client size, so with scaling (where Vulkan allows the scaled range) a size that lagged a resize was refused with `INVALID_ARGUMENT`; measured: 100x80 on a 64x64 window creates and presents |
 | 0015 vulkan-message-id-name | the debug-utils callback forwards `pMessageIdName` as `[id] name: text` when the layer provides one | upstream forwards number and text; current Khronos layers keep the VUID / check name only in `pMessageIdName`, so the forwarded text had no name |
 | 0016 validation-pipeline-layout-all-stages | `DeviceVal::CreatePipelineLayout` and `CreateGraphicsPipeline` read a layout `shaderStages` of `ALL` (0) as `ALL_SHADERS`, as `PipelineLayoutD3D12` does | upstream masked the ranges' stages with 0: a layout with `ALL` refused every range with explicit stages ("not compatible with 'shaderStages'") and every graphics pipeline ("not enabled in the pipeline layout") |
+| 0017 swapchain-latest-ready-bit | `SwapChainBits::LATEST_READY` + `DeviceDesc::features.latestReadySwapChain` (VK: swap chain + `fifoLatestReady`); with `VSYNC` the capped list is FIFO_LATEST_READY, FIFO_RELAXED/FIFO, FIFO; the bit is cleared from `m_Flags` unless that mode was chosen; D3D11/D3D12 clear it | upstream reaches FIFO_LATEST_READY only without `VSYNC` and after MAILBOX, which NVIDIA always offers, so it is never chosen there; NRI never reports the chosen mode |
 
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
@@ -303,8 +304,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0016 each also apply alone onto the bare tag. Patches to a
-  file an earlier patch touches (0012-0016 all are) are cut from a scratch clone at the tag with
+  `git diff --cached HEAD`); 0003-0017 each also apply alone onto the bare tag. Patches to a
+  file an earlier patch touches (0012-0017 all are) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit. There is no 0011: it corrected
   the `queuedFrameNum` header comment only, and a comment is knowledge, not a patch (owner,
   2026-10-16); the fact lives below under Extensions and in the binding's docs.
@@ -790,6 +791,27 @@ extensions.
   ("swapChainDesc.width is out of [64, 64] range"), now creates 100x80 textures and presents 2 of
   2; the wrapped device without scaling still refuses, as it must. Not a clamp: a silently
   resized swap chain would change what `GetSwapChainDesc` answers.
+- **FIFO_LATEST_READY with `VSYNC` (patch 0017).** Upstream `SwapChainVK::Create`
+  (`SwapChainVK.hpp:233-242`, since 50d103b, the commit that hooked the mode up) has a capped list
+  for `VSYNC` (FIFO_RELAXED with `ALLOW_TEARING`, else FIFO; then FIFO) and an uncapped one
+  (MAILBOX, IMMEDIATE with tearing; then FIFO_LATEST_READY when `fifoLatestReady`; then FIFO). The
+  maintainer's comment above them classes FIFO_LATEST_READY as "Uncapped frame rate ... Similar to
+  MAILBOX, but offers lower latency". NVIDIA always offers MAILBOX (the RTX 4070 SUPER surface:
+  FIFO, FIFO_RELAXED, MAILBOX, IMMEDIATE, FIFO_LATEST_READY), so the mode was never chosen.
+  Reordering the uncapped list was refused: flags `NONE` means uncapped, and FIFO_LATEST_READY
+  queues presents like FIFO (acquire blocks once every image is queued), so it would throttle
+  every caller on the default flags, a semantic change to an existing call. The maintainer's order
+  also matches D3D12, where flip-model `Present(0, 0)` is uncapped. Latest-ready is a flavour of
+  vsync, so the patch is a bit that applies with `VSYNC`, and a feature bit because NRI never
+  reports the chosen present mode. Measured (`SwapChainResizeTests` child, NRI-created device,
+  explicit Khronos layer): `features.latestReadySwapChain=1`, 2 of 2 frames presented, no ERROR.
+  Positive control (temporary build, not committed): the same flags on the wrapped device without
+  the extension, with the support check removed, draw "presentMode is
+  VK_PRESENT_MODE_FIFO_LATEST_READY_KHR, but feature presentModeFifoLatestReady is not enabled"
+  from its layer, so a clean run does show NRI enables the feature. A consumer measured on one
+  machine (RTX 4070 SUPER, 165 Hz, self-paced to one frame per refresh) the SM clock settling
+  600-800 MHz higher and 3-8 W more under MAILBOX than under FIFO or FIFO_LATEST_READY; theirs, not
+  verified here, and not the patch's justification.
 - SwapChain / Streamer tests on NONE only prove the marshalling: NONE has no validation, nothing
   says the calls are legal.
 - **Video**: H.265 Annex-B writing returns `UNSUPPORTED` for short/long-term reference sets, VUI,

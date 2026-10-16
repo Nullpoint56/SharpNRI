@@ -63,7 +63,7 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
         // throws) and on any ERROR message from NRI or the validation layer.
         Assert.True(child.ExitCode == 0, $"child exit code {child.ExitCode}: " + string.Join(" | ", lines.Where(l => l.StartsWith("FAIL ", StringComparison.Ordinal))));
         foreach (var result in lines.Where(l => l.StartsWith("RESULT ", StringComparison.Ordinal))) GpuWork.Record(result);
-        Assert.Equal(3, lines.Count(l => l.StartsWith("RESULT ", StringComparison.Ordinal)));
+        Assert.Equal(4, lines.Count(l => l.StartsWith("RESULT ", StringComparison.Ordinal)));
     }
 
     /// <summary>
@@ -145,6 +145,71 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// A swap chain with VSYNC | LATEST_READY (patch 0017): with <c>features.latestReadySwapChain</c>
+    /// NRI puts FIFO_LATEST_READY first in the vsync list, ignores the bit otherwise. NRI never
+    /// reports the chosen present mode; the explicit Khronos layer reports a FIFO_LATEST_READY swap
+    /// chain on a device without presentModeFifoLatestReady enabled, so two clean presents are the
+    /// measurement that NRI enables the feature it advertises.
+    /// </summary>
+    private static bool LatestReady(NriDevice device, List<NriMessage> messages)
+    {
+        var hwnd = CreateWindowExW(0, "STATIC", "PrismNRI latest ready", WS_POPUP, 0, 0, 64, 64, 0, 0, 0, 0);
+        if (hwnd == 0) throw new InvalidOperationException($"CreateWindowEx failed with error {Marshal.GetLastPInvokeError()}");
+        var firstMessage = messages.Count;
+        try
+        {
+            GetClientRect(hwnd, out var rect);
+            var queue = device.GetQueue(QueueType.GRAPHICS);
+            var desc = new NriSwapChainDesc
+            {
+                Window = new NriWindow { Windows = new NriWindowsWindow(Hwnd: hwnd) },
+                Queue = queue,
+                Width = (ushort)(rect.Right - rect.Left),
+                Height = (ushort)(rect.Bottom - rect.Top),
+                TextureNum = 2,
+                Format = SwapChainFormat.BT709_G22_8BIT,
+                Flags = SwapChainBits.VSYNC | SwapChainBits.LATEST_READY,
+            };
+
+            var presented = 0;
+            using (var swapChain = device.SwapChain.CreateSwapChain(desc))
+            using (var acquire = device.CreateFence(NriSwapChainExtension.SwapChainSemaphore))
+            using (var allocator = queue.CreateCommandAllocator())
+            using (var commandBuffer = allocator.CreateCommandBuffer())
+            {
+                var release = swapChain.Textures.Select(_ => device.CreateFence(NriSwapChainExtension.SwapChainSemaphore)).ToArray();
+                var present = new AccessLayoutStage { access = AccessBits.NONE, layout = Layout.PRESENT, stages = StageBits.NONE };
+                for (var frame = 0; frame < 2; frame++)
+                {
+                    if (device.SwapChain.AcquireNextTexture(swapChain, acquire, out var index) == NriSwapChainStatus.OutOfDate) break;
+                    allocator.Reset();
+                    commandBuffer.Begin();
+                    commandBuffer.Barrier(new NriTextureBarrier(swapChain.Textures[(int)index], GpuWork.Undefined, present));
+                    commandBuffer.End();
+                    queue.Submit([commandBuffer], [new NriFenceSubmit(acquire, 0)], [new NriFenceSubmit(release[index], 0)]);
+                    if (device.SwapChain.QueuePresent(swapChain, release[index]) == NriSwapChainStatus.OutOfDate) break;
+                    presented++;
+                    device.WaitIdle();
+                }
+                device.WaitIdle();
+                foreach (var f in release) f.Dispose();
+            }
+            Console.WriteLine($"RESULT latest-ready, features.latestReadySwapChain={device.Desc.features.latestReadySwapChain}: swap chain created, {presented} of 2 frames presented");
+            var ok = true;
+            foreach (var m in messages.Skip(firstMessage))
+            {
+                Console.WriteLine($"{(m.IsError ? "FAIL " : "")}message {m}");
+                ok &= !m.IsError;
+            }
+            return ok && presented == 2;
+        }
+        finally
+        {
+            DestroyWindow(hwnd);
+        }
+    }
+
     // ================================================================================= the child
 
     [ModuleInitializer]
@@ -185,6 +250,7 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
             }
             if (!RunFrames(device, "NRI-created VK device", messages, [])) failed = true;
             if (!StaleExtent(device, messages)) failed = true;
+            if (!LatestReady(device, messages)) failed = true;
         }
 
         // 2. A raw VkDevice with VK_KHR_swapchain only, wrapped: no present scaling.
