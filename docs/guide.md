@@ -79,7 +79,7 @@ foreach (var a in NriAdapter.Enumerate())
 using var device = NriDevice.Create(new NriDeviceOptions
 {
     GraphicsApi = GraphicsAPI.VK,               // VK, D3D12, NONE
-    Adapter = NriAdapter.Enumerate().First(a => a.Supports(GraphicsAPI.VK)),
+    Adapter = NriAdapter.Enumerate(GraphicsAPI.VK).First(a => a.Supports(GraphicsAPI.VK)),
     QueueFamilies = [new NriQueueFamily(QueueType.GRAPHICS), new NriQueueFamily(QueueType.COMPUTE)],
     EnableNriValidation = true,
     EnableGraphicsApiValidation = true,         // VVL / D3D12 debug layer
@@ -132,12 +132,20 @@ Caveats:
   never-written descriptor at `SetDescriptorSet` ([646]) and at the dispatch ([1023]).
 - **Software adapters are enumerated**: WARP and lavapipe have `Architecture.SOFTWARE`. Filter
   them out when picking a GPU.
-- **Enumerate once and pass the adapter.** Every `nriEnumerateAdapters` creates and destroys a
-  Vulkan instance (API 1.2, every implicit layer loaded and unloaded) and a DXGI factory with up
-  to three `D3D12CreateDevice` probes per adapter. `NriAdapter.Enumerate()` makes one such call
-  (one 32-entry buffer, no count call first). `NriDevice.Create` with `Adapter` null enumerates
-  once more inside NRI, so keep the `NriAdapter` and pass it: the device's own instance is then
-  the process's second, not its third or fourth.
+- **Enumerate once, for the backend you use, and pass the adapter.** An unfiltered
+  `NriAdapter.Enumerate()` creates and destroys a Vulkan instance (API 1.2, every implicit layer
+  loaded and unloaded), creates a DXGI factory, runs a null-device `D3D12CreateDevice` probe per
+  adapter and creates real inbox D3D12 devices for adapters Vulkan did not list, which loads
+  `D3D12Core.dll` for the rest of the process. `NriAdapter.Enumerate(GraphicsAPI.VK)` (patch 0024,
+  `nriEnumerateAdapters2`) runs only the Vulkan pass: measured on NVIDIA 5 ms against 69 ms warm,
+  and no D3D12 runtime in the process. A filtered adapter carries only the asked API's bits in
+  `SupportedGraphicsApis` (plus `NONE`), so pass it only to that API's device. Each call is one
+  native call with a 32-entry buffer. `NriDevice.Create` with `Adapter` null lets NRI enumerate
+  once more: for Vulkan the Vulkan pass only (same adapter as the first of
+  `Enumerate(GraphicsAPI.VK)`), for D3D12 the full enumeration, whose desc for an adapter Vulkan
+  also lists carries Vulkan's queue counts (NVIDIA: 16, 8, 2; a D3D12-only enumeration says 4, 4,
+  4). Keep the `NriAdapter` and pass it, and the device's own Vulkan instance is the process's
+  second, not its third.
 - **RivaTuner Statistics Server's implicit layer** (`VK_LAYER_RTSS`) maps each physical device to
   its instance from `vkEnumeratePhysicalDevices` and uses that map at the first present. NRI finds
   physical devices only through `vkEnumeratePhysicalDeviceGroups`, so on NRI's device the loader
@@ -345,6 +353,11 @@ fence.Wait(1);
   throws `INVALID_ARGUMENT` from `Close`). On Vulkan the same side is an execution dependency on
   its stages with no access, e.g. after a semaphore wait. So such a side orders nothing on D3D12
   beyond the layout transition; give it the access the previous work used when the order matters.
+  It also says "nothing touched this subresource earlier in this submit" on D3D12: after an access
+  in the same command list (an upload, say) the debug layer refuses it with 1417 ("has been
+  accessed before, a barrier that specifies D3D12_BARRIER_SYNC_NONE as SyncBefore is invalid").
+  Use it only for the first barrier of a submit on a resource another submit finished with;
+  otherwise name the real access (`COPY_DESTINATION` after an upload).
 - **`ZeroBuffer` is stage `COPY`, access `COPY_DESTINATION`, on both backends** (patch 0021). It
   is `CopyBufferRegion` from a zero buffer on D3D12 and `vkCmdFillBuffer` on Vulkan, a clear
   command; NRI's Vulkan `COPY` stage includes `VK_PIPELINE_STAGE_2_CLEAR_BIT` with the patch.
@@ -362,6 +375,15 @@ fence.Wait(1);
   layout through the hand-off, because a Vulkan release and acquire of an `EXCLUSIVE` image must
   name the same transition and a D3D12 copy list cannot transition. Mind the Vulkan sharing mode
   (fetch the COPY queue before creating the resources it touches, [Threads](#threads)).
+- **`SrcQueue` / `DstQueue` on Vulkan are an ownership transfer only for `EXCLUSIVE` textures**
+  (or with `NriQueue.External` on one side). On a `CONCURRENT` texture (the default, with more
+  than one queue family in use) NRI writes `VK_QUEUE_FAMILY_IGNORED` for every side that is not
+  external (patch 0023), so the release and the acquire of a hand-off are two ordinary barriers,
+  each validated against its own queue: the COPY queue's barrier may name only copy stages. Before
+  the patch the Khronos layer treated them as a transfer: a release and acquire naming different
+  transitions drew VUID-vkCmdDraw-None-09600, and best practices flagged a sampled-only texture's
+  hand-off as `BestPractices-PipelineBarrier-unneeded-QFOT`. The portable hand-off above is right
+  for both modes; on D3D12 the queues are only the copy-queue hint of patch 0022.
 - **One recording command buffer per allocator at a time.** D3D12 `Begin` resets the command
   list against its allocator; a second `Begin` while another command buffer of the same
   allocator records draws debug error 540 (`COMMAND_ALLOCATOR_CONTENTION`) and throws
@@ -649,6 +671,11 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   only where MAILBOX is not offered. NRI never reports the present mode it chose, so the feature
   bit is the only answer. Measured on NVIDIA: the feature is 1 and a `VSYNC | LATEST_READY` swap
   chain presents with the Khronos layer clean.
+- **`WaitForPresent(swapChain, presentId)` needs the non-zero id of a tracked present**: the id
+  given to an earlier `QueuePresent`. NRI validation refuses 0 with `INVALID_ARGUMENT` and an
+  ERROR message on every backend, D3D12 included, although D3D12 ignores the id and waits on the
+  swap chain's frame-latency waitable object. Present with increasing non-zero ids and wait for the
+  last one; a present with id 0 is untracked and cannot be waited for.
 
 ### MeshShader, DescriptorHeap, Imgui
 
@@ -778,6 +805,10 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 - `libxess.dll` is delay-loaded by the Upscalers `NRI.dll`: absent is fine until XeSS is created.
 - WARP: D3D12 software adapter, `Architecture.SOFTWARE`; runs the whole suite including ray
   tracing (BLAS 65,536 B).
+- RenderDoc 1.44 captures NRI's D3D12 device on the inbox runtime only: with the Agility SDK
+  applied (`D3D12AgilitySdkPath` null and an `AgilitySDK` directory present) the device is
+  `D3D12Core.dll`'s own, RenderDoc never wraps it and a capture records nothing. Set
+  `D3D12AgilitySdkPath = ""` for capture sessions (measured; CLAUDE.md: D3D12 and the Agility SDK).
 
 ### Linux
 

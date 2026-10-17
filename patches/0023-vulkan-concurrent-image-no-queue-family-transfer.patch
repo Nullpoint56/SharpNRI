@@ -1,0 +1,91 @@
+VK: no queue family ownership transfer on VK_SHARING_MODE_CONCURRENT images.
+
+CommandBufferVK::Barrier writes srcQueue's and dstQueue's family indices into the image barrier
+whenever they are given, whatever sharing mode the image was created with. A queue family ownership
+transfer is defined only for VK_SHARING_MODE_EXCLUSIVE images, or for VK_SHARING_MODE_CONCURRENT
+images with the external (or foreign) family on one side and VK_QUEUE_FAMILY_IGNORED on the other
+(NRIDescs.h: "Queue ownership transfer is potentially needed only for SharingMode::EXCLUSIVE
+textures"). The Khronos layer tracks any barrier whose two indices differ as a transfer. Measured on
+v190, NVIDIA, layer 1.4.341, graphics, compute and copy queues fetched, CONCURRENT images: a release
+on the copy queue that transitions COPY_DESTINATION -> COPY_SOURCE and an acquire on the graphics
+queue that names COPY_SOURCE -> COPY_SOURCE is VUID-vkCmdDraw-None-09600 at submit ("expects ...
+VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL--instead, current layout is VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL");
+with best practices on, a hand-off of a sampled-only image is
+BestPractices-PipelineBarrier-unneeded-QFOT, once for the release and once for the acquire.
+
+TextureVK records the number of active queue families when it is constructed, right before Create,
+and so knows the sharing mode DeviceVK::FillCreateInfo chose. For a CONCURRENT image every side that
+is not the external family becomes VK_QUEUE_FAMILY_IGNORED: a hand-off between two queues is an
+ordinary barrier on each queue, and a release to (or acquire from) the external family keeps the
+external side only. EXCLUSIVE images are unchanged. A wrapped VkImage (CreateTextureVK, swap chain
+images) has no known sharing mode and keeps the previous behaviour. Buffer barriers already pass
+VK_QUEUE_FAMILY_IGNORED.
+
+diff --git a/Source/VK/CommandBufferVK.hpp b/Source/VK/CommandBufferVK.hpp
+index e062b6c..774f9f3 100644
+--- a/Source/VK/CommandBufferVK.hpp
++++ b/Source/VK/CommandBufferVK.hpp
+@@ -2571,6 +2571,14 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
+         // PrismNRI patch 0002: "EXTERNAL_QUEUE" is the external queue family
+         out.srcQueueFamilyIndex = in.srcQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : (in.srcQueue ? srcQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
+         out.dstQueueFamilyIndex = in.dstQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : (in.dstQueue ? dstQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
++
++        // A queue family ownership transfer is defined only for "EXCLUSIVE" images or to/from the external queue family
++        if (textureVK.IsConcurrent()) {
++            if (out.srcQueueFamilyIndex != VK_QUEUE_FAMILY_EXTERNAL)
++                out.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++            if (out.dstQueueFamilyIndex != VK_QUEUE_FAMILY_EXTERNAL)
++                out.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++        }
+         out.image = textureVK.GetHandle();
+         out.subresourceRange = {
+             aspectFlags,
+diff --git a/Source/VK/DeviceVK.h b/Source/VK/DeviceVK.h
+index 73f92bc..2955b4f 100644
+--- a/Source/VK/DeviceVK.h
++++ b/Source/VK/DeviceVK.h
+@@ -199,6 +199,10 @@ struct DeviceVK final : public DeviceBase {
+         return m_Vma;
+     }
+ 
++    inline uint32_t GetActiveFamilyIndexNum() const {
++        return m_NumActiveFamilyIndices;
++    }
++
+     template <typename Implementation, typename Interface, typename... Args>
+     inline Result CreateImplementation(Interface*& entity, const Args&... args) {
+         Implementation* impl = Allocate<Implementation>(GetAllocationCallbacks(), *this);
+diff --git a/Source/VK/TextureVK.h b/Source/VK/TextureVK.h
+index cac54a0..9a5e233 100644
+--- a/Source/VK/TextureVK.h
++++ b/Source/VK/TextureVK.h
+@@ -6,7 +6,8 @@ namespace nri {
+ 
+ struct TextureVK final : public DebugNameBase {
+     inline TextureVK(DeviceVK& device)
+-        : m_Device(device) {
++        : m_Device(device)
++        , m_ActiveFamilyIndexNum(device.GetActiveFamilyIndexNum()) {
+     }
+ 
+     inline VkImage GetHandle() const {
+@@ -25,6 +26,11 @@ struct TextureVK final : public DebugNameBase {
+         return m_Desc;
+     }
+ 
++    // The choice "DeviceVK::FillCreateInfo" made, with the families active when the texture was created (unknown for wrapped images)
++    inline bool IsConcurrent() const {
++        return m_OwnsNativeObjects && m_ActiveFamilyIndexNum > 1 && m_Desc.sharingMode != SharingMode::EXCLUSIVE;
++    }
++
+     inline Dim_t GetSize(Dim_t dimensionIndex, Dim_t mip = 0) const {
+         return GetDimension(GraphicsAPI::VK, m_Desc, dimensionIndex, mip);
+     }
+@@ -49,6 +55,7 @@ private:
+     DeviceVK& m_Device;
+     VkImage m_Handle = VK_NULL_HANDLE;
+     TextureDesc m_Desc = {};
++    uint32_t m_ActiveFamilyIndexNum = 0;
+     VmaAllocation m_VmaAllocation = nullptr;
+     VkDeviceMemory m_SharedMemory = VK_NULL_HANDLE; // PrismNRI patch 0002
+     uint64_t m_SharedSize = 0;

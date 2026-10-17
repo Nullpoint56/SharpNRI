@@ -22,7 +22,12 @@ public sealed class NriDeviceOptions
     /// <summary>Exactly one backend bit: <c>VK</c>, <c>D3D12</c> or <c>NONE</c>.</summary>
     public required GraphicsAPI GraphicsApi { get; init; }
 
-    /// <summary>The adapter to create on; NRI picks when null.</summary>
+    /// <summary>
+    /// The adapter to create on; NRI picks when null: the first adapter of its own enumeration that
+    /// supports <see cref="GraphicsApi"/>. For Vulkan that enumeration runs the Vulkan pass only
+    /// (patch 0024), so creating a Vulkan device loads no D3D12 runtime; for D3D12 it is the full
+    /// enumeration (<see cref="NriAdapter.Enumerate()"/>), as before, so the desc stays the one NRI gave.
+    /// </summary>
     public NriAdapter? Adapter { get; init; }
 
     public Robustness Robustness { get; init; }

@@ -152,14 +152,42 @@ public sealed class SharedHandleTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    public static TheoryData<Backend, bool> GpuBackendsAndQueueSetups
+    {
+        get
+        {
+            var data = new TheoryData<Backend, bool>();
+            foreach (var api in PrismNRI.Testing.NriTestDevice.GpuBackends)
+            foreach (var threeFamilies in new[] { false, true })
+                data.Add(new Backend(api), threeFamilies);
+            return data;
+        }
+    }
+
+    /// <summary>
+    /// Release to the external queue family and acquire back. With one queue the Vulkan image is
+    /// EXCLUSIVE (one active family); with graphics, compute and copy queues fetched it is
+    /// CONCURRENT, where Vulkan wants VK_QUEUE_FAMILY_IGNORED on the side that is not external
+    /// (patch 0023 writes that; upstream wrote the queue's family index).
+    /// </summary>
     [Theory]
-    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
-    public void A_shared_texture_can_be_released_to_and_acquired_from_the_external_queue_family(Backend backend)
+    [MemberData(nameof(GpuBackendsAndQueueSetups))]
+    public void A_shared_texture_can_be_released_to_and_acquired_from_the_external_queue_family(Backend backend, bool threeFamilies)
     {
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
-        using var device = TestDevice.Create(backend.Api, messages);
+        using var device = threeFamilies
+            ? TestDevice.Create(backend.Api, messages, b => b.QueueFamilies =
+                [new NriQueueFamily(QueueType.GRAPHICS), new NriQueueFamily(QueueType.COMPUTE), new NriQueueFamily(QueueType.COPY)])
+            : TestDevice.Create(backend.Api, messages);
         RequireSharedHandles(device);
+        device.GetQueue(QueueType.GRAPHICS); // before the texture: a CONCURRENT image allows the families active when it is created
+        if (threeFamilies)
+        {
+            device.GetQueue(QueueType.COMPUTE);
+            Assert.SkipWhen(device.Desc.adapterDesc.queueNum[(int)QueueType.COPY] == 0, $"{backend}: adapterDesc.queueNum[COPY] is 0, no COPY queue");
+            device.GetQueue(QueueType.COPY); // more than one active family: the texture below is CONCURRENT on Vulkan
+        }
 
         using var texture = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, new TextureDesc
         {

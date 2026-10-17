@@ -190,13 +190,20 @@ public sealed unsafe class NriSwapChainExtension
     /// Waits until the presentation identified by <paramref name="presentId"/> (a previously
     /// queued one) is shown. Call once immediately before input sampling. Requires the swap chain
     /// to be created <c>WAITABLE</c> (<c>features.waitableSwapChain</c>).
+    /// <paramref name="presentId"/> must be the non-zero id of a tracked present, one passed to
+    /// <see cref="QueuePresent"/>: NRI validation refuses 0 with <c>INVALID_ARGUMENT</c> and an
+    /// ERROR message on every backend, also on D3D12, where the id is ignored and the wait is the
+    /// swap chain's frame-latency waitable object. Vulkan's <c>vkWaitForPresentKHR</c> needs the
+    /// id of a tracked present, so the rule is the portable one. Pass the id of the last present
+    /// queued with a non-zero id (CLAUDE.md: Extensions).
     /// </summary>
     public void WaitForPresent(NriSwapChain swapChain, ulong presentId) =>
         Device.Check(_table.WaitForPresent(swapChain.Raw, presentId), "WaitForPresent");
 
     /// <summary>
     /// Presents the acquired texture. A non-zero <paramref name="presentId"/> tracks the frame
-    /// and must strictly increase per swap chain (gaps allowed); 0 is untracked.
+    /// and must strictly increase per swap chain (gaps allowed); 0 is untracked, and an untracked
+    /// present cannot be waited for with <see cref="WaitForPresent"/>.
     /// <paramref name="releaseSemaphore"/> must be created with <see cref="SwapChainSemaphore"/>
     /// (ignored in D3D). <see cref="NriSwapChainStatus.OutOfDate"/> (VK only): the wait on
     /// <paramref name="releaseSemaphore"/> still happens, the image is not shown; recreate the

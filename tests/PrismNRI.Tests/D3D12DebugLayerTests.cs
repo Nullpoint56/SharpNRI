@@ -194,6 +194,79 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The limit of patch 0020's layout-only side on D3D12: access NONE with a defined layout is
+    /// recorded as SYNC_NONE / NO_ACCESS, and NO_ACCESS means the subresource was not accessed
+    /// before the barrier in the same ExecuteCommandLists. In one command list: {UNDEFINED} ->
+    /// {COPY_DESTINATION}, UploadBufferToTexture, then {NONE, COPY_DESTINATION, COPY} ->
+    /// {SHADER_RESOURCE}; the debug layer refuses the second barrier with message 1417
+    /// (D3D12_MESSAGE_ID_INVALID_BARRIER_ACCESS; text in CLAUDE.md: Barriers). The positive control
+    /// names the real access, {COPY_DESTINATION, COPY_DESTINATION, COPY}, and is clean. The rule is
+    /// the caller's: a side with access NONE and a defined layout says "nothing touched it in this
+    /// submit", so use it only for the first barrier of a submit on a resource another submit
+    /// finished with; on Vulkan the same side is an execution-only dependency.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_layout_only_side_after_an_access_in_the_same_list_is_refused_on_D3D12(bool namesTheRealAccess)
+    {
+        TestDevice.RequireAvailable(new Backend(GraphicsAPI.D3D12));
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(GraphicsAPI.D3D12, messages);
+        var noDebugLayer = NoDebugLayer(device);
+        Assert.SkipWhen(noDebugLayer is not null, noDebugLayer ?? "");
+
+        const uint size = 4;
+        var rowPitch = (uint)Align(size * 4, device.Desc.memoryAlignment.uploadBufferTextureRow);
+        var slicePitch = (uint)Align((ulong)rowPitch * size, device.Desc.memoryAlignment.uploadBufferTextureSlice);
+        using var texture = device.CreateCommittedTexture(MemoryLocation.DEVICE, new TextureDesc
+        {
+            type = TextureType.TEXTURE_2D,
+            usage = TextureUsageBits.SHADER_RESOURCE,
+            format = Format.RGBA8_UNORM,
+            width = (ushort)size,
+            height = (ushort)size,
+            depth = 1,
+            mipNum = 1,
+            layerNum = 1,
+            sampleNum = 1,
+        });
+        using var upload = device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = slicePitch });
+        var region = new TextureRegionDesc { width = (ushort)size, height = (ushort)size, depth = 1, planes = PlaneBits.ALL };
+        var layout = new TextureDataLayoutDesc { offset = 0, rowPitch = rowPitch, slicePitch = slicePitch };
+        var before = namesTheRealAccess ? TextureCopyDestination : Triple(AccessBits.NONE, Layout.COPY_DESTINATION, StageBits.COPY);
+
+        var queue = device.GetQueue(QueueType.GRAPHICS);
+        using var allocator = queue.CreateCommandAllocator();
+        using var commandBuffer = allocator.CreateCommandBuffer();
+        using var fence = device.CreateFence();
+        var start = messages.Count;
+        commandBuffer.Begin();
+        commandBuffer.Barrier(new NriTextureBarrier(texture, Undefined, TextureCopyDestination));
+        commandBuffer.UploadBufferToTexture(texture, region, upload, layout);
+        commandBuffer.Barrier(new NriTextureBarrier(texture, before, ShaderRead));
+        var end = Xunit.Record.Exception(commandBuffer.End);
+        if (end is null)
+        {
+            queue.Submit(commandBuffer, fence, 1);
+            Wait(fence, 1);
+        }
+        List<NriMessage> provoked;
+        lock (messages) provoked = messages.Skip(start).ToList();
+        foreach (var m in provoked) Record("message: " + m);
+        Record($"D3D12, before side {{{before.access}, {before.layout}, {before.stages}}} after an upload in the same list: " +
+            $"{provoked.Count(m => m.IsError)} error(s), End {(end is null ? "succeeded" : "threw " + end.Message)}");
+
+        if (namesTheRealAccess)
+        {
+            Assert.DoesNotContain(messages, m => m.IsError);
+            Assert.Null(end);
+            return;
+        }
+        Assert.Contains(provoked, m => m.IsError && m.Text.Contains("[1417]", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// D3D12 allows one command list in the recording state per command allocator: Begin is
     /// ID3D12GraphicsCommandList::Reset(allocator), which the debug layer refuses for a second list
     /// while the first is open ([540] COMMAND_ALLOCATOR_CONTENTION). Vulkan allows several command
