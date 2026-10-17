@@ -40,6 +40,10 @@ public static unsafe partial class NriApi
 
     [DllImport("NRI", CallingConvention = CallingConvention.StdCall, ExactSpelling = true)]
     [return: NativeTypeName("nri::Result")]
+    public static extern Result nriEnumerateAdapters2([NativeTypeName("nri::GraphicsAPI")] GraphicsAPI graphicsAPIs, [NativeTypeName("nri::AdapterDesc *")] AdapterDesc* adapterDescs, [NativeTypeName("uint32_t &")] uint* adapterDescNum);
+
+    [DllImport("NRI", CallingConvention = CallingConvention.StdCall, ExactSpelling = true)]
+    [return: NativeTypeName("nri::Result")]
     public static extern Result nriCreateDevice([NativeTypeName("const DeviceCreationDesc &")] DeviceCreationDesc* deviceCreationDesc, [NativeTypeName("Device *&")] Device** device);
 
     [DllImport("NRI", CallingConvention = CallingConvention.StdCall, ExactSpelling = true)]

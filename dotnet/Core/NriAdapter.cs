@@ -1,8 +1,8 @@
 // L2 — adapters, before there is a device.
 //
-// nriEnumerateAdapters fills up to the caller's count and returns how many it copied. The desc is
-// kept whole because nriCreateDevice takes a pointer to it to select the adapter; the properties
-// are the same bytes read out by name.
+// nriEnumerateAdapters (and nriEnumerateAdapters2, patch 0024) fill up to the caller's count and
+// return how many they copied. The desc is kept whole because nriCreateDevice takes a pointer to
+// it to select the adapter; the properties are the same bytes read out by name.
 
 using PrismNRI.Interop;
 using PrismNRI.Native;
@@ -49,12 +49,33 @@ public sealed class NriAdapter
 
     /// <summary>
     /// Every adapter NRI can see, in NRI's order: hardware first, as NRI sorts them. One native
-    /// call: every <c>nriEnumerateAdapters</c> creates and destroys a Vulkan instance (loading every
-    /// implicit layer) and a DXGI factory, so the count-then-fill pattern would pay that twice.
-    /// Hand the chosen adapter to <see cref="NriDeviceOptions.Adapter"/>: <c>nriCreateDevice</c>
-    /// enumerates once more on its own when it is null.
+    /// call, and not a cheap one: every unfiltered enumeration creates and destroys a Vulkan
+    /// instance (the loader loads and unloads every implicit layer), creates a DXGI factory, runs a
+    /// null-device <c>D3D12CreateDevice</c> probe per adapter and creates real inbox D3D12 devices
+    /// (architecture and video-queue queries) for the adapters the Vulkan pass did not list, which
+    /// leaves <c>d3d12.dll</c> and <c>D3D12Core.dll</c> loaded in the process. The count-then-fill
+    /// pattern would pay that twice. To look at one backend's adapters only, use
+    /// <see cref="Enumerate(GraphicsAPI)"/>. Hand the chosen adapter to
+    /// <see cref="NriDeviceOptions.Adapter"/>; with none, <c>nriCreateDevice</c> enumerates on its
+    /// own (for Vulkan the Vulkan pass only, patch 0024).
     /// </summary>
-    public static unsafe IReadOnlyList<NriAdapter> Enumerate()
+    public static IReadOnlyList<NriAdapter> Enumerate() => Enumerate(AllGraphicsApis, all: true);
+
+    /// <summary>
+    /// The adapters of the backends in <paramref name="graphicsApis"/> (a mask), through
+    /// <c>nriEnumerateAdapters2</c> (patch 0024): only those backends' enumeration passes run, so
+    /// <c>Enumerate(GraphicsAPI.VK)</c> creates no DXGI factory and no D3D12 device. Same order as
+    /// <see cref="Enumerate()"/> for the adapters both list. A filtered desc carries only the asked
+    /// APIs' bits in <see cref="SupportedGraphicsApis"/> (plus <c>NONE</c>), so it cannot be handed
+    /// to another API's device creation. For D3D11/D3D12 the desc comes from DXGI (queue counts a
+    /// fixed 4 per type, DXGI's memory sizes); the unfiltered enumeration gives an adapter the
+    /// Vulkan pass also lists the Vulkan pass's desc.
+    /// </summary>
+    public static IReadOnlyList<NriAdapter> Enumerate(GraphicsAPI graphicsApis) => Enumerate(graphicsApis, all: false);
+
+    private const GraphicsAPI AllGraphicsApis = GraphicsAPI.NONE | GraphicsAPI.D3D11 | GraphicsAPI.D3D12 | GraphicsAPI.VK | GraphicsAPI.WGPU | GraphicsAPI.METAL;
+
+    private static unsafe NriAdapter[] Enumerate(GraphicsAPI graphicsApis, bool all)
     {
         // NRI itself sees at most 32 adapters (Creation.cpp), so the buffer is never short; it
         // returns min(count, found).
@@ -62,7 +83,10 @@ public sealed class NriAdapter
         var count = (uint)descs.Length;
         fixed (AdapterDesc* p = descs)
         {
-            NriException.Check(NriApi.nriEnumerateAdapters(p, &count), "nriEnumerateAdapters");
+            if (all)
+                NriException.Check(NriApi.nriEnumerateAdapters(p, &count), "nriEnumerateAdapters");
+            else
+                NriException.Check(NriApi.nriEnumerateAdapters2(graphicsApis, p, &count), "nriEnumerateAdapters2");
         }
 
         var result = new NriAdapter[count];

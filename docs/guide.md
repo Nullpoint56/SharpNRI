@@ -79,7 +79,7 @@ foreach (var a in NriAdapter.Enumerate())
 using var device = NriDevice.Create(new NriDeviceOptions
 {
     GraphicsApi = GraphicsAPI.VK,               // VK, D3D12, NONE
-    Adapter = NriAdapter.Enumerate().First(a => a.Supports(GraphicsAPI.VK)),
+    Adapter = NriAdapter.Enumerate(GraphicsAPI.VK).First(a => a.Supports(GraphicsAPI.VK)),
     QueueFamilies = [new NriQueueFamily(QueueType.GRAPHICS), new NriQueueFamily(QueueType.COMPUTE)],
     EnableNriValidation = true,
     EnableGraphicsApiValidation = true,         // VVL / D3D12 debug layer
@@ -132,12 +132,20 @@ Caveats:
   never-written descriptor at `SetDescriptorSet` ([646]) and at the dispatch ([1023]).
 - **Software adapters are enumerated**: WARP and lavapipe have `Architecture.SOFTWARE`. Filter
   them out when picking a GPU.
-- **Enumerate once and pass the adapter.** Every `nriEnumerateAdapters` creates and destroys a
-  Vulkan instance (API 1.2, every implicit layer loaded and unloaded) and a DXGI factory with up
-  to three `D3D12CreateDevice` probes per adapter. `NriAdapter.Enumerate()` makes one such call
-  (one 32-entry buffer, no count call first). `NriDevice.Create` with `Adapter` null enumerates
-  once more inside NRI, so keep the `NriAdapter` and pass it: the device's own instance is then
-  the process's second, not its third or fourth.
+- **Enumerate once, for the backend you use, and pass the adapter.** An unfiltered
+  `NriAdapter.Enumerate()` creates and destroys a Vulkan instance (API 1.2, every implicit layer
+  loaded and unloaded), creates a DXGI factory, runs a null-device `D3D12CreateDevice` probe per
+  adapter and creates real inbox D3D12 devices for adapters Vulkan did not list, which loads
+  `D3D12Core.dll` for the rest of the process. `NriAdapter.Enumerate(GraphicsAPI.VK)` (patch 0024,
+  `nriEnumerateAdapters2`) runs only the Vulkan pass: measured on NVIDIA 5 ms against 69 ms warm,
+  and no D3D12 runtime in the process. A filtered adapter carries only the asked API's bits in
+  `SupportedGraphicsApis` (plus `NONE`), so pass it only to that API's device. Each call is one
+  native call with a 32-entry buffer. `NriDevice.Create` with `Adapter` null lets NRI enumerate
+  once more: for Vulkan the Vulkan pass only (same adapter as the first of
+  `Enumerate(GraphicsAPI.VK)`), for D3D12 the full enumeration, whose desc for an adapter Vulkan
+  also lists carries Vulkan's queue counts (NVIDIA: 16, 8, 2; a D3D12-only enumeration says 4, 4,
+  4). Keep the `NriAdapter` and pass it, and the device's own Vulkan instance is the process's
+  second, not its third.
 - **RivaTuner Statistics Server's implicit layer** (`VK_LAYER_RTSS`) maps each physical device to
   its instance from `vkEnumeratePhysicalDevices` and uses that map at the first present. NRI finds
   physical devices only through `vkEnumeratePhysicalDeviceGroups`, so on NRI's device the loader

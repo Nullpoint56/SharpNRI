@@ -73,7 +73,7 @@ NRI shape facts that decide the above: C API of flat `nri*` exports plus functio
 structs filled by `nriGetInterface(device, "Name", sizeof(Name), &table)`; no reference counts;
 `Create*` free-threaded, `Destroy*` / `Cmd*` externally synchronized; nothing implicit. v190 surface
 (excluding D3D11/Metal/WebGPU wrappers): 16 interface structs, 234 function pointers, 19 flat
-exports, 246 named structs + 33 nested anonymous + 2 unions, 95 enums (57 `NriEnum` + 38 `NriBits`),
+exports (20 with patch 0024's `nriEnumerateAdapters2`), 246 named structs + 33 nested anonymous + 2 unions, 95 enums (57 `NriEnum` + 38 `NriBits`),
 4 bitfields (all in `TopLevelInstance`).
 
 ### Native packages
@@ -301,6 +301,7 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | 0021 vulkan-copy-stage-covers-fill-buffer | `StageBits::COPY` maps to `VK_PIPELINE_STAGE_2_COPY_BIT \| VK_PIPELINE_STAGE_2_CLEAR_BIT` (`ConversionVK.h:427`); the `COPY` comment in `NRIDescs.h` names `CmdZeroBuffer` | `CmdZeroBuffer` is `vkCmdFillBuffer`, a clear command whose stage is `CLEAR_BIT`, on Vulkan and `CopyBufferRegion` (sync `COPY`) on D3D12, so no NRI stage covered it on both; syncval reported the hazards (Barriers) |
 | 0022 d3d12-copy-list-layouts-common | `CommandBufferD3D12::Barrier` records `COPY_SOURCE` / `COPY_DESTINATION` as `D3D12_BARRIER_LAYOUT_COMMON` in a copy command list, on the before side of a texture barrier whose `srcQueue` is a copy queue and on the after side of one whose `dstQueue` is (`IsCopyQueue`, `GetBarrierLayout`'s new argument; 13 lines added, 3 changed) | the copy layouts were refused on D3D12 copy lists (1334, `Close` fails) while Vulkan's copies need them; mapping copy lists alone moved the mismatch to the other queue's barrier, checked at `ExecuteCommandLists` (Barriers) |
 | 0023 vulkan-concurrent-image-no-queue-family-transfer | `CommandBufferVK::Barrier` writes `VK_QUEUE_FAMILY_IGNORED` for every side of a texture barrier that is not `EXTERNAL_QUEUE` when the image is `CONCURRENT`; `TextureVK` records the active family count at construction (`IsConcurrent()`, the rule of `DeviceVK::FillCreateInfo`; wrapped images, swap chain ones included, count as unknown and keep the indices); `DeviceVK::GetActiveFamilyIndexNum()` (20 lines added, 1 changed) | upstream wrote both queues' family indices whatever the sharing mode; the Khronos layer tracks any pair of differing indices as an ownership transfer, so a CONCURRENT hand-off whose release and acquire named different transitions was VUID-vkCmdDraw-None-09600 and a sampled-only one `BestPractices-PipelineBarrier-unneeded-QFOT` twice (Barriers) |
+| 0024 enumerate-adapters-by-graphics-api | `nriEnumerateAdapters2(GraphicsAPI graphicsAPIs, AdapterDesc*, uint32_t&)` in `NRIDeviceCreation.h`: the body of `nriEnumerateAdapters` with each backend pass guarded by its bit (D3D pass for D3D11 or D3D12); `nriEnumerateAdapters` calls it with every bit; `nriCreateDevice` with a null `adapterDesc` enumerates `VK` only for a VK device and everything for the others (21 lines added, 5 removed) | every enumeration ran every pass, so creating a Vulkan device created a DXGI factory and D3D12 devices and loaded `D3D12Core.dll` for the process's life; a D3D-only enumeration would change a D3D12 device's desc (queue counts), so D3D keeps the full one (Device creation and callbacks) |
 
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
@@ -310,8 +311,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag (0022 does not: its context is 0020's lines and it names 0002's `EXTERNAL_QUEUE`; nor does 0023: its context in `CommandBufferVK.hpp` and `TextureVK.h` is 0002's lines). Patches to a
-  file an earlier patch touches (0012-0023 all are, or are cut the same way) are cut from a scratch clone at the tag with
+  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag (0022 does not: its context is 0020's lines and it names 0002's `EXTERNAL_QUEUE`; nor does 0023: its context in `CommandBufferVK.hpp` and `TextureVK.h` is 0002's lines; 0024 does, though it is cut over 0001-0023). Patches to a
+  file an earlier patch touches (0012-0024 all are, or are cut the same way) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit. There is no 0011: it corrected
   the `queuedFrameNum` header comment only, and a comment is knowledge, not a patch (owner,
   2026-10-16); the fact lives below under Extensions and in the binding's docs.
@@ -388,7 +389,7 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - NRI's headers have zero C++ default member initializers (`NriDefault` unused), so generator-dropped
   defaults cannot happen here. C `bool` is `byte` with `[NativeTypeName("bool")]`.
 - **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 273 structs, 1,840 offsets, 55 fixed
-  buffers, 96 enums, 4 bitfields (exact bytes written), 238 function-pointer fields, 19 `DllImport`s,
+  buffers, 96 enums, 4 bitfields (exact bytes written), 238 function-pointer fields, 20 `DllImport`s (19 before patch 0024),
   zero mismatches on x64 and arm64. Blind to calling convention, `const`, reference vs pointer,
   `bool` vs `uint8_t`. The anonymous union in `BottomLevelGeometryDesc` is checked as outer offsets.
 - **`nriGetInterface` checks the table size itself**: mismatch = `INVALID_ARGUMENT` after both sizes
@@ -411,17 +412,45 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   `BreakOnError` and a debugger is attached (`dotnet/Interop/MessageBridge.cs`).
 - **`GetQueue` out of range**: `INVALID_ARGUMENT` on VK and D3D12 with no message; NONE returns
   `SUCCESS` even for index 1000. Tests wanting a message must provoke the validation layer.
-- **Every `nriEnumerateAdapters` creates and destroys a VkInstance** (API 1.2, no layers asked
-  for, so every implicit layer is loaded and unloaded) and a DXGI factory with up to three
-  `D3D12CreateDevice` probes per adapter (`Creation.cpp` `UpdateAdaptersVK` / `UpdateAdaptersD3D`,
-  no caching). `nriCreateDevice` with a null `adapterDesc` enumerates once more and takes the
-  first sorted entry supporting the API; with a desc it reads `supportedGraphicsAPIs` (must carry
-  the API), `uid` (VK matches by it on its own instance, D3D12 `EnumAdapterByLuid`) and clamps
-  `queueNum`, and `DeviceVK` never refills the desc from the physical device. `NriAdapter.Enumerate`
-  makes one call with a 32-entry buffer (NRI's own maximum); the count-then-fill pattern cost two.
-  Not patched: moving selection into `DeviceVK::Create` is 50-70 lines that change an existing
-  call's observable answer (`supportedGraphicsAPIs` merged bits, tie order). The instance count
-  is not what killed presenting processes under RTSS (next bullet).
+- **Adapter enumeration runs every backend unless asked otherwise (patch 0024).** Upstream
+  `nriEnumerateAdapters` (`Creation.cpp:1252`) runs `UpdateAdaptersVK(..., nullptr)` (`:329`), then
+  `UpdateAdaptersD3D(..., nullptr)` (`:188`), then WGPU / Metal, unconditionally, no caching. The
+  Vulkan pass creates and destroys a VkInstance (API 1.2, no layers asked for, so the loader loads
+  and unloads every implicit layer). The D3D pass creates a DXGI factory and per adapter runs a
+  null-device `D3D12CreateDevice` probe (`:234`); for an adapter the Vulkan pass did not list it
+  also creates a real `ID3D12Device` for the architecture (`:263`, when D3D11 is off) and another
+  for the video-queue query (`:283`), on the inbox runtime (deliberate, D3D12 and the Agility SDK).
+  For an adapter the Vulkan pass listed the D3D pass only adds D3D bits (it `continue`s before
+  writing any other field), so the merged desc of such an adapter is the Vulkan pass's: on NVIDIA
+  a D3D12 device created with no adapter gets queue counts 16, 8, 2 (Vulkan's families) where a
+  D3D-only desc says 4, 4, 4 (measured, `AdapterEnumerationTests`). `SortAdapters` (`:165`) reads
+  memory sizes and architecture only. `nriCreateDevice` (`:886-894`) with a null `adapterDesc`
+  enumerated everything and took the first sorted entry whose `supportedGraphicsAPIs & graphicsAPI`;
+  with a desc it reads `supportedGraphicsAPIs` (must carry the API), `uid` (VK matches by it on its
+  own instance, D3D12 `EnumAdapterByLuid`) and clamps `queueNum`, and `DeviceVK` never refills the
+  desc from the physical device. A consumer measured on an RTX 4070 SUPER (their numbers): 53-57
+  ms for the D3D probe, about 60 ms per Vulkan device creation, `D3D12Core.dll` resident for the
+  process's life after a windowless Vulkan run, and RivaTuner labelling the process D3D12 until the
+  Vulkan swap chain appears. Patch 0024: `nriEnumerateAdapters2(graphicsAPIs, ...)` runs only the
+  passes of the asked APIs; `nriEnumerateAdapters` is it with every bit; `nriCreateDevice` with a
+  null desc enumerates VK only for a VK device and everything otherwise (a D3D-only enumeration
+  would change the D3D12 desc above). Measured here (`AdapterEnumerationTests`, NVIDIA RTX 4070
+  SUPER, Windows, children of the test executable): `d3d12.dll` and `dxgi.dll` are loaded as soon
+  as NRI.dll is (load-time imports, before any enumeration); a VK-only enumeration (1 adapter)
+  took 67.0 ms the first call and 5.3 ms the second, and left `D3D12Core.dll` unloaded, as did
+  creating a Vulkan device with no adapter afterwards (104.5 ms, `supportedGraphicsAPIs` NONE | VK:
+  the D3D bits are absent from a filtered desc); an unfiltered enumeration (2 adapters, NVIDIA and
+  the Microsoft Basic Render Driver) took 125.1 ms and 69.1 ms and loaded `D3D12Core.dll`. So the
+  D3D pass costs about 64 ms per enumeration here, in line with the consumer's 53-57 ms. The pick
+  is the same: with no adapter NRI took the uid the filtered enumeration lists first and the
+  unfiltered one lists first among adapters supporting the API, for VK and D3D12, and the filtered
+  list of API-supporting adapters is the unfiltered one in the same order. Binding:
+  `NriAdapter.Enumerate(GraphicsAPI)` (one call, 32 entries, like `Enumerate()`), and
+  `NriDeviceOptions.Adapter = null` still passes null, so NRI's own null path decides (VK pass only
+  for Vulkan; the D3D12 desc unchanged). A filtered desc carries only the asked APIs' bits (plus
+  `NONE`), so it cannot be handed to another API's device creation. Not taken: selection inside
+  `DeviceVK::Create` (50-70 lines that change an existing call's answer: merged bits, tie order).
+  The instance count is not what killed presenting processes under RTSS (next bullet).
 - **RivaTuner's implicit layer killed a presenting Vulkan process; the binding enumerates
   physical devices after creation.** `VK_LAYER_RTSS` intercepts `vkEnumeratePhysicalDevices` (not
   `vkEnumeratePhysicalDeviceGroups`) to map each physical device to its instance, and its overlay
@@ -762,6 +791,13 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - **Process-wide**: once applied, the inbox runtime is unreachable in that process (`AgilityTests`).
 - The adapter-support probe in `nriEnumerateAdapters` stays on the inbox runtime on purpose (asks
   only "D3D12 at all").
+- **Patch 0001's comment overstates its order rule.** `DeviceD3D12::Create` says "IMPORTANT: Must
+  be called before any other D3D12 entry point in this process" (`DeviceD3D12.hpp` ~495). NRI's
+  own enumeration calls `D3D12CreateDevice` on the inbox runtime before it (every unfiltered
+  `nriEnumerateAdapters`, and `nriCreateDevice` with no adapter for D3D12), and the Agility apply
+  still works (`Using Agility SDK v1.619`, the suite's D3D12 devices). What must come first is the
+  first D3D12 device the process keeps, not any D3D12 call. Not re-cut: a comment is not a patch
+  (owner, 2026-10-16); the correction lives here and in `docs/upstream.md`'s 0001 section.
 - **Wrapped route works too**: host creates the device from its own `ID3D12DeviceFactory` and
   passes it to `nriCreateDeviceFromD3D12Device`; NRI reports `Using ID3D12Device15`, no OPTIONS22
   warning (`AgilityFactoryRouteTests`, four vtable calls). NRI supports it on purpose: root

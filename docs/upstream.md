@@ -23,6 +23,7 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | phase 2: after the maintainer engages; the default (break) is his and stays |
 | 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2: after the maintainer engages |
 | 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2: enhancement issue; per-frame vs total semantics is his call |
+| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | phase 2: after the maintainer engages |
 | 0001 Agility SDK from a path | proposal | phase 2: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
 | 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
@@ -165,6 +166,12 @@ is reported and the swap chain is recreated normally. Patch attached
 (`patches/0009-vulkan-swapchain-out-of-date-not-an-error.patch`), 9 lines.
 
 ## 0001 — Load the Agility SDK from a path when the host cannot export `D3D12SDKVersion`
+
+**Note (2026-10-17):** the patch's code comment "IMPORTANT: Must be called before any other D3D12
+entry point in this process" is stronger than the measurement: NRI's own adapter enumeration calls
+`D3D12CreateDevice` on the inbox runtime before it, and the Agility apply still succeeds. What must
+come first is the first D3D12 device the process keeps. Reword the comment in the filed form; the
+patch is not re-cut for it.
 
 **Title:** `DeviceCreationDesc::d3d12AgilitySdkPath`: Agility SDK for hosts that are not native executables
 
@@ -458,3 +465,22 @@ the indices. With it both are clean, and the EXCLUSIVE case still reports the mi
 attached (`patches/0023-vulkan-concurrent-image-no-queue-family-transfer.patch`), twenty lines; the
 upstream form drops the `EXTERNAL_QUEUE` term, which is patch 0002's (keep
 `VK_QUEUE_FAMILY_EXTERNAL` sides if upstream ever has one).
+
+## 0024 — Adapter enumeration filtered by graphics API (proposal, phase 2)
+
+**Title:** `nriEnumerateAdapters2`: enumerate only the asked graphics APIs' adapters
+
+`nriEnumerateAdapters` runs every enabled backend's pass unconditionally (`Creation.cpp`
+`UpdateAdaptersVK`, then `UpdateAdaptersD3D`, then WGPU / Metal), and `nriCreateDevice` with a null
+`adapterDesc` calls it. The D3D pass creates a DXGI factory, a null-device `D3D12CreateDevice`
+probe per adapter and real `ID3D12Device`s for adapters the VK pass did not list, so creating a
+Vulkan device leaves `D3D12Core.dll` loaded in the process. Measured on v190, NVIDIA RTX 4070
+SUPER, Windows: VK-only enumeration 5.3 ms warm (67.0 ms first), full enumeration 69.1 ms warm
+(125.1 ms first). Proposal: `nriEnumerateAdapters2(GraphicsAPI graphicsAPIs, AdapterDesc*,
+uint32_t&)`, the same body with each pass guarded by its bit; `nriEnumerateAdapters` passes every
+bit; `nriCreateDevice` with a null desc enumerates VK only for a VK device (an adapter listed by
+the VK pass gets only D3D bits from the D3D pass, so its desc and the sort order are unchanged).
+D3D devices keep the full enumeration, because for an adapter both passes list the desc is the VK
+pass's (queue counts 16, 8, 2 on NVIDIA where the D3D pass says 4, 4, 4) and a D3D-only
+enumeration would change it. Patch attached
+(`patches/0024-enumerate-adapters-by-graphics-api.patch`), twenty-one lines.
