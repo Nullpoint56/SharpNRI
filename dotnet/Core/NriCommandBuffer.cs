@@ -25,12 +25,22 @@ public readonly unsafe record struct NriBufferBarrier(NriBuffer Buffer, AccessSt
 /// A side whose access is <c>NONE</c> and whose layout is not <c>UNDEFINED</c> is layout-only on D3D12:
 /// it is recorded with <c>SYNC_NONE</c> whatever its stages (patch 0020; the debug layer refuses any
 /// other sync there). On Vulkan it stays an execution dependency on its stages with no access.
+/// <c>SYNC_NONE</c> / <c>NO_ACCESS</c> on D3D12 means nothing touched the subresource earlier in the same
+/// submit, so the debug layer refuses such a before side after an access in the same command list
+/// (1417): use it only for the first barrier of a submit on a resource another submit finished
+/// with, and otherwise name the access that came before (<c>COPY_DESTINATION</c> after an upload).
 /// Copies use <c>COPY_DESTINATION</c> / <c>COPY_SOURCE</c> on every queue (Vulkan's copies require the
 /// transfer layouts, so not <c>GENERAL</c>). D3D12 copy lists allow only <c>COMMON</c>: NRI records the copy
 /// layouts as <c>COMMON</c> in a copy list and on the copy-queue side of a barrier whose
 /// <see cref="SrcQueue"/> / <see cref="DstQueue"/> is a copy queue (patch 0022), so a texture handed between a
 /// COPY queue and another queue gets a release barrier on the source queue and the same barrier as the
 /// acquire on the destination queue, naming both queues and keeping the copy layout.
+/// <see cref="SrcQueue"/> / <see cref="DstQueue"/> on Vulkan: a queue family ownership transfer only for
+/// a texture created <c>EXCLUSIVE</c> (or with one active queue family), or with
+/// <see cref="NriQueue.External"/> on one side; on a <c>CONCURRENT</c> texture NRI writes
+/// <c>VK_QUEUE_FAMILY_IGNORED</c> for every side that is not external (patch 0023), so the two barriers
+/// of a hand-off are ordinary barriers, each naming only its own queue's stages. On D3D12 they are
+/// the copy-queue hint of patch 0022 and nothing else.
 /// </remarks>
 public readonly unsafe record struct NriTextureBarrier(
     NriTexture Texture,

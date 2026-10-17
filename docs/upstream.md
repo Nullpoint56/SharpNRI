@@ -15,6 +15,7 @@ than a reconstruction. Status is updated as they are filed and answered.
 | 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | phase 1 candidate, not filed: owner's trigger |
 | 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | phase 1 candidate, not filed: owner's trigger |
 | 0022 D3D12 copy layouts refused in copy command lists | bug | phase 1 candidate, not filed: owner's trigger |
+| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | phase 1 candidate, not filed: owner's trigger |
 | 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2: after the maintainer engages; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
@@ -433,3 +434,27 @@ Vulkan the same barriers are the queue family release and acquire). With it the 
 the acquire on DIRECT are clean and the readback matches. Patch attached
 (`patches/0022-d3d12-copy-list-layouts-common.patch`), thirteen lines; the upstream form drops
 the `EXTERNAL_QUEUE` term, which is patch 0002's.
+
+## 0023 — Vulkan writes queue family indices into barriers on `CONCURRENT` images
+
+**Title:** VK: `srcQueue` / `dstQueue` make a queue family ownership transfer on `CONCURRENT` images
+
+`CommandBufferVK::Barrier` (`CommandBufferVK.hpp:2572-2573`) writes the family indices of
+`srcQueue` / `dstQueue` into `VkImageMemoryBarrier2` whatever sharing mode `FillCreateInfo` chose
+for the image. A queue family ownership transfer is defined only for `VK_SHARING_MODE_EXCLUSIVE`
+(or, on `CONCURRENT`, with the external / foreign family on one side and `IGNORED` on the other),
+and `NRIDescs.h` says as much ("Queue ownership transfer is potentially needed only for
+`SharingMode::EXCLUSIVE` textures"). The Khronos layer records any barrier with two different
+indices as a transfer, applies the acquire's layouts and not the release's, and so a CONCURRENT
+texture handed from a copy queue (release `COPY_DESTINATION` -> `COPY_SOURCE`, acquire
+`COPY_SOURCE` -> `COPY_SOURCE`) draws at submit, measured on v190 with layer 1.4.341, NVIDIA,
+graphics + compute + copy queues: "VUID-vkCmdDraw-None-09600: vkQueueSubmit2(): ... expects VkImage
+... to be in layout VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL--instead, current layout is
+VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL"; with best practices on, a sampled-only CONCURRENT texture's
+release and acquire each draw `BestPractices-PipelineBarrier-unneeded-QFOT`. Fix: `TextureVK`
+remembers the number of active families at creation and, for a CONCURRENT image, every side that
+is not the external family becomes `VK_QUEUE_FAMILY_IGNORED`; EXCLUSIVE and wrapped images keep
+the indices. With it both are clean, and the EXCLUSIVE case still reports the mismatch. Patch
+attached (`patches/0023-vulkan-concurrent-image-no-queue-family-transfer.patch`), twenty lines; the
+upstream form drops the `EXTERNAL_QUEUE` term, which is patch 0002's (keep
+`VK_QUEUE_FAMILY_EXTERNAL` sides if upstream ever has one).

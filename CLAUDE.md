@@ -300,6 +300,7 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 | 0020 d3d12-texture-barrier-no-access-sync-none | `CommandBufferD3D12::Barrier` sets `SyncBefore` / `SyncAfter` to `SYNC_NONE` for a texture barrier side whose access is `NONE` and whose layout is not `UNDEFINED` (4 lines + comment, `CommandBufferD3D12.hpp:2447`) | upstream derives the sync from the stages alone; the debug layer refuses `NO_ACCESS` with a defined layout and any other sync (1331) and `Close` fails `E_INVALIDARG`, while the same barrier is legal on Vulkan |
 | 0021 vulkan-copy-stage-covers-fill-buffer | `StageBits::COPY` maps to `VK_PIPELINE_STAGE_2_COPY_BIT \| VK_PIPELINE_STAGE_2_CLEAR_BIT` (`ConversionVK.h:427`); the `COPY` comment in `NRIDescs.h` names `CmdZeroBuffer` | `CmdZeroBuffer` is `vkCmdFillBuffer`, a clear command whose stage is `CLEAR_BIT`, on Vulkan and `CopyBufferRegion` (sync `COPY`) on D3D12, so no NRI stage covered it on both; syncval reported the hazards (Barriers) |
 | 0022 d3d12-copy-list-layouts-common | `CommandBufferD3D12::Barrier` records `COPY_SOURCE` / `COPY_DESTINATION` as `D3D12_BARRIER_LAYOUT_COMMON` in a copy command list, on the before side of a texture barrier whose `srcQueue` is a copy queue and on the after side of one whose `dstQueue` is (`IsCopyQueue`, `GetBarrierLayout`'s new argument; 13 lines added, 3 changed) | the copy layouts were refused on D3D12 copy lists (1334, `Close` fails) while Vulkan's copies need them; mapping copy lists alone moved the mismatch to the other queue's barrier, checked at `ExecuteCommandLists` (Barriers) |
+| 0023 vulkan-concurrent-image-no-queue-family-transfer | `CommandBufferVK::Barrier` writes `VK_QUEUE_FAMILY_IGNORED` for every side of a texture barrier that is not `EXTERNAL_QUEUE` when the image is `CONCURRENT`; `TextureVK` records the active family count at construction (`IsConcurrent()`, the rule of `DeviceVK::FillCreateInfo`; wrapped images, swap chain ones included, count as unknown and keep the indices); `DeviceVK::GetActiveFamilyIndexNum()` (20 lines added, 1 changed) | upstream wrote both queues' family indices whatever the sharing mode; the Khronos layer tracks any pair of differing indices as an ownership transfer, so a CONCURRENT hand-off whose release and acquire named different transitions was VUID-vkCmdDraw-None-09600 and a sampled-only one `BestPractices-PipelineBarrier-unneeded-QFOT` twice (Barriers) |
 
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
@@ -309,8 +310,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag (0022 does not: its context is 0020's lines and it names 0002's `EXTERNAL_QUEUE`). Patches to a
-  file an earlier patch touches (0012-0022 all are, or are cut the same way) are cut from a scratch clone at the tag with
+  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag (0022 does not: its context is 0020's lines and it names 0002's `EXTERNAL_QUEUE`; nor does 0023: its context in `CommandBufferVK.hpp` and `TextureVK.h` is 0002's lines). Patches to a
+  file an earlier patch touches (0012-0023 all are, or are cut the same way) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit. There is no 0011: it corrected
   the `queuedFrameNum` header comment only, and a comment is knowledge, not a patch (owner,
   2026-10-16); the fact lives below under Extensions and in the binding's docs.
@@ -648,8 +649,9 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   is clean. Vulkan side of `srcQueue` / `dstQueue`: `CommandBufferVK::Barrier` (`:2572-2573`)
   passes both family indices whatever the sharing mode (`CONCURRENT` images included), which
   raised the question whether two valid families on a `CONCURRENT` image draw a VUID: measured
-  with the Khronos layer 1.4.341 they do not, CONCURRENT and EXCLUSIVE images alike (NVIDIA:
-  GRAPHICS family 0, COPY family 1), so the hand-off is portable as it stands. Not chosen: copy lists only (moves the error, (b)); `COMMON`
+  with the Khronos layer 1.4.341 a matching pair does not, CONCURRENT and EXCLUSIVE images alike
+  (NVIDIA: GRAPHICS family 0, COPY family 1); a pair that names different transitions does, and
+  patch 0023 removes the transfer on CONCURRENT images (next bullet). Not chosen: copy lists only (moves the error, (b)); `COMMON`
   for `COPY_*` on every list (consistent and tracking-free, but every single-queue caller loses the
   maintainer's `COPY_SOURCE` / `COPY_DEST` layouts, and the queues were already in the desc);
   the previous "keep such textures in `GENERAL`" rule (wrong on Vulkan, above). Portable rule:
@@ -661,6 +663,71 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   `CrossQueueCopyTests.A_texture_uploaded_on_the_COPY_queue_is_read_on_GRAPHICS_with_the_copy_layouts`
   holds it on both backends with the layers on, CONCURRENT and EXCLUSIVE, and compares the
   readback with the upload.
+- **No queue family ownership transfer on `CONCURRENT` images (patch 0023).** The spec defines a
+  transfer for an EXCLUSIVE image whose two indices differ, or for a CONCURRENT image with
+  `VK_QUEUE_FAMILY_EXTERNAL` / `FOREIGN` on one side and `IGNORED` on the other (VUIDs 09117 /
+  09118 constrain EXCLUSIVE images only); `NRIDescs.h` says "Queue ownership transfer is
+  potentially needed only for SharingMode::EXCLUSIVE textures". Upstream `CommandBufferVK::Barrier`
+  (`:2572-2573`) writes `srcQueue` / `dstQueue`'s family indices whatever the sharing mode, and the
+  Khronos layer records any barrier whose indices differ as a transfer (`IsOwnershipTransfer` is
+  `src != dst`, `utils/sync_utils.h:172`, sharing mode not read; a release's layouts are not
+  applied, only the acquire's, `core_checks/cc_image_layout.cpp:1152`; a release and an acquire
+  match by queues and subresource range only, layouts ignored, `utils/sync_utils.cpp:26-36`; all
+  at tag vulkan-sdk-1.4.341.0). Measured before the patch (NVIDIA RTX 4070 SUPER, layer 1.4.341,
+  GRAPHICS + COMPUTE + COPY queues fetched, GRAPHICS family 0, COPY family 1,
+  `CrossQueueCopyTests`): release on COPY `{COPY_DESTINATION}` -> `{COPY_SOURCE}`, acquire on
+  GRAPHICS `{COPY_SOURCE}` -> `{COPY_SOURCE}`, on a CONCURRENT and an EXCLUSIVE image alike:
+  "[1180184443] VUID-vkCmdDraw-None-09600: vkQueueSubmit2(): pSubmits[0] command buffer ...
+  expects VkImage ... to be in layout VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL--instead, current layout
+  is VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL." (readback right anyway); with best practices on, a
+  CONCURRENT `SHADER_RESOURCE`-only image handed off with the portable pair, twice (release,
+  acquire): "[1402469115] BestPractices-PipelineBarrier-unneeded-QFOT: vkCmdPipelineBarrier2():
+  pDependencyInfo->pImageMemoryBarriers[0] A queue family ownership transfer is being performed on
+  VkImage ..., but this is not required, because maintenance9 is enabled. Image was created with
+  VK_IMAGE_TILING_OPTIMAL, image usage does not contain any of VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+  | ... and VkQueueFamilyOwnershipTransferPropertiesKHR::optimalImageTransferToQueueFamilies (63)
+  has bit set for destination queue family index 0." (the check fires only without attachment
+  usage, so the COLOR_ATTACHMENT textures of the portable-upload test never showed it; a consumer
+  counted it ten times per run). A pair that differs only in the acquire's new layout (release A
+  -> B, acquire A -> C) draws nothing on either mode, since the layer ignores the release's
+  layouts. The patch: `TextureVK` records `DeviceVK::GetActiveFamilyIndexNum()` in its constructor
+  (construction and `Create` are one `CreateImplementation` call) and answers `IsConcurrent()` with
+  the rule `FillCreateInfo` applies (more than one active family, desc not EXCLUSIVE, NRI-owned
+  image); for such an image every side that is not `EXTERNAL_QUEUE` becomes `IGNORED`. Wrapped
+  images (`CreateTextureVK`, swap chain images) have no known sharing mode and keep the indices.
+  The count is taken in the constructor, not after `FillCreateInfo`, because a line inside 0002's
+  shared-texture `Create` would make 0002's own reverse check (`-C0`) fail once 0023 is applied,
+  and the patch scripts would refuse the tree. After: the transitioning pair on CONCURRENT is
+  clean and reads back right, on EXCLUSIVE still 09600; no `unneeded-QFOT`; the portable upload
+  clean on both modes. Consequence for callers: on a CONCURRENT image the two barriers of a
+  hand-off are ordinary barriers, each validated against its own queue, so the release on a COPY
+  queue may name only copy stages (with the transfer the release's after stages were ignored; a
+  release to `{SHADER_RESOURCE, ALL_SHADERS}` on COPY now draws
+  VUID-vkCmdPipelineBarrier2-dstStageMask-09676, measured). Shared textures: a CONCURRENT shared
+  texture (three families active) released to and acquired from `NriQueue.External` was clean
+  before (family index + EXTERNAL; the sync2 layer has no rule against it) and is clean after
+  (IGNORED + EXTERNAL), `SharedHandleTests`; a CONCURRENT image allows only the families active at
+  its creation (fetch every queue first: a GRAPHICS queue fetched after the texture drew
+  VUID-vkQueueSubmit-pSubmits-04626, "not created allowing concurrent access to this queue family
+  0"). Buffers: `BufferBarrierDesc` has no queues and NRI always writes `IGNORED` (`:2545`),
+  nothing to change. D3D12 untouched (0022 reads the queues as hints). Tests:
+  `A_hand_off_between_two_queues_is_no_ownership_transfer_on_a_CONCURRENT_image` (best practices
+  through `VK_KHRONOS_VALIDATION_VALIDATE_BEST_PRACTICES` in the process environment, skips where
+  .NET does not write it, the 64 KiB buffer marker as in `TextureTests`) and
+  `A_release_and_acquire_naming_different_transitions_is_an_error_only_on_an_EXCLUSIVE_image`.
+- **The limit of 0020's layout-only side.** `SYNC_NONE` / `NO_ACCESS` on a before side says the
+  subresource was not accessed earlier in the same `ExecuteCommandLists`; the debug layer checks
+  it against the list. Measured (`D3D12DebugLayerTests.A_layout_only_side_after_an_access_in_the_same_list_is_refused_on_D3D12`,
+  NVIDIA, Agility 1.619): `{UNDEFINED}` -> `{COPY_DESTINATION}`, `UploadBufferToTexture`, then
+  `{NONE, COPY_DESTINATION, COPY}` -> `{SHADER_RESOURCE, SHADER_RESOURCE, ALL_SHADERS}` in one
+  list: "[1417] ID3D12CommandList::Barrier: Resource ...:'Unnamed ID3D12Resource Object',
+  subresource [0] has been accessed before, a barrier that specifies D3D12_BARRIER_SYNC_NONE as
+  SyncBefore is invalid." (`D3D12_MESSAGE_ID_INVALID_BARRIER_ACCESS`; `Close` succeeds);
+  `{COPY_DESTINATION, COPY_DESTINATION, COPY}` before: clean. The caller's rule: access `NONE` on a
+  side with a defined layout means "layout-only, nothing touched it in this submit" on D3D12 and
+  an execution-only dependency on Vulkan; use it only for the first barrier of a submit on a
+  resource another submit finished with, otherwise name the access that came before. Reported by
+  a consumer; documentation, not a patch.
 - **From the consumer's runs (2026-10-16):** patch 0021 holds;
   patch 0020's barrier has not yet been exercised by a frame with a texture to transition.
 - **One recording command buffer per allocator (knowledge, not patched).** D3D12 `Begin`
@@ -705,6 +772,28 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - `NriDeviceOptions.D3D12AgilitySdkPath`: null = `AgilitySDK` beside the assembly if present, `""`
   = inbox.
 - **Reflex on Vulkan poisons later D3D12 device creation** in the process: see Extensions.
+- **RenderDoc 1.44 captures NRI's D3D12 device on the inbox runtime only** (`renderdoccmd` "v1.44
+  built from 050034a0", `renderdoc.dll` 1.44.0.0, in-application API 1.7.0). A consumer reported
+  that under RenderDoc 1.44 `QueryLatestInterface` (`DeviceD3D12.hpp:3-37`) gets the real device
+  for the newest interface, bypassing the capturer. Measured (`RenderDocTests`, the child under
+  `renderdoccmd capture`, NVIDIA RTX 4070 SUPER, debug layer off): inbox (`D3D12AgilitySdkPath =
+  ""`): NRI reports `Using ID3D12Device14` (RenderDoc's wrapper answers `E_NOINTERFACE` for
+  ID3D12Device15), the device's vtable is in `renderdoc.dll`, `ID3D12Device` .. `ID3D12Device14`
+  queried from it return the same pointer with the same IUnknown, and a capture around one submit
+  is made (`EndFrameCapture` 1 with `StartFrameCapture(NULL, NULL)` and with the device pointer,
+  `GetNumCaptures` 1 then 2). Agility SDK 1.619 through patch 0001 (`ApplyToGlobalState`, then
+  `D3D12CreateDevice`): NRI reports `Using ID3D12Device15`, and the device's vtable is in
+  `D3D12Core.dll` for every version from `ID3D12Device` up (same pointer, same IUnknown, so
+  identity is kept): RenderDoc never wrapped the device, `EndFrameCapture` returns 0 both ways,
+  `GetNumCaptures` 0. The symptom reproduces, the stated cause does not: `QueryLatestInterface`
+  keeps COM identity, and the proposed IUnknown check there (0024) would change nothing, so there
+  is no 0024. To capture with RenderDoc 1.44, create the device with `D3D12AgilitySdkPath = ""`
+  (process-wide: it must be the process's first D3D12 device). The test asserts both halves, so a
+  RenderDoc that captures the Agility route fails it and this entry is revisited; it skips
+  without `renderdoccmd.exe` (CI). NRI already detects `renderdoc.dll` and turns NVAPI off
+  (`DeviceD3D12.hpp:1308`). Not measured: why RenderDoc's `D3D12CreateDevice` hook hands the
+  device through after `ApplyToGlobalState`, and RenderDoc with an executable that exports
+  `D3D12SDKVersion`.
 - **Info-queue break (patch 0018).** With `enableGraphicsAPIValidation`, `DeviceD3D12::Create`
   calls `ID3D12InfoQueue::SetBreakOnSeverity(CORRUPTION, true)` and `(ERROR, true)`
   unconditionally (upstream `DeviceD3D12.hpp:591-595`, since d003e22, v1.150). With
@@ -780,6 +869,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 - **Slow first submit**: shaders are JIT-compiled when the command buffer executes; with a cold Mesa
   shader cache a ray tracing submit took 0.6 s on a Ryzen 9700X and passed NRI's 5 s fence timeout
   under load. That was the "ray query miss" (CI runners and flakes, item 1), not a traversal bug.
+- **One queue family**: GRAPHICS and COPY queues are both family 0 (`CrossQueueCopyTests`), so no
+  barrier is a queue family ownership transfer there; the two 0023 tests skip naming it.
 - `GALLIUM_OVERRIDE_CPU_CAPS=avx` or `sse4.1` makes lavapipe die with an illegal instruction before
   any test runs; not usable for narrowing.
 
@@ -950,6 +1041,16 @@ extensions.
   `OUT_OF_DATE`; a raw VkDevice with only `VK_KHR_swapchain`, wrapped (`resizableSwapChain = 0`),
   got it from present 6 times over the same 8 resizes, never from acquire, no ERROR message, the
   raw instance's Khronos layer clean.
+- **`WaitForPresent` with `presentId` 0 is refused everywhere (documentation, no patch).**
+  `SwapChainVal::WaitForPresent` (`Validation/SwapChainVal.hpp:31`) returns `INVALID_ARGUMENT` with
+  "'presentId' is 0" on every backend; `SwapChainD3D12::WaitForPresent` ignores the id and waits
+  on the frame-latency waitable object (`WaitForSingleObjectEx`, `NRI_TIMEOUT_PRESENT`);
+  `NRISwapChain.h`: "presentId must identify a previously queued presentation" and, for
+  `QueuePresent`, "Use 0 for an untracked presentation". A consumer passed 0 on D3D12 and counted
+  about 2,800 validation errors per run. The rule is the portable one (`vkWaitForPresentKHR` waits
+  for the id of a tracked present) and validation stays backend-agnostic by design, so the
+  binding documents it on `WaitForPresent` / `QueuePresent`: pass the id of the last present queued
+  with a non-zero id.
 - **The resize test runs in a child process**: the test exe started again with
   `PRISMNRI_TEST_CHILD=swapchain-resize`; a `[ModuleInitializer]` runs the frames and exits before
   xunit starts. Reason: Vulkan presents poisoned later D3D12 device creation in the same process
@@ -1087,8 +1188,9 @@ extensions.
 - Timestamp frequency 1 GHz on both GPU backends; result 8 bytes.
 - `PRISMNRI_TRACE=1` when a test host dies: the message stream is the only record.
 - Expected skip shape per platform (counts move as tests are added): Windows hardware skips almost
-  nothing (NIS under Base); Windows CI (WARP, no Vulkan ICD) skips every VK case; Linux skips D3D12,
-  Agility, NIS, shared handles, import proofs; macOS additionally skips SharedHandle, RT, mesh,
+  nothing (NIS under Base; RenderDoc where `renderdoccmd.exe` is absent); Windows CI (WARP, no
+  Vulkan ICD) skips every VK case and RenderDoc; Linux skips D3D12, Agility, NIS, shared handles,
+  import proofs, the best-practices checks (.NET does not write the native environment); macOS additionally skips SharedHandle, RT, mesh,
   video, descriptor heaps, shading rate, PE imports, the Windows swap-chain window, payload contracts
   for Upscalers/Agility, and the two paravirtual defects.
 
