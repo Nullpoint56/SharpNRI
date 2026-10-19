@@ -24,10 +24,10 @@ are main's.
 | 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | filed 2026-10-16, [#276](https://github.com/NVIDIA-RTX/NRI/issues/276); fixed 2026-10-19 in 5ed8bb6 (our table); drop at the next tag |
 | 0010 Streamer stages compressed textures in texel rows | bug | filed 2026-10-16, [#274](https://github.com/NVIDIA-RTX/NRI/issues/274); fixed 2026-10-19 in bc3ebe7; drop at the next tag |
 | 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277); fixed 2026-10-19 in 81245bd; drop at the next tag |
-| 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | drafted 2026-10-19 against main 8ee40ca, not filed: owner's trigger |
-| 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | drafted 2026-10-19 against main 8ee40ca, not filed: owner's trigger |
-| 0022 D3D12 copy layouts refused in copy command lists | bug | drafted 2026-10-19 against main 8ee40ca, not filed: owner's trigger |
-| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | drafted 2026-10-19 against main 8ee40ca, not filed: owner's trigger |
+| 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | filed 2026-10-19 against main 8ee40ca, [#281](https://github.com/NVIDIA-RTX/NRI/issues/281) |
+| 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | filed 2026-10-19 against main 8ee40ca, [#282](https://github.com/NVIDIA-RTX/NRI/issues/282) |
+| 0022 D3D12 copy layouts refused in copy command lists | bug | filed 2026-10-19 against main 8ee40ca, [#283](https://github.com/NVIDIA-RTX/NRI/issues/283) |
+| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | filed 2026-10-19 against main 8ee40ca, [#284](https://github.com/NVIDIA-RTX/NRI/issues/284) |
 | 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2, drafted 2026-10-19, not filed; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2, drafted 2026-10-19 as a question, not filed: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
