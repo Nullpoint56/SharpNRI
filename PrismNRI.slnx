@@ -1,4 +1,12 @@
 <Solution>
+  <Folder Name="/docs/">
+    <File Path="README.md" />
+    <File Path="docs/guide.md" />
+    <File Path="docs/upstream.md" />
+    <File Path="patches/README.md" />
+    <File Path="CLAUDE.md" />
+    <File Path="THIRD-PARTY-NOTICES.md" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="descs/PrismNRI.Descs.csproj" />
     <Project Path="dotnet/PrismNRI.csproj" />
