@@ -4,32 +4,43 @@ Each patch in `patches/` is either a bug upstream should fix or an extension ups
 This file holds the report text for each, so that filing is a copy and a link to a commit rather
 than a reconstruction. Status is updated as they are filed and answered.
 
-**This is master's copy: the v190 document.** It holds the report text for the patches master
-carries, with the status it had when the branches split on 2026-10-21. Filing status since then,
-the maintainer's replies, the patches upstream has fixed and the drafts of later rounds are in the
-copy on the `next` branch (CLAUDE.md: Branches).
+**This is the live copy, on the `next` branch.** Master's copy is the v190 document, frozen at the
+status it had when the branches split on 2026-10-21 (CLAUDE.md: Branches). Line numbers and
+measurements here are against the NRI commit `next` pins.
+
+2026-10-19: the maintainer fixed all six filed issues on main within the day ("Thanks! Good
+finding"), said on #277 "I like your short and clear form. PRs are OK too", and the phase 2 condition
+(he engages) is met. Main is ten commits past v190 at 8ee40ca, still `NRI_VERSION 190`, untagged.
+The other 17 patches apply in order onto 8ee40ca and every one is recognised by the scripts'
+`--reverse -C0` check. Measured with the six removed (a trial tree, not merged): native build
+clean, L0 drift `TextureViewDesc.layout` (3d8ca25) and `Result::NOT_READY` (8ee40ca, WGPU) plus
+anonymous-record renames, `NativeAbiTests` clean; Windows 292 tests, 0 failed (NVIDIA); Linux
+lavapipe on the stock 1.3 loader 292, 0 failed, the two tests 0004 was cut for passing on
+a4e562e; the dropped patches' own tests (BC staging, the format round trip, `HAS_BUFFER`, the
+stale-extent swap chain) pass on upstream's fixes. Line numbers in the drafts of the next round
+are main's.
 
 | Patch | Kind | Status |
 |---|---|---|
-| 0003 validation `HAS_BUFFER` crash | bug | filed 2026-10-16, [#279](https://github.com/NVIDIA-RTX/NRI/issues/279) |
-| 0004 Vulkan minor version above the instance's | bug | filed 2026-10-16, [#278](https://github.com/NVIDIA-RTX/NRI/issues/278) |
-| 0005 `MemoryHeap::alignment` uninitialised (read before written) | bug | filed 2026-10-16, [#275](https://github.com/NVIDIA-RTX/NRI/issues/275) |
-| 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | filed 2026-10-16, [#276](https://github.com/NVIDIA-RTX/NRI/issues/276) |
-| 0010 Streamer stages compressed textures in texel rows | bug | filed 2026-10-16, [#274](https://github.com/NVIDIA-RTX/NRI/issues/274) |
-| 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277) |
-| 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | phase 1 candidate, not filed: owner's trigger |
-| 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | phase 1 candidate, not filed: owner's trigger |
-| 0022 D3D12 copy layouts refused in copy command lists | bug | phase 1 candidate, not filed: owner's trigger |
-| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | phase 1 candidate, not filed: owner's trigger |
+| 0003 validation `HAS_BUFFER` crash | bug | filed 2026-10-16, [#279](https://github.com/NVIDIA-RTX/NRI/issues/279); fixed 2026-10-19 in 7915eca (also refuses `HAS_BUFFER` at build time); drop at the next tag |
+| 0004 Vulkan minor version above the instance's | bug | filed 2026-10-16, [#278](https://github.com/NVIDIA-RTX/NRI/issues/278); fixed 2026-10-19 in a4e562e (`m_InstanceVersion`, another shape); drop at the next tag, explicitly: ours still applies on top |
+| 0005 `MemoryHeap::alignment` uninitialised (read before written) | bug | filed 2026-10-16, [#275](https://github.com/NVIDIA-RTX/NRI/issues/275); fixed 2026-10-19 in 9b45d77; drop at the next tag |
+| 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | filed 2026-10-16, [#276](https://github.com/NVIDIA-RTX/NRI/issues/276); fixed 2026-10-19 in 5ed8bb6 (our table); drop at the next tag |
+| 0010 Streamer stages compressed textures in texel rows | bug | filed 2026-10-16, [#274](https://github.com/NVIDIA-RTX/NRI/issues/274); fixed 2026-10-19 in bc3ebe7; drop at the next tag |
+| 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277); fixed 2026-10-19 in 81245bd; drop at the next tag |
+| 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | drafted 2026-10-19 against main 8ee40ca, not filed: owner's trigger |
+| 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | drafted 2026-10-19 against main 8ee40ca, not filed: owner's trigger |
+| 0022 D3D12 copy layouts refused in copy command lists | bug | drafted 2026-10-19 against main 8ee40ca, not filed: owner's trigger |
+| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | drafted 2026-10-19 against main 8ee40ca, not filed: owner's trigger |
 | 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
-| 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2: after the maintainer engages; offer limit 0, a feature bit, or a clamp |
-| 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
-| 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2: after the maintainer engages; the uncapped order is his and stays |
-| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | phase 2: after the maintainer engages; the default (break) is his and stays |
-| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2: after the maintainer engages |
-| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2: enhancement issue; per-frame vs total semantics is his call |
-| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | phase 2: after the maintainer engages |
-| 0001 Agility SDK from a path | proposal | phase 2: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
+| 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2, drafted 2026-10-19, not filed; offer limit 0, a feature bit, or a clamp |
+| 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2, drafted 2026-10-19 as a question, not filed: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
+| 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2, drafted 2026-10-19, not filed; the uncapped order is his and stays |
+| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | phase 2, drafted 2026-10-19, not filed; the default (break) is his and stays |
+| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2, drafted 2026-10-19, not filed |
+| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2, drafted 2026-10-19, not filed; per-frame vs total semantics is his call |
+| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | phase 2, drafted 2026-10-19, not filed |
+| 0001 Agility SDK from a path | proposal | phase 2, drafted 2026-10-19, not filed: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
 | 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
 | 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
