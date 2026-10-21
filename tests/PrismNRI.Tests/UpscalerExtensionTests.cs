@@ -28,6 +28,110 @@ public sealed class UpscalerExtensionTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// <c>IsRuntimeInstalled</c> answers whether every vendor file <c>GetRuntimeFiles</c> names for the
+    /// type and graphics API is beside the application, for every type, without asking NRI: true
+    /// for the types built into NRI (NIS, MetalFX) whether or not this build compiled them in, and for
+    /// the vendor types exactly when their files are there (no PrismNRI package ships them, so a
+    /// bare test directory answers false). The device overload answers for the device's API. The
+    /// file names are the ones NRI and its SDKs load by name on Windows: FSR's loader and upscaler
+    /// on D3D12, FSR's Vulkan library, XeSS, and NGX's DLSS super resolution and ray reconstruction.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void IsRuntimeInstalled_follows_the_vendor_files_beside_the_application_for_every_type(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        var ext = device.Upscaler;
+        var linux = OperatingSystem.IsLinux();
+
+        var expectedFiles = new Dictionary<UpscalerType, string[]>
+        {
+            [UpscalerType.NIS] = [],
+            [UpscalerType.FSR] = backend.Api == GraphicsAPI.D3D12 ? ["amd_fidelityfx_loader_dx12.dll", "amd_fidelityfx_upscaler_dx12.dll"] : ["amd_fidelityfx_vk.dll"],
+            [UpscalerType.XESS] = ["libxess.dll"],
+            [UpscalerType.DLSR] = [linux ? "libnvidia-ngx-dlss.so.*" : "nvngx_dlss.dll"],
+            [UpscalerType.DLRR] = [linux ? "libnvidia-ngx-dlssd.so.*" : "nvngx_dlssd.dll"],
+            [UpscalerType.METALFX_SPATIAL] = [],
+            [UpscalerType.METALFX_TEMPORAL] = [],
+            [UpscalerType.METALFX_DENOISED] = [],
+        };
+        Assert.Equal(Enum.GetValues<UpscalerType>().Where(t => t != UpscalerType.MAX_NUM), expectedFiles.Keys);
+
+        foreach (var (type, files) in expectedFiles)
+        {
+            Assert.Equal(files, NriUpscalerExtension.GetRuntimeFiles(type, backend.Api));
+            var present = files.Where(f => f.Contains('*')
+                ? Directory.EnumerateFiles(AppContext.BaseDirectory, f).Any()
+                : File.Exists(Path.Combine(AppContext.BaseDirectory, f))).ToArray();
+            var installed = NriUpscalerExtension.IsRuntimeInstalled(type, backend.Api);
+            GpuWork.Record($"{backend}: {type}: compiled in {ext.IsUpscalerSupported(type)}, runtime files [{string.Join(", ", files)}], present [{string.Join(", ", present)}], installed {installed}");
+            Assert.Equal(present.Length == files.Length, installed);
+            Assert.Equal(installed, ext.IsRuntimeInstalled(type));
+        }
+        Assert.True(NriUpscalerExtension.IsRuntimeInstalled(UpscalerType.NIS, backend.Api), "NIS is built into NRI and needs no vendor file");
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// <c>CreateUpscaler</c> for a type this NRI build lacks (<c>IsUpscalerSupported</c> false: every
+    /// type of the Base variant) asks no runtime file and lets NRI answer: its validation reports
+    /// "CreateUpscaler: 'type' is not supported" and returns UNSUPPORTED, so NriUnsupportedException
+    /// with <c>Call</c> "CreateUpscaler" and no object created. For a type the build has whose vendor
+    /// file is missing, the binding refuses before NRI is called (XeSS would otherwise fault in its
+    /// delay-load stub, CLAUDE.md: Upscalers and vendor runtimes), naming the file, and NRI says
+    /// nothing. Types the build has with their runtime present are not created here.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void CreateUpscaler_answers_UNSUPPORTED_for_a_missing_type_or_runtime_before_NRI_creates_anything(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        var ext = device.Upscaler;
+
+        var tried = 0;
+        foreach (var type in Enum.GetValues<UpscalerType>().Where(t => t != UpscalerType.MAX_NUM))
+        {
+            var supported = ext.IsUpscalerSupported(type);
+            if (supported && ext.IsRuntimeInstalled(type)) continue;
+            var live = device.LiveObjects;
+            var start = messages.Count;
+            var e = Assert.Throws<NriUnsupportedException>(() => ext.CreateUpscaler(new NriUpscalerDesc
+            {
+                UpscaleResolution = new Dim2_t { w = 64, h = 64 },
+                Type = type,
+                Mode = UpscalerMode.NATIVE,
+                OutputFormat = Format.RGBA8_UNORM,
+            }));
+            List<NriMessage> provoked;
+            lock (messages) provoked = messages.Skip(start).ToList();
+            GpuWork.Record($"{backend}: {type} (compiled in {supported}): {e.Message}; {string.Join(" | ", provoked)}");
+            Assert.Equal("CreateUpscaler", e.Call);
+            Assert.Equal(Result.UNSUPPORTED, e.Result);
+            Assert.Equal(live, device.LiveObjects);
+            if (supported)
+            {
+                Assert.Contains($"needs the vendor runtime '{NriUpscalerExtension.GetRuntimeFiles(type, backend.Api).First(f => !File.Exists(Path.Combine(AppContext.BaseDirectory, f)))}'", e.Message, StringComparison.Ordinal);
+                Assert.Empty(provoked);
+            }
+            else
+            {
+                Assert.DoesNotContain("vendor runtime", e.Message, StringComparison.Ordinal);
+                var refusal = Assert.Single(provoked);
+                Assert.True(refusal.IsError, $"expected NRI validation's ERROR, got {refusal}");
+                Assert.Contains("CreateUpscaler: 'type' is not supported", refusal.Text, StringComparison.Ordinal);
+            }
+            lock (messages) messages.RemoveRange(start, messages.Count - start); // the refusal is the answer, not a failure
+            tried++;
+        }
+        Assert.SkipWhen(tried == 0, $"{backend}: every upscaler type is compiled in and has its runtime beside the tests; nothing to refuse");
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
     /// <summary>Skips when the staged native variant has no NIS, which is the Base variant.</summary>
     private static void RequireNis(NriDevice device) =>
         Assert.SkipUnless(device.TryUpscaler?.IsUpscalerSupported(UpscalerType.NIS) == true,
