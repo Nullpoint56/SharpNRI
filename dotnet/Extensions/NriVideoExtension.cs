@@ -734,17 +734,6 @@ internal static unsafe class NriVideoMarshal
         return n;
     }
 
-    internal static VideoPictureDesc ToNative(this NriVideoPictureDesc s, ScratchArena arena)
-    {
-        var n = new VideoPictureDesc();
-        n.texture = s.Texture.Raw;
-        n.usage = s.Usage;
-        n.width = s.Width;
-        n.height = s.Height;
-        n.layer = s.Layer;
-        return n;
-    }
-
     internal static VideoReference ToNative(this NriVideoReference s, ScratchArena arena)
     {
         var n = new VideoReference();
@@ -762,22 +751,12 @@ internal static unsafe class NriVideoMarshal
         return n;
     }
 
-    internal static VideoDecodeBitstreamRange ToNative(this NriVideoDecodeBitstreamRange s, ScratchArena arena)
-    {
-        var n = new VideoDecodeBitstreamRange();
-        n.buffer = s.Buffer is null ? null : s.Buffer.Raw;
-        // data: pinned by the caller of ToNative (it may be large)
-        n.offset = s.Offset;
-        n.size = s.Size;
-        return n;
-    }
-
     internal static VideoDecodeDesc ToNative(this NriVideoDecodeDesc s, ScratchArena arena)
     {
         var n = new VideoDecodeDesc();
         n.session = s.Session.Raw;
         n.parameters = s.Parameters.Raw;
-        // bitstream: marshalled by the caller of ToNative (the host data is pinned, not copied)
+        // bitstream: marshalled by DecodeVideo, inside the fixed that pins the host data (not copied)
         n.dstPicture = s.DstPicture.Raw;
         n.setupPicture = s.SetupPicture is null ? null : s.SetupPicture.Raw;
         { var src = s.References.Span; var dst = arena.Alloc<VideoReference>(src.Length); for (var i = 0; i < src.Length; i++) dst[i] = src[i].ToNative(arena); n.references = dst; n.referenceNum = checked((uint)src.Length); }

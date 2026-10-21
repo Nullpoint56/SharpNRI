@@ -1565,8 +1565,6 @@ extensions.
 - **An H.265 decode capability query at 64x64 removed the device** on the development machine's
   D3D12 driver ("[233] ... DXGI_ERROR_DRIVER_INTERNAL_ERROR"), inside NRI's decoder-heap probe. The
   tests use 256x256.
-- `NriVideoMarshal.ToNative(NriVideoDecodeBitstreamRange)` and `ToNative(NriVideoPictureDesc)` have
-  no callers. Binding follow-up.
 
 ### Wrappers
 
