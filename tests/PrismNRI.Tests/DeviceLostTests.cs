@@ -31,12 +31,13 @@ public sealed class DeviceLostTests(ITestOutputHelper output)
     /// A command buffer recorded while the device lives is submitted after RemoveDevice:
     /// <c>QueueSubmit</c> answers DEVICE_LOST (NRI's D3D12 queue checks GetDeviceRemovedReason after
     /// ExecuteCommandLists and reports "Submit(): failed, result = 0x887A0005") and the binding
-    /// throws <see cref="NriDeviceLostException"/> with <c>Call</c> "QueueSubmit". Then
-    /// <see cref="NriDevice.ReportDeviceLostInfo"/> succeeds and NRI's report arrives through the
-    /// message callback: "[DeviceLost] GetDeviceRemovedReason: 0x887A0005" first, then what DRED
-    /// recorded (the device was created with DeviceLostInfoLevel VERBOSE, which forces DRED's
-    /// breadcrumbs and page-fault tracking on). The child also records what a creation call and a
-    /// wait answer on the removed device.
+    /// throws <see cref="NriDeviceLostException"/> with <c>Call</c> "QueueSubmit" and that text in
+    /// its message. A creation call and a wait on the removed device answer DEVICE_LOST too, each
+    /// exception carrying its own call's report (D3D12MA's resource creation, the wait's
+    /// CreateFence), not the submit's. Then <see cref="NriDevice.ReportDeviceLostInfo"/> succeeds
+    /// and NRI's report arrives through the message callback: "[DeviceLost]
+    /// GetDeviceRemovedReason: 0x887A0005" first, then what DRED recorded (the device was created
+    /// with DeviceLostInfoLevel VERBOSE, which forces DRED's breadcrumbs and page-fault tracking on).
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -52,6 +53,18 @@ public sealed class DeviceLostTests(ITestOutputHelper output)
 
         Assert.Contains("THROWN QueueSubmit NriDeviceLostException DEVICE_LOST", lines);
         Assert.Contains(lines, l => l.StartsWith("MESSAGE ERROR ", StringComparison.Ordinal) && l.Contains($"Submit(): failed, result = {DeviceRemoved}", StringComparison.Ordinal));
+
+        // Each exception's message carries its own call's report, and only that.
+        string Thrown(string what) => Assert.Single(lines, l => l.StartsWith($"RESULT {what} after RemoveDevice threw ", StringComparison.Ordinal));
+        var submit = Thrown("QueueSubmit");
+        Assert.StartsWith("RESULT QueueSubmit after RemoveDevice threw NriDeviceLostException: QueueSubmit: DEVICE_LOST — ", submit, StringComparison.Ordinal);
+        Assert.Contains($"Submit(): failed, result = {DeviceRemoved}", submit, StringComparison.Ordinal);
+        foreach (var later in new[] { Thrown("CreateCommittedBuffer"), Thrown("DeviceWaitIdle") })
+        {
+            Assert.Contains($"failed, result = {DeviceRemoved}", later, StringComparison.Ordinal);
+            Assert.DoesNotContain("Submit()", later, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain("CreateResource3", Thrown("DeviceWaitIdle"), StringComparison.Ordinal);
 
         var report = lines.Where(l => l.StartsWith("REPORT ", StringComparison.Ordinal)).ToList();
         Assert.True(report.Count > 0, "nriReportDeviceLostInfo reported nothing through the message callback");
@@ -174,7 +187,7 @@ public sealed class DeviceLostTests(ITestOutputHelper output)
             catch (NriException e)
             {
                 Console.WriteLine($"THROWN {e.Call} {e.GetType().Name} {e.Result}");
-                Console.WriteLine($"RESULT {what} threw {e.GetType().Name}: {e.Message}");
+                Console.WriteLine($"RESULT {what} threw {e.GetType().Name}: {e.Message.ReplaceLineEndings(" / ")}");
             }
             foreach (var m in Since(start)) Console.WriteLine($"MESSAGE {m.Type} {m.Text}");
         }

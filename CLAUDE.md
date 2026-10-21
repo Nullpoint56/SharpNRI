@@ -86,8 +86,9 @@ L0  dotnet/Native/       ClangSharp output. Never referenced above L1 except des
   `NativeSplit.props` so the two projects cannot disagree.
 - L1 does four things a generator cannot: `InterfaceTable.Acquire<T>` (size check;
   `UNSUPPORTED` -> `NriUnsupportedException`, a capability answer); `Result` -> `NriException` with
-  call name and the last error text the message callback reported (`DEVICE_LOST`, `UNSUPPORTED` get
-  own types); `[UnmanagedCallersOnly]` thunks for `CallbackInterface` and `AllocationCallbacks`
+  call name and the error text the message callback reported on the calling thread during the
+  failing call (`DEVICE_LOST`, `UNSUPPORTED` get own types; Device creation and callbacks:
+  Exception texts); `[UnmanagedCallersOnly]` thunks for `CallbackInterface` and `AllocationCallbacks`
   recovering the receiver from a `GCHandle` in `userArg` (no managed exception crosses a native
   frame: a throwing handler loses that one message; a throwing allocator returns null, which NRI does
   not survive, see Device creation and callbacks; bridges outlive the native device until
@@ -615,22 +616,35 @@ configured per machine: the adapter named is whichever one the suite picked on t
     2 draws VUID-VkDeviceQueueCreateInfo-pQueuePriorities-00383.
   - A priority list of the wrong length throws `ArgumentException` before NRI is called.
 - **Exception texts.**
-  - `NriException.For` cannot be reached through the public API. Core and Helper acquisitions never
-    fail, `TryAcquire` turns UNSUPPORTED into false, and `nriEnumerateAdapters2` adds a NONE adapter
-    when it finds none (`Creation.cpp:1284-1313`).
-  - `NriDevice.Fail` attaches the last error text the callback reported, which is an earlier call's
-    when this call reported nothing. Measured: a silent FAILURE carried an earlier `EncodeVideo`
-    message. Binding follow-up.
+  - An exception carries the error text reported on the calling thread since the binding last
+    checked a result there: the failing call's own text, or none. `MessageBridge` keeps each
+    ERROR's text in a `[ThreadStatic]` (`NriException`) before the handler runs; every check
+    (`NriException.Check`, which `NriDevice.Check` and `NriBuffer.Map` use) takes it on failure
+    and clears it on success, and so do the device creations. NRI and the layers report
+    synchronously, on the thread of the call. No lock; the success path stays at 0 managed bytes
+    (`AllocationTests`, `ExtensionAllocationTests`).
+  - It used to be the device-wide `LastError`, an earlier call's text when this call reported
+    nothing: a silent FAILURE of `GetVideoAV1EncodeDecodeInfo` carried an earlier `EncodeVideo`
+    message. Now (`InteropTests`): a refused `CreateBuffer` carries "'size' is 0", a `GetQueue`
+    past the queues after it (INVALID_ARGUMENT, no message) carries nothing, and so does one after
+    an error on another thread. A text from a call nothing checks (`Cmd*` return nothing) goes to
+    the next failure on its thread when no check came between. `LastError` stays the device's
+    last error text from any thread.
+  - `NriException.For` is the path of every failed check, and so the one that builds
+    `NriDeviceLostException` and `NriUnsupportedException`.
 - **Device lost, D3D12** (`DeviceLostTests`, child process `d3d12-device-lost`).
   - `ID3D12Device5::RemoveDevice` logs INFO [234]. Then `QueueSubmit` throws
     `NriDeviceLostException` with `Call` "QueueSubmit", after NRI's ERROR "Submit(): failed, result =
     0x887A0005".
-  - `CreateCommittedBuffer` and `DeviceWaitIdle` throw too, because `D3D12MA::CreateResource3` and
-    `CreateFence` fail with 0x887A0005. A fence then reads 0xFFFFFFFFFFFFFFFF.
+  - `CreateCommittedBuffer` and `DeviceWaitIdle` throw `NriDeviceLostException` too, because
+    `D3D12MA::CreateResource3` and `CreateFence` fail with 0x887A0005. A fence then reads
+    0xFFFFFFFFFFFFFFFF.
   - `ReportDeviceLostInfo` begins "[DeviceLost] GetDeviceRemovedReason: 0x887A0005, result=-3".
     DRED reports only "Device state: Unknown" and "PageFaultVA=0x0000000000000000 flags=0".
   - Hardware and WARP behave identically. Vulkan has no call that removes a device, so it skips.
-  - `NriDeviceLostException` carries no NRI text ("QueueSubmit: DEVICE_LOST").
+  - Each `NriDeviceLostException` carries its own call's NRI text: "QueueSubmit: DEVICE_LOST —
+    D3D12::(adapter name) - Submit(): failed, result = 0x887A0005 (-2005270523)!", and the creation
+    and the wait their `CreateResource3` and `CreateFence` reports, not the submit's.
 - **More device-creation facts** (`DeviceTests`):
   - An explicit Agility path without a trailing separator is normalised ("Using Agility SDK v1.619
     from '...\AgilitySDK\'").

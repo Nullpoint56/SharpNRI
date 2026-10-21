@@ -1,15 +1,12 @@
 // The interop layer's own paths (L1), each measured by its effect: a message handler or a host
-// allocator that throws, reallocation, the scratch arena growing, the managed argument checks that
-// stand between a short span and NRI, the shared handle's Dispose, and the WrapperVK mappings from
-// Vulkan enums to the managed BindPoint and QueryType.
+// allocator that throws, which text an exception carries, reallocation, the scratch arena growing,
+// the managed argument checks that stand between a short span and NRI, the shared handle's Dispose,
+// and the WrapperVK mappings from Vulkan enums to the managed BindPoint and QueryType.
 //
-// Not here, because nothing reaches them without crashing or through the public API:
-// NriException.For (its callers are the Core/Helper acquisitions, which never fail, TryAcquire, which
-// turns UNSUPPORTED into false and could only see another result for a wrong interface name or size,
-// and nriEnumerateAdapters(2), which adds the NONE adapter when no pass found one and so never returns
-// UNSUPPORTED); the allocation bridge's catch in OnAllocate (an allocator that throws makes the bridge
-// return null, and NRI v190 calls Create on the null it gets back from Allocate: an access violation
-// in CreateFence, 0xC0000005, on Vulkan and D3D12, measured in a child process).
+// Not here, because nothing reaches it without crashing: the allocation bridge's catch in
+// OnAllocate (an allocator that throws makes the bridge return null, and NRI v190 calls Create on
+// the null it gets back from Allocate: an access violation in CreateFence, 0xC0000005, on Vulkan
+// and D3D12, measured in a child process).
 
 using System.Runtime.InteropServices;
 using PrismNRI.Native;
@@ -81,6 +78,70 @@ public sealed unsafe class InteropTests
         var second = Assert.Single(after, m => m.IsError);
         Assert.Contains("'SetPipelineLayout' has not been called", second.Text, StringComparison.Ordinal);
         Assert.Equal(second.Text, afterSecond);
+    }
+
+    /// <summary>
+    /// An NriException carries the error text reported on its own thread since the binding last
+    /// checked a result there, which is the failing call's own, and nothing older; device.LastError
+    /// stays the device's last error from any thread. A CreateBuffer of size 0, refused by NRI
+    /// validation, carries "'size' is 0". GetQueue with an index past the device's queues, which NRI
+    /// refuses with INVALID_ARGUMENT and no message, then carries no text; it used to carry
+    /// LastError, the CreateBuffer text (as a silent FAILURE of GetVideoAV1EncodeDecodeInfo carried
+    /// an earlier EncodeVideo message). A Draw outside a render pass refused on another thread,
+    /// never checked there, is not this thread's either. A Draw refused on this thread (Cmd* return
+    /// nothing, so nothing checks them) is attached to the next failure here: no check came between.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void An_exception_carries_only_the_text_reported_for_its_own_call(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        var queue = device.GetQueue(QueueType.GRAPHICS);
+        using var allocator = queue.CreateCommandAllocator();
+        const string sizeZero = "'size' is 0";
+        const string outsidePass = "must be called inside 'CmdBeginRendering/CmdEndRendering'";
+
+        var refused = Assert.Throws<NriException>(() => device.CreateBuffer(new BufferDesc { size = 0 }));
+        Record($"{backend}: {refused.Message}");
+        Assert.Equal(Result.INVALID_ARGUMENT, refused.Result);
+        Assert.Contains(sizeZero, refused.Message, StringComparison.Ordinal);
+
+        var silent = Assert.Throws<NriException>(() => device.GetQueue(QueueType.GRAPHICS, 1000));
+        Assert.Equal("GetQueue: INVALID_ARGUMENT", silent.Message);
+        Assert.Contains(sizeZero, device.LastError, StringComparison.Ordinal);
+
+        using (var elsewhere = allocator.CreateCommandBuffer())
+        {
+            var thread = new Thread(() =>
+            {
+                elsewhere.Begin();
+                elsewhere.Draw(3);
+            });
+            thread.Start();
+            thread.Join();
+            Assert.Contains(outsidePass, device.LastError, StringComparison.Ordinal);
+            var afterOtherThread = Assert.Throws<NriException>(() => device.GetQueue(QueueType.GRAPHICS, 1000));
+            Assert.Equal("GetQueue: INVALID_ARGUMENT", afterOtherThread.Message);
+            elsewhere.End();
+        }
+
+        using (var here = allocator.CreateCommandBuffer())
+        {
+            here.Begin();
+            here.Draw(3);
+            var afterDraw = Assert.Throws<NriException>(() => device.GetQueue(QueueType.GRAPHICS, 1000));
+            Record($"{backend}: {afterDraw.Message}");
+            Assert.Equal(Result.INVALID_ARGUMENT, afterDraw.Result);
+            Assert.Contains(outsidePass, afterDraw.Message, StringComparison.Ordinal);
+            here.End();
+        }
+
+        List<NriMessage> errors;
+        lock (messages) errors = [.. messages.Where(m => m.IsError)];
+        Assert.Equal(3, errors.Count);
+        Assert.All(errors, m => Assert.True(m.Text.Contains(sizeZero, StringComparison.Ordinal) || m.Text.Contains(outsidePass, StringComparison.Ordinal), m.ToString()));
     }
 
     // ---------------------------------------------------------------- the allocation bridge

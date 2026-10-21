@@ -138,6 +138,7 @@ public sealed unsafe partial class NriDevice : NriObject
         finally
         {
             foreach (var pin in pins) pin.Free();
+            NriException.ClearReported(); // creation's own messages are no later call's reason
         }
     }
 
@@ -238,7 +239,11 @@ public sealed unsafe partial class NriDevice : NriObject
     /// <summary>The allocator the device was created with, or null for NRI's own.</summary>
     public INriAllocator? Allocator => _allocatorInstance;
 
-    /// <summary>The last error message NRI reported on this device, or null.</summary>
+    /// <summary>
+    /// The last error message NRI or a validation layer reported on this device, on any thread, or
+    /// null. A record of the device, not of one call: an <see cref="NriException"/> carries only the
+    /// text reported on its own thread during the call that failed.
+    /// </summary>
     public string? LastError => Volatile.Read(ref _lastError);
 
     /// <summary>Objects created on this device and not yet disposed.</summary>
@@ -289,21 +294,11 @@ public sealed unsafe partial class NriDevice : NriObject
     internal void ChildCreated() => Interlocked.Increment(ref _children);
     internal void ChildDestroyed() => Interlocked.Decrement(ref _children);
 
-    internal void Check(Result result, string call)
-    {
-        if (result != Result.SUCCESS) throw Fail(result, call);
-    }
-
-    internal NriException Fail(Result result, string call)
-    {
-        var detail = LastError;
-        return result switch
-        {
-            Result.DEVICE_LOST => new NriDeviceLostException(call),
-            Result.UNSUPPORTED => new NriUnsupportedException(call),
-            _ => new NriException(result, call, detail),
-        };
-    }
+    /// <summary>
+    /// Throws for any result other than success, with the error text reported on the calling thread
+    /// since the last check there (the failing call's own; see <see cref="NriException"/>).
+    /// </summary>
+    internal void Check(Result result, string call) => NriException.Check(result, call);
 
     /// <summary>
     /// Refuses while any object created on this device is still alive: destroying the device
