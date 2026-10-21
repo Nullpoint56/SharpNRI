@@ -603,8 +603,11 @@ configured per machine: the adapter named is whichever one the suite picked on t
     reallocations with it. That VMA path is the one that reaches `OnReallocate`.
   - D3D12: 18 and 26.
   - `Live` is 0 in every case.
-  - `NriCountingAllocator.Reallocate(p, 0)` keeps a 1-byte block where Vulkan's reallocation
-    contract says free; it has not been seen in practice.
+  - `NriCountingAllocator.Reallocate(p, 0)` frees the block, returns null and counts a free, as
+    Vulkan's reallocation contract and NRI's Windows default (`_aligned_realloc`) do
+    (`InteropTests`); it used to keep a 1-byte block. NRI's POSIX default (`AlignedRealloc` in
+    `Creation.cpp`) returns a new block for size 0 instead. No size-0 reallocation has been seen
+    in practice.
 - **Queue priorities.**
   - D3D12 makes a queue HIGH only above 0.5 (`QueueD3D12.hpp:5`), while `NRIDeviceCreation.h`
     documents "high > 0". Measured: 1 gives High, 0 and -1 give Normal.

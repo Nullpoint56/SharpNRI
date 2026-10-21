@@ -161,6 +161,28 @@ public sealed unsafe class InteropTests
     }
 
     /// <summary>
+    /// NriCountingAllocator.Reallocate to size 0, called directly, frees the block and returns null,
+    /// counted as a free and not as a reallocation, so Live is back to 0 with no Free call: Vulkan's
+    /// pfnReallocation contract, the one NRI forwards to the host allocator, and NRI's own Windows
+    /// default (_aligned_realloc) both define size 0 so. Before, it kept a 1-byte block that nobody
+    /// would free.
+    /// </summary>
+    [Fact]
+    public void NriCountingAllocator_Reallocate_to_size_0_frees_the_block()
+    {
+        var allocator = new NriCountingAllocator();
+        var block = (byte*)allocator.Allocate(64, 16);
+        Assert.True(block is not null);
+        block[63] = 0x5A;
+        Assert.Equal(1L, allocator.Live);
+
+        var result = allocator.Reallocate(block, 0, 16);
+
+        Assert.True(result is null, $"Reallocate to size 0 returned a block at 0x{(nuint)result:X}");
+        Assert.Equal((1L, 0L, 1L, 0L), (allocator.Allocations, allocator.Reallocations, allocator.Frees, allocator.Live));
+    }
+
+    /// <summary>
     /// ForwardAllocatorToThirdParty routes the third-party allocators through the host allocator too
     /// (VMA and the Vulkan loader, layers and driver through VkAllocationCallbacks; D3D12MA): the same
     /// work makes more host allocations with it than without, and device disposal frees every one,
