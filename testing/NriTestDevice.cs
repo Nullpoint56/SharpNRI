@@ -5,17 +5,14 @@
 // record: the validation layers are the party that decides whether what the code did was legal.
 //
 // Adapter choice: the software adapter (WARP, lavapipe) when PRISMNRI_TEST_SOFTWARE is set or
-// under GitHub Actions, otherwise the first adapter NRI lists; PRISMNRI_TEST_ADAPTER narrows either
-// to the adapters whose name contains its text, so a run can choose its GPU. The NONE backend
-// needs no adapter and is always available; it validates nothing and allocates nothing (NRI never
-// wraps it in its validation layer), which makes it the right device for lifetime and
-// allocation-counting tests and the wrong one for anything that asks a question.
+// under GitHub Actions, otherwise the first adapter NRI lists. The NONE backend needs no adapter
+// and is always available; it validates nothing and allocates nothing (NRI never wraps it in its
+// validation layer), which makes it the right device for lifetime and allocation-counting tests
+// and the wrong one for anything that asks a question.
 //
 // Environment:
 //   PRISMNRI_TEST_SOFTWARE=1   prefer the software adapter
 //   PRISMNRI_TEST_BACKEND=VK   only this backend is available; the others report a reason
-//   PRISMNRI_TEST_ADAPTER=AMD  only adapters whose name contains this (any case); a backend none of
-//                              them supports is unavailable, and the reason lists what NRI found
 //   PRISMNRI_TRACE=1           echo every message to stderr as it arrives, which is the only
 //                              record that survives a native crash
 
@@ -86,9 +83,6 @@ public sealed class NriTestDevice : IDisposable
 
     public static string? OnlyBackend => Environment.GetEnvironmentVariable("PRISMNRI_TEST_BACKEND");
 
-    /// <summary>PRISMNRI_TEST_ADAPTER: the text an adapter's name must contain, or null for any adapter.</summary>
-    public static string? AdapterFilter => Environment.GetEnvironmentVariable("PRISMNRI_TEST_ADAPTER") is { Length: > 0 } text ? text : null;
-
     /// <summary>The three backends a test can run on, in the order they are usually listed.</summary>
     public static IReadOnlyList<GraphicsAPI> Backends { get; } = [GraphicsAPI.NONE, GraphicsAPI.VK, GraphicsAPI.D3D12];
 
@@ -119,8 +113,7 @@ public sealed class NriTestDevice : IDisposable
     public static NriAdapter? AdapterFor(GraphicsAPI api)
     {
         if (api == GraphicsAPI.NONE) return null;
-        var candidates = Adapters.Value.Where(a => a.Supports(api)
-            && (AdapterFilter is not { } text || a.Name.Contains(text, StringComparison.OrdinalIgnoreCase))).ToList();
+        var candidates = Adapters.Value.Where(a => a.Supports(api)).ToList();
         if (candidates.Count == 0) return null;
         if (PreferSoftware && candidates.FirstOrDefault(a => a.IsSoftware) is { } software) return software;
         return candidates.FirstOrDefault(a => !a.IsSoftware) ?? candidates[0];
@@ -135,9 +128,6 @@ public sealed class NriTestDevice : IDisposable
     public static NriTestDevice Create(GraphicsAPI api, Action<NriTestDeviceOptions>? configure = null)
     {
         var options = new NriTestDeviceOptions { Adapter = AdapterFor(api) };
-        // With no adapter NRI would pick its own, which a filtered run must not end up on
-        if (api != GraphicsAPI.NONE && options.Adapter is null && AdapterFilter is { } text)
-            throw new InvalidOperationException($"PRISMNRI_TEST_ADAPTER={text} matches no adapter that supports {api}");
         if (api == GraphicsAPI.NONE) options.EnableGraphicsApiValidation = false;
         configure?.Invoke(options);
 
@@ -187,9 +177,7 @@ public sealed class NriTestDevice : IDisposable
             }
             if (AdapterFor(api) is null)
             {
-                result[api] = AdapterFilter is { } text
-                    ? $"PRISMNRI_TEST_ADAPTER={text} matches no adapter that supports {api}; NRI lists {string.Join(", ", Adapters.Value.Where(a => a.Supports(api)).Select(a => a.Name))}"
-                    : $"no adapter supports {api}";
+                result[api] = $"no adapter supports {api}";
                 continue;
             }
             result[api] = ProbeOne(api);

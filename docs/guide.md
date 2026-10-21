@@ -770,13 +770,12 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 - NRI validation and the backend validation layer on by default; every message in
   `fixture.Messages` / `Errors` / `Warnings`.
 - `NriTestDevice.Backends` (NONE, VK, D3D12), `GpuBackends` (VK, D3D12), `AdapterFor(api)`,
-  `IsAvailable(api)`, `AdapterFilter`.
+  `IsAvailable(api)`.
 
 | Variable | Effect |
 |---|---|
 | `PRISMNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) | prefer WARP / lavapipe |
 | `PRISMNRI_TEST_BACKEND=VK` | only that backend |
-| `PRISMNRI_TEST_ADAPTER=AMD` | only adapters whose name contains that text (any case); a backend none of them supports is unavailable, with the adapters NRI lists in the reason |
 | `PRISMNRI_TRACE=1` | print each message as it arrives; the only record that survives a native crash |
 
 - Validation layer version must match NRI's Vulkan headers (1.4.365 in v190). An older Khronos layer

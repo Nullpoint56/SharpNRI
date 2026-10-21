@@ -3,7 +3,7 @@
 // is unavailable, and exits before xunit starts. tools/coverage.ps1 records it, so the coverage
 // report names the GPU its figures were measured on rather than every GPU in the machine.
 //
-//   ADAPTER VK NVIDIA GeForce RTX 4070 SUPER
+//   ADAPTER VK <the adapter's name>
 //   UNAVAILABLE D3D12 D3D12 is Windows only
 
 using System.Runtime.CompilerServices;

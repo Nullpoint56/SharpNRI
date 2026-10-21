@@ -31,9 +31,6 @@ public static class TestDevice
 
     public static NriAdapter? AdapterFor(GraphicsAPI api) => NriTestDevice.AdapterFor(api);
 
-    /// <summary>PRISMNRI_TEST_ADAPTER, the text the test adapter's name must contain, or null.</summary>
-    public static string? AdapterFilter => NriTestDevice.AdapterFilter;
-
     /// <summary>Creates a validated device with every message appended to <paramref name="messages"/>.</summary>
     public static NriDevice Create(GraphicsAPI api, List<NriMessage> messages, Action<NriDeviceOptionsBuilder>? configure = null)
     {

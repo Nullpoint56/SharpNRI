@@ -272,9 +272,8 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   (a `dotnet.config` with the same setting did nothing on 11.0.100-rc.1), the test project is an
   `Exe`, no `Microsoft.NET.Test.Sdk`, serialization in `xunit.runner.json`.
 - `PRISMNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) prefers WARP / lavapipe;
-  `PRISMNRI_TEST_BACKEND=VK` restricts; `PRISMNRI_TEST_ADAPTER=AMD` keeps only adapters whose name
-  contains the text (the tests that measure NRI's own no-adapter pick skip under it);
-  `PRISMNRI_TRACE=1` prints messages live (the only record that survives a native crash).
+  `PRISMNRI_TEST_BACKEND=VK` restricts; `PRISMNRI_TRACE=1` prints messages live (the only record
+  that survives a native crash).
 - Single test, bypassing `dotnet test`: `tests/PrismNRI.Tests/bin/Release/net11.0/PrismNRI.Tests
   -method "PrismNRI.Tests.RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS"`.
 
@@ -288,9 +287,8 @@ failing suite publishes nothing. No figure is published without the commit it wa
 date, NRI ref and patch count, the payload (the staged one whose library the tests loaded, by
 content) and the adapter each backend's tests ran on (the test executable's own choice:
 `PRISMNRI_TEST_CHILD=test-adapters`, `tests/PrismNRI.Tests/TestAdapters.cs`). All of it is recorded
-when the tests run (`_build/coverage/measurement.json`), so `-SkipTests` keeps it. The committed
-report is the RTX 4070 SUPER's. `PRISMNRI_TEST_ADAPTER=AMD` puts the suite on the machine's AMD
-iGPU, where three tests fail (AMD iGPU), and the script publishes no failing suite.
+when the tests run (`_build/coverage/measurement.json`), so `-SkipTests` keeps it. Nothing is
+configured per machine: the adapter named is whichever one the suite picked on that run.
 
 - **Staleness** (`-Check`, `.github/workflows/coverage.yml`): the report records, in an HTML
   comment, the measured commit's tree entries for `dotnet`, `descs`, `testing`, `tests`, `patches`
@@ -326,8 +324,8 @@ iGPU, where three tests fail (AMD iGPU), and the script publishes no failing sui
 - "Call site run by the tests" joins the two: a bound function whose call-site lines have no
   hits is bound, but no test calls it. The numbers are the machine's (2026-10-21): at f17a5d8
   Windows on the RTX 4070 SUPER ran 287 tests and skipped 5, lines 83.2%, 207 of 253 call sites
-  run; at a5e1364 (the same inputs) lavapipe in WSL ran 137 and skipped 155, lines 71.2%, 176 of 253. The committed report is
-  the dev machine's (Windows, NVIDIA, Base payload: the upscaler tests skip); CI does not run it.
+  run; at a5e1364 (the same inputs) lavapipe in WSL ran 137 and skipped 155, lines 71.2%, 176 of
+  253. The committed report is measured where its header says; CI does not run it.
 
 ---
 
@@ -973,50 +971,6 @@ iGPU, where three tests fail (AMD iGPU), and the script publishes no failing sui
   identifier 32 B, SBT alignment 64, as on hardware.
 - `UploadData`, import wrappers, RT pipelines all pass on WARP.
 
-### AMD iGPU
-
-The development machine's integrated GPU: "AMD Radeon(TM) Graphics", device 0x13C0,
-`Architecture::INTEGRATED`, VK and D3D12 (Vulkan driverInfo 25.10.30.02), listed after the RTX 4070
-SUPER since 2026-10-21. `PRISMNRI_TEST_ADAPTER=AMD` runs the suite on it. Measured at 2e5ed94's code,
-Base payload: 292 tests, 277 passed, 3 failed, 12 skipped, 46 s.
-
-- Skips that are capability answers: micromaps (`tiers.rayTracing` = 2, needs 3), Reflex
-  (`features.lowLatency` false), Vulkan descriptor heaps, NIS (Base payload), and the three tests of
-  NRI's own no-adapter pick (the selector). The H.264 encode skip is not one (next bullet).
-- **NRI's video model is NVIDIA's (not patched; two failures).** `GetVideoCapabilities` answers
-  UNSUPPORTED for every decode and encode session on AMD, on both backends (H.264, H.265, AV1;
-  64x64 to 1920x1080 NV12), although the drivers decode all three and encode H.264 and H.265.
-  - Vulkan: `IsVideoFormatSupported` (`Source/VK/VideoSessionVK.hpp:139`) asks
-    `vkGetPhysicalDeviceVideoFormatPropertiesKHR` for one format carrying `TRANSFER_SRC |
-    TRANSFER_DST | VIDEO_DECODE_DST | VIDEO_DECODE_DPB` (encode: `VIDEO_ENCODE_SRC |
-    VIDEO_ENCODE_DPB`, `:153`). AMD's driver has decode output formats (`DECODE_DST`, transfer,
-    sampled, storage, `ENCODE_SRC`) and separate DPB formats (`DECODE_DPB` only) and reports
-    `VIDEO_DECODE_CAPABILITY_DPB_AND_OUTPUT_DISTINCT_BIT_KHR`, not COINCIDE; its H.264
-    Baseline/Main/High and H.265 Main encode profiles likewise have input formats (`ENCODE_SRC`, ...)
-    and DPB formats (`ENCODE_DPB` only) (`vulkaninfoSDK --show-video-props`). No format carries
-    both, so the query fails with `VK_ERROR_IMAGE_USAGE_NOT_SUPPORTED_KHR` (-1000023000), which
-    NRI also reports as an ERROR message (`:158`, `NRI_RETURN_ON_BAD_VKRESULT`) before answering
-    UNSUPPORTED. NVIDIA's driver reports `DPB_AND_OUTPUT_COINCIDE_BIT_KHR` only.
-  - D3D12 decode: `CheckFeatureSupport(D3D12_FEATURE_VIDEO_DECODE_SUPPORT)` (inbox runtime) reports
-    `SUPPORTED` with `D3D12_VIDEO_DECODE_CONFIGURATION_FLAG_REFERENCE_ONLY_ALLOCATIONS_REQUIRED` for
-    H.264, H.265 Main and AV1 profile 0 at 64x64 and 1920x1080 NV12; NVIDIA reports no flag. NRI
-    answers UNSUPPORTED on that flag (`Source/D3D12/VideoSessionD3D12.hpp:54`): its pictures are
-    textures that are output and reference at once.
-  - D3D12 encode: `IsVideoEncodeSessionSupported` (`Source/D3D12/VideoHelpersD3D12.h:248`) refuses
-    H.264 and H.265 too; which of its checks fails on AMD (one is
-    `READABLE_RECONSTRUCTED_PICTURE_LAYOUT_AVAILABLE`, `:462`) is not measured.
-  - So on AMD the encode test's skip reason ("no H.264 NV12 video encode support") names a capability
-    the driver has, and the decode test fails. Distinct DPB images and reference-only allocations
-    are a change to NRI's video design, not a small patch.
-- **RenderDoc (one failure).** Under `renderdoccmd capture` on AMD the inbox route
-  (`D3D12AgilitySdkPath = ""`) fails at device creation: "nri::DeviceD3D12::Create:
-  agsDriverExtensionsDX12_CreateDevice() failed: 1" (`AGS_FAILURE`). The Agility route creates the
-  device (`Using ID3D12Device15`, vtable in `D3D12Core.dll` as on NVIDIA) and RenderDoc counts
-  captures (`EndFrameCapture` 1, `GetNumCaptures` 1 then 2), where NVIDIA's Agility route captured
-  nothing: both halves of `RenderDocTests` come out the other way on AMD. NRI disables NVAPI when
-  `renderdoc.dll` is loaded (`DeviceD3D12.hpp:1308`, patched tree) but not AGS (`InitializeAmdExt`,
-  `:1324`), and on AMD the device comes from AGS (`:584`); whether that is the cause is not measured.
-
 ### MoltenVK and the paravirtual Mac
 
 Runner: "Apple M2 Pro (Virtual)" (`VirtualMac2,1`), macOS 26.x, AppleClang 21, MoltenVK 1.4.2 behind
@@ -1328,9 +1282,7 @@ extensions.
   Vulkan ICD) skips every VK case and RenderDoc; Linux skips D3D12, Agility, NIS, shared handles,
   import proofs, the best-practices checks (.NET does not write the native environment); macOS additionally skips SharedHandle, RT, mesh,
   video, descriptor heaps, shading rate, PE imports, the Windows swap-chain window, payload contracts
-  for Upscalers/Agility, and the two paravirtual defects. The AMD iGPU (`PRISMNRI_TEST_ADAPTER=AMD`)
-  skips micromaps, Reflex, Vulkan descriptor heaps, H.264 encode (NRI's refusal, not the
-  driver's: AMD iGPU), NIS and the three no-adapter tests.
+  for Upscalers/Agility, and the two paravirtual defects.
 
 ### CI runners and flakes
 

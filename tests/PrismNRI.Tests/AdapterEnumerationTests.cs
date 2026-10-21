@@ -37,8 +37,6 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
     public void A_Vulkan_only_enumeration_and_device_load_no_D3D12_runtime()
     {
         TestDevice.RequireAvailable(new Backend(GraphicsAPI.VK));
-        if (TestDevice.AdapterFilter is { } chosen)
-            Assert.Skip($"PRISMNRI_TEST_ADAPTER={chosen} chooses the test adapter; this test creates its Vulkan device with none, on NRI's own pick");
         var vulkanOnly = RunChild(ChildVulkanOnly);
         var all = RunChild(ChildAll);
         foreach (var line in vulkanOnly.Concat(all).Where(l => l.StartsWith("RESULT ", StringComparison.Ordinal))) GpuWork.Record(line);
@@ -66,8 +64,6 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
     public void The_adapter_picked_with_no_adapter_is_the_first_of_the_filtered_enumeration(Backend backend)
     {
         TestDevice.RequireAvailable(backend);
-        if (TestDevice.AdapterFilter is { } chosen)
-            Assert.Skip($"PRISMNRI_TEST_ADAPTER={chosen} chooses the test adapter; this test creates its device with none, on NRI's own pick");
         var filtered = NriAdapter.Enumerate(backend.Api).Where(a => a.Supports(backend.Api)).ToList();
         var unfiltered = NriAdapter.Enumerate().Where(a => a.Supports(backend.Api)).ToList();
         Assert.NotEmpty(filtered);

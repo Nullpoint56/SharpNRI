@@ -16,8 +16,8 @@
   descs/, testing/) the test suite executes, through Microsoft.Testing.Extensions.CodeCoverage on
   `dotnet test`, child processes included. The generated L0 (dotnet/Native) is not counted.
 
-  Both depend on what the machine can run: on the Windows NVIDIA development machine nearly every
-  test runs; CI's WARP and lavapipe runners skip half of them. The report names the commit, the
+  Both depend on what the machine can run: on a hardware GPU nearly every test runs; CI's
+  software adapters (WARP, lavapipe) skip about half of them. The report names the commit, the
   payload and the adapter each backend's tests ran on, and records the measured commit's inputs
   (its tree entries for dotnet, descs, testing, tests, patches and nri). Run after
   `pwsh tools/build-native.ps1` (the tests need the native library).
