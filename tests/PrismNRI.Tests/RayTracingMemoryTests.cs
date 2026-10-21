@@ -128,8 +128,8 @@ public sealed class RayTracingMemoryTests
     /// both decide the ray query as their sources do.
     /// </summary>
     /// <remarks>
-    /// On Vulkan the driver may refuse the pool: measured on NVIDIA (Vulkan 1.4, Khronos layer
-    /// 1.4.341, silent), vkCreateQueryPool returns VK_ERROR_UNKNOWN (-13) for
+    /// On Vulkan the driver may refuse the pool: measured on the development machine's GPU (Vulkan
+    /// 1.4, Khronos layer 1.4.341, silent), vkCreateQueryPool returns VK_ERROR_UNKNOWN (-13) for
     /// VK_QUERY_TYPE_MICROMAP_COMPACTED_SIZE_EXT and ..._SERIALIZATION_SIZE_EXT whatever
     /// pipelineStatistics holds, while acceleration-structure size pools create; no feature bit
     /// predicts it. That one failure skips, quoting it; anything else fails.

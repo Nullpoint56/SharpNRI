@@ -185,7 +185,7 @@ public sealed class VideoExtensionTests
         GpuWork.Record($"{backend}: H.264 encode {width}x{height}: resolve on {caps.resolvedMetadataQueueType}, min {caps.widthMin}x{caps.heightMin}, bitstream alignment {caps.bitstreamOffsetAlignment}/{caps.bitstreamSizeAlignment}, "
             + $"metadata {caps.metadataSize} B, resolved {caps.resolvedMetadataSize} B, feedback {caps.encodeFeedbackSupported != 0} (resolve {caps.encodeFeedbackResolveRequired != 0}), DPB array {caps.dpbTextureArrayRequired != 0}");
         Assert.SkipWhen(caps.encodeFeedbackSupported == 0, $"{backend}: H.264 encode without feedback; the written size cannot be measured");
-        // Measured on the RTX 4070 SUPER: the Vulkan encode records and submits without a validation
+        // Measured on the development machine's GPU: the Vulkan encode records and submits without a validation
         // error, but its feedback query never becomes available: the resolve's
         // vkCmdCopyQueryPoolResults with WAIT never completes (NRI's fence wait times out), the
         // feedback reads 0 bytes, and the device is left with work pending. Not run until understood.
