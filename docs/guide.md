@@ -519,7 +519,7 @@ if (device.TryRayTracing is { } rt)
 
 ```csharp
 using var shared = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, in desc);
-using var handle = device.SharedHandles.GetSharedHandle(shared);   // NriSharedHandle: Handle, Type, Size, Offset; Dispose closes it
+using var handle = device.SharedHandles.GetSharedHandle(shared);   // NriSharedHandle: Handle, Type, Size, Offset; Dispose closes it once
 using var sharedFence = device.SharedHandles.CreateSharedFence();
 using var fenceHandle = device.SharedHandles.GetSharedHandle(sharedFence);
 using var binary = device.SharedHandles.CreateSharedBinaryFence();     // Vulkan only: binary semaphore
@@ -536,8 +536,10 @@ using var binaryHandle = device.SharedHandles.GetSharedHandle(binary);
 - Needs `VK_KHR_external_memory_win32`/`_fd` **and** `VK_KHR_external_semaphore_win32`/`_fd`.
   lavapipe has external memory fd but not external semaphore fd; MoltenVK has neither fd
   extension (only `VK_EXT_external_memory_metal`). On both, `TrySharedHandles` is null.
-- The handle is yours; dispose closes it. NVIDIA Vulkan returned the same NT handle value for two
-  exports of the same memory: do not assume distinct values.
+- The handle is yours; `Dispose` closes it, once: later calls do nothing, and `Handle` reads 0
+  after the first (`NriSharedHandle` is a class, so every reference sees that). No finalizer: a
+  handle never disposed stays open until the process exits. NVIDIA Vulkan returned the same NT
+  handle value for two exports of the same memory: do not assume distinct values.
 - A non-shared texture asked for a handle: `INVALID_ARGUMENT` (through the validation layer).
 - A shared fence still works as a normal fence.
 - **Binary shared fence** (`CreateSharedBinaryFence()`, i.e. `CreateSharedFence(SwapChainSemaphore)`):
@@ -900,7 +902,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Homebrew Vulkan on macOS | not found without `DYLD_FALLBACK_LIBRARY_PATH` and `VK_DRIVER_FILES` | Platform: macOS |
 | An allocator that throws or returns null | NRI calls `Create` on the null object: access violation, not out-of-memory | Device creation |
 | Queue priority between 0 and 0.5 on D3D12, or below 0 on Vulkan | D3D12 stays Normal (High only above 0.5); Vulkan treats low as normal | Device creation |
-| `NriSharedHandle` disposed twice, or a copy disposed | the second close may hit a handle the process reused | SharedHandles |
+| `NriSharedHandle` disposed twice, or never | the second `Dispose` does nothing (`Handle` reads 0 after the first); one never disposed stays open until the process exits (no finalizer) | SharedHandles |
 | Host-memory texture copy into a short span | `ArgumentException`: the binding refuses what NRI would write past | Memory |
 | Vertex streams declared out of slot order on Vulkan | attributes bind to the stream index: nothing drawn, VUID-...-06209 | Recording |
 | An empty `NriVertexInputDesc` on Vulkan | VUID-vkCmdDraw-pStrides-04913 on every draw; pass `VertexInput = null` | Recording |

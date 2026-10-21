@@ -665,9 +665,13 @@ configured per machine: the adapter named is whichever one the suite picked on t
   - Measured in probes only. A test doing it would break the process's later D3D12 tests.
   - Binding follow-up: `NriMemory` could refuse disposal while resources are bound, as
     `NriDevice` does for its children.
-- **`NriSharedHandle` is a `readonly struct`.** Disposing it twice, or disposing a copy, closes the
-  value again, and the process may by then have reused that value for another handle. Dispose once.
-  Binding follow-up.
+- **`NriSharedHandle` is a sealed class whose `Dispose` closes once.** As a `readonly record
+  struct`, disposing it twice or disposing a copy closed the value again, and the process may by
+  then have reused that value for another handle. `Dispose` now takes the value with
+  `Interlocked.Exchange` and closes it; later calls find 0 (`Handle` reads 0, `IsValid` false). No
+  finalizer, as everywhere. Measured (`InteropTests`): Windows hands a closed value to the next
+  handle the process opens (every time in 20,000 close-and-create pairs, also with four threads
+  churning handles), and a second `Dispose` leaves that handle open.
 
 ### Memory and resources
 

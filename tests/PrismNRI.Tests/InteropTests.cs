@@ -315,14 +315,24 @@ public sealed unsafe class InteropTests
     [DllImport("kernel32", SetLastError = true)]
     private static extern int GetHandleInformation(nint handle, out uint flags);
 
+    [DllImport("kernel32", SetLastError = true)]
+    private static extern nint CreateEventW(nint attributes, int manualReset, int initialState, nint name);
+
+    [DllImport("kernel32", SetLastError = true)]
+    private static extern int CloseHandle(nint handle);
+
     /// <summary>
-    /// NriSharedHandle.Dispose closes the OS handle: GetHandleInformation accepts the exported fence
-    /// handle before and refuses it after with ERROR_INVALID_HANDLE. A default handle and the -1
-    /// "invalid handle value" are not valid and Dispose leaves them alone.
+    /// NriSharedHandle.Dispose closes the OS handle, once: GetHandleInformation accepts the exported
+    /// fence handle before and refuses it after with ERROR_INVALID_HANDLE, and the disposed object
+    /// reads 0 and invalid. Windows hands a closed value to the next handle the process opens
+    /// (measured outside the suite: every time in 20,000 close-and-create pairs, also with four
+    /// threads opening and closing handles meanwhile), so the events opened next get it back, and a
+    /// second Dispose leaves them all open; the record struct NriSharedHandle was before closed the
+    /// value again. A handle of 0 or -1 is not valid and Dispose leaves it alone.
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
-    public void Disposing_a_shared_handle_closes_it(Backend backend)
+    public void Disposing_a_shared_handle_closes_it_once(Backend backend)
     {
         TestDevice.RequireAvailable(backend);
         Assert.SkipUnless(OperatingSystem.IsWindows(), "GetHandleInformation is Windows' (the handle is a file descriptor elsewhere)");
@@ -332,16 +342,40 @@ public sealed unsafe class InteropTests
 
         using var fence = device.SharedHandles.CreateSharedFence();
         var handle = device.SharedHandles.GetSharedHandle(fence);
+        var value = handle.Handle;
         Assert.True(handle.IsValid);
-        Assert.NotEqual(0, GetHandleInformation(handle.Handle, out _));
+        Assert.NotEqual(0, GetHandleInformation(value, out _));
 
         handle.Dispose();
-        Assert.Equal(0, GetHandleInformation(handle.Handle, out _));
+        Assert.Equal(0, GetHandleInformation(value, out _));
         Assert.Equal(6, Marshal.GetLastPInvokeError()); // ERROR_INVALID_HANDLE
+        Assert.False(handle.IsValid);
+        Assert.Equal(0, handle.Handle);
 
-        Assert.False(default(NriSharedHandle).IsValid);
+        // New handles, kept open, until one has the closed value; then the second Dispose.
+        var events = new List<nint>();
+        try
+        {
+            while (events.Count < 256 && (events.Count == 0 || events[^1] != value))
+            {
+                var e = CreateEventW(0, 1, 0, 0);
+                Assert.NotEqual(0, e);
+                events.Add(e);
+            }
+            Record($"{backend}: the closed value 0x{value:X} came back as new handle {events.Count}");
+            Assert.True(events[^1] == value, $"none of {events.Count} new handles took the closed value 0x{value:X}, so a second close could not be seen");
+
+            handle.Dispose();
+            Assert.All(events, e => Assert.NotEqual(0, GetHandleInformation(e, out _)));
+        }
+        finally
+        {
+            foreach (var e in events) CloseHandle(e);
+        }
+
+        Assert.False(new NriSharedHandle(0, handle.Type, 0, 0).IsValid);
         Assert.False(new NriSharedHandle(-1, handle.Type, 0, 0).IsValid);
-        default(NriSharedHandle).Dispose();
+        new NriSharedHandle(0, handle.Type, 0, 0).Dispose();
         new NriSharedHandle(-1, handle.Type, 0, 0).Dispose();
         Assert.DoesNotContain(messages, m => m.IsError);
     }
