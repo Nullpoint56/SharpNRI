@@ -201,12 +201,16 @@ public sealed class RayTracingPipelineTests
     /// </summary>
     /// <remarks>
     /// On D3D12 the device runs without the D3D12 debug layer (NRI's validation stays on): NRI's
-    /// micromap prebuild query passes no input buffer and no per-OMM descs, the Agility SDK 1.619
-    /// debug layer reports that as error 1162, and NRI's break-on-error turns it into an SEH
-    /// exception out of <c>CreateMicromap</c>. Without the layer the micromap is created and built,
-    /// but the first BLAS build that links it makes <c>Close</c> fail with <c>E_INVALIDARG</c>, with
-    /// or without a micromap index buffer (measured on the RTX 4070 SUPER, driver and Agility SDK
-    /// 1.619 as staged). That one measured failure skips, quoting it; anything else fails.
+    /// micromap prebuild query passes no input buffer and no per-OMM descs, which the Agility SDK
+    /// 1.619 debug layer refuses as error 1162. Without the layer the command list fails to close
+    /// with <c>E_INVALIDARG</c>, and the cause is the barrier recorded after <c>BuildMicromaps</c>,
+    /// not the BLAS that links the micromap: for its {MICROMAP_WRITE, MICROMAP} side NRI's D3D12
+    /// backend adds SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO to
+    /// ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE, a pair the debug layer refuses as error 1331
+    /// (<see cref="RayScene.MicromapWritten"/>). Measured: a list holding the build alone closes, the
+    /// build and this barrier does not; with that side's stages ALL the same micromaps link, build
+    /// and trace on D3D12 (RayTracingMemoryTests). This test keeps the MICROMAP spelling, so that one
+    /// measured failure skips, quoting it; anything else fails.
     /// </remarks>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -270,7 +274,7 @@ public sealed class RayTracingPipelineTests
         }
         catch (NriException e) when (backend.Api == GraphicsAPI.D3D12 && e.Result == Result.INVALID_ARGUMENT && e.Call == "EndCommandBuffer")
         {
-            Assert.Skip($"D3D12: tiers.rayTracing = 3, but the command list that builds a BLAS linking a micromap fails to close: {e.Message}");
+            Assert.Skip($"D3D12: tiers.rayTracing = 3, but the command list with a {{MICROMAP_WRITE, MICROMAP}} barrier after BuildMicromaps fails to close (NRI adds SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO to that side): {e.Message}");
         }
 
         Run(device, cmd =>
