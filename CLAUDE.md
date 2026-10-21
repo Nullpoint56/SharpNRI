@@ -272,8 +272,9 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   (a `dotnet.config` with the same setting did nothing on 11.0.100-rc.1), the test project is an
   `Exe`, no `Microsoft.NET.Test.Sdk`, serialization in `xunit.runner.json`.
 - `PRISMNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) prefers WARP / lavapipe;
-  `PRISMNRI_TEST_BACKEND=VK` restricts; `PRISMNRI_TRACE=1` prints messages live (the only record
-  that survives a native crash).
+  `PRISMNRI_TEST_BACKEND=VK` restricts; `PRISMNRI_TEST_ADAPTER=AMD` keeps only adapters whose name
+  contains the text (the tests that measure NRI's own no-adapter pick skip under it);
+  `PRISMNRI_TRACE=1` prints messages live (the only record that survives a native crash).
 - Single test, bypassing `dotnet test`: `tests/PrismNRI.Tests/bin/Release/net11.0/PrismNRI.Tests
   -method "PrismNRI.Tests.RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS"`.
 

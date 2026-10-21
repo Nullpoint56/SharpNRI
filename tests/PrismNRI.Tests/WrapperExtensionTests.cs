@@ -173,7 +173,7 @@ public sealed unsafe partial class WrapperExtensionTests(ITestOutputHelper outpu
         device.WaitIdle();
     }
 
-    private static VDXGI.IDXGIAdapter1 DxgiAdapterFor(GraphicsAPI api)
+    internal static VDXGI.IDXGIAdapter1 DxgiAdapterFor(GraphicsAPI api)
     {
         var uid = TestDevice.AdapterFor(api)!.Uid;
         Assert.True(uid.high == 0, $"NRI's adapter uid is a UUID (high 0x{uid.high:X}), not a LUID; DXGI cannot match it");

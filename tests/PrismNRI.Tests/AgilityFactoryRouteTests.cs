@@ -17,7 +17,6 @@ using System.Runtime.InteropServices;
 using System.Text;
 using PrismNRI.Native;
 using Xunit;
-using VDXGI = Vortice.DXGI;
 
 namespace PrismNRI.Tests;
 
@@ -38,6 +37,7 @@ public sealed unsafe class AgilityFactoryRouteTests(ITestOutputHelper output)
     public void A_device_from_an_Agility_device_factory_wrapped_into_NRI_uses_the_SDK()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "D3D12 is Windows only");
+        TestDevice.RequireAvailable(new Backend(GraphicsAPI.D3D12));
         var sdkPath = NriDevice.DefaultAgilitySdkPath;
         Assert.SkipWhen(sdkPath is null, "no AgilitySDK directory beside the test assembly");
 
@@ -71,9 +71,8 @@ public sealed unsafe class AgilityFactoryRouteTests(ITestOutputHelper output)
         void* d3d12 = null;
         try
         {
-            using var dxgi = VDXGI.DXGI.CreateDXGIFactory2<VDXGI.IDXGIFactory4>(false);
-            dxgi.EnumAdapters1(0, out var adapter);
-            using (adapter)
+            // The suite's D3D12 adapter, by LUID, not whichever adapter drives the display
+            using (var adapter = WrapperExtensionTests.DxgiAdapterFor(GraphicsAPI.D3D12))
             {
                 output.WriteLine($"adapter: {adapter.Description1.Description}");
 
