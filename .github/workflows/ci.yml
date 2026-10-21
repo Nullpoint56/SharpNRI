@@ -23,6 +23,7 @@ on:
       - "tools/consume/**"
       - "tools/generate-native.ps1"
   pull_request:
+    branches: [master] # pull requests into "next" are verified locally (CLAUDE.md: Branches)
     paths-ignore:
       - "**.md"
       - "docs/**"
