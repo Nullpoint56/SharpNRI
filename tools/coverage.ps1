@@ -1,7 +1,8 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Measures PrismNRI's two coverages and writes docs/coverage.md plus the two README badges.
+  Measures PrismNRI's two coverages and writes docs/coverage.md and the two README badges, each
+  stamped with the commit it was measured at; -Check says whether those figures still describe HEAD.
 
 .DESCRIPTION
   Bound surface: which of NRI's functions and native struct fields PrismNRI's own C# API reaches.
@@ -16,22 +17,32 @@
   `dotnet test`, child processes included. The generated L0 (dotnet/Native) is not counted.
 
   Both depend on what the machine can run: on the Windows NVIDIA development machine nearly every
-  test runs; CI's WARP and lavapipe runners skip half of them. The committed report says where it
-  was measured. Run after `pwsh tools/build-native.ps1` (the tests need the native library).
+  test runs; CI's WARP and lavapipe runners skip half of them. The report names the commit, the
+  payload and the adapter each backend's tests ran on, and records the measured commit's inputs
+  (its tree entries for dotnet, descs, testing, tests, patches and nri). Run after
+  `pwsh tools/build-native.ps1` (the tests need the native library).
 
 .PARAMETER SkipBuild
   Use the existing Release build (made with -p:PrismNRICoverage=true, as this script builds).
 
 .PARAMETER SkipTests
-  Reuse _build/coverage/coverage.cobertura.xml and _build/coverage/tests.txt from the last run.
+  Reuse the last run's results in _build/coverage/ (test output, coverage, measurement record).
+
+.PARAMETER Check
+  Build and measure nothing: compare the inputs docs/coverage.md records with HEAD's, and fail when
+  any of them differs or a badge names another commit. .github/workflows/coverage.yml runs it.
 
 .EXAMPLE
   pwsh tools/coverage.ps1
+
+.EXAMPLE
+  pwsh tools/coverage.ps1 -Check
 #>
 [CmdletBinding()]
 param(
     [switch]$SkipBuild,
-    [switch]$SkipTests
+    [switch]$SkipTests,
+    [switch]$Check
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,6 +53,45 @@ $root = Split-Path $PSScriptRoot -Parent
 $work = Join-Path $root "_build" "coverage"
 New-Item -ItemType Directory -Force -Path $work | Out-Null
 $nl = [Environment]::NewLine
+$report = Join-Path $root "docs" "coverage.md"
+$badges = Join-Path $root "docs" "badges"
+
+# What the figures are computed from: the binding, its tests, the patch set and the NRI commit. The
+# report records these entries of the measured commit's tree (git ls-tree, tabs as spaces) and
+# -Check compares them with HEAD's. The measuring tool is not an input: after changing it, run it.
+$inputPaths = "dotnet", "descs", "testing", "tests", "patches", "nri"
+function Inputs([string]$rev) { @(git -C $root ls-tree $rev -- @inputPaths | ForEach-Object { $_ -replace "`t", " " }) }
+
+# ------------------------------------------------------------------------------------------ check
+if ($Check) {
+    if (-not (Test-Path $report)) { Write-Host "no docs/coverage.md: no figures to check"; exit 0 }
+    $text = Get-Content $report -Raw
+    $problem = $null
+    if ($text -match '<!-- coverage inputs: uncommitted changes on top of ([0-9a-f]{40}) -->') {
+        $measured = $Matches[1].Substring(0, 7)
+        $problem = "docs/coverage.md was measured with uncommitted changes on top of $measured"
+    }
+    elseif ($text -match '(?s)<!-- coverage inputs: git ls-tree ([0-9a-f]{40}) --[^\r\n]*\r?\n(.*?)\r?\n-->') {
+        $measured = $Matches[1].Substring(0, 7)
+        $block = $Matches[2]
+        $recorded = @{}; foreach ($l in $block -split '\r?\n') { if ($l -match ' (\S+)$') { $recorded[$Matches[1]] = $l } }
+        $current = @{}; foreach ($l in Inputs "HEAD") { if ($l -match ' (\S+)$') { $current[$Matches[1]] = $l } }
+        $changed = @($inputPaths | Where-Object { $recorded[$_] -ne $current[$_] })
+        if ($changed) { $problem = "the coverage figures were measured at $measured, and $($changed -join ', ') changed since" }
+        foreach ($svg in Get-ChildItem $badges -Filter "*.svg" -ErrorAction SilentlyContinue) {
+            if ((Get-Content $svg.FullName -Raw) -notmatch "@ $measured\b") { $problem = "docs/badges/$($svg.Name) does not name $measured, the commit docs/coverage.md was measured at" }
+        }
+    }
+    else { $problem = "docs/coverage.md records no inputs (written by an older tools/coverage.ps1)" }
+    if (-not $problem) {
+        Write-Host "coverage figures are current: measured at $measured, and $($inputPaths -join ', ') are unchanged since"
+        exit 0
+    }
+    $fix = "run pwsh tools/coverage.ps1 on a committed tree, then commit docs/coverage.md and docs/badges/"
+    if ($env:GITHUB_ACTIONS -eq "true") { Write-Host "::error title=Coverage figures are stale::$problem; $fix" }
+    Write-Host "STALE: $problem; $fix"
+    exit 1
+}
 
 # ------------------------------------------------------------------------------------------ build
 # PrismNRICoverage brings Microsoft.Testing.Extensions.CodeCoverage into the test project, which
@@ -67,16 +117,47 @@ $bound = Get-Content $boundJson -Raw | ConvertFrom-Json
 # ------------------------------------------------------------------------------------------ test coverage
 $cobertura = Join-Path $work "coverage.cobertura.xml"
 $testsTxt = Join-Path $work "tests.txt"
-# The commit the tests ran on, kept beside their output so -SkipTests reports it, not today's HEAD.
-# What the numbers measure is the binding, its tests and the patch set (nri/ always shows the patches)
-$measuredTxt = Join-Path $work "measured.txt"
-function Measured {
-    $commit = git -C $root rev-parse --short HEAD
-    $dirty = git -C $root status --porcelain --ignore-submodules -- dotnet descs testing tests patches
-    if ($dirty) { "$commit plus uncommitted changes" } else { $commit }
+# Where the figures come from, recorded when the tests run and kept beside their output, so that
+# -SkipTests reports the measured commit and machine rather than today's
+$measurementJson = Join-Path $work "measurement.json"
+$testBin = Join-Path $root "tests" "PrismNRI.Tests" "bin" "Release" "net11.0"
+function Measurement {
+    $sha = git -C $root rev-parse HEAD
+    # nri/ always carries the applied patches; only a different NRI commit counts (=dirty)
+    $dirty = [bool](git -C $root status --porcelain --ignore-submodules=dirty -- @inputPaths)
+    # The adapter each GPU backend's tests run on, as the test executable chooses it (TestAdapters.cs)
+    $env:PRISMNRI_TEST_CHILD = "test-adapters"
+    $PSNativeCommandUseErrorActionPreference = $false
+    try { $lines = @(dotnet (Join-Path $testBin "PrismNRI.Tests.dll") 2>&1 | ForEach-Object { "$_" }) }
+    finally { Remove-Item Env:PRISMNRI_TEST_CHILD; $PSNativeCommandUseErrorActionPreference = $true }
+    if (@($lines -match '^FAIL ').Count -or -not @($lines -match '^(ADAPTER|UNAVAILABLE) ').Count) {
+        throw "the test executable did not say which adapters its tests use: $($lines -join ' / ')"
+    }
+    $used = foreach ($l in $lines) { if ($l -match '^ADAPTER (\S+) (.+)$') { [pscustomobject]@{ Api = $Matches[1]; Name = $Matches[2] } } }
+    $unavailable = foreach ($l in $lines) { if ($l -match '^UNAVAILABLE (\S+) (.+)$') { "$($Matches[1]) unavailable ($($Matches[2]))" } }
+    $adapters = (@($used | Group-Object Name | ForEach-Object { ($_.Group.Api -join " and ") + " on " + $_.Name }) + @($unavailable)) -join "; "
+    # Which staged payload the tests loaded: the native library beside them, by content
+    $rid = "$($IsWindows ? 'win' : ($IsMacOS ? 'osx' : 'linux'))-$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant())"
+    $native = $IsWindows ? "NRI.dll" : ($IsMacOS ? "libNRI.dylib" : "libNRI.so")
+    $hash = { param($p) if (Test-Path $p) { (Get-FileHash $p -Algorithm SHA256).Hash } }
+    $loaded = & $hash (Join-Path $testBin $native)
+    $payload = "an unstaged"
+    foreach ($v in @(("Base", "runtimes"), ("Upscalers", "runtimes-upscalers"), ("Upscalers with DLSS", "runtimes-upscalers-dlss"))) {
+        if ($loaded -and $loaded -eq (& $hash (Join-Path $root $v[1] $rid "native" $native))) { $payload = "the $($v[0])"; break }
+    }
+    [pscustomobject]@{
+        Commit = $sha; Dirty = $dirty; Inputs = (Inputs $sha)
+        Date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+        Nri = (git -C (Join-Path $root "nri") describe --tags --always)
+        Patches = @(Get-ChildItem (Join-Path $root "patches") -Filter "*.patch").Count
+        Payload = $payload
+        Os = $IsWindows ? "Windows" : ($IsMacOS ? "macOS" : "Linux")
+        Adapters = $adapters
+    }
 }
 if (-not $SkipTests) {
-    $measured = Measured
+    $measurement = Measurement
+    Write-Host "==> measuring $($measurement.Commit.Substring(0, 7))$($measurement.Dirty ? ' plus uncommitted changes' : ''): $($measurement.Adapters)"
     Write-Host "==> dotnet test --coverage (the whole suite)"
     Remove-Item $cobertura -ErrorAction SilentlyContinue
     $PSNativeCommandUseErrorActionPreference = $false
@@ -87,9 +168,10 @@ if (-not $SkipTests) {
     $PSNativeCommandUseErrorActionPreference = $true
     $output | Set-Content $testsTxt
     if ($testExit -ne 0) { $output | Select-Object -Last 30 | Out-Host; throw "dotnet test failed ($testExit); coverage of a failing suite is not published" }
-    $measured | Set-Content $measuredTxt
+    $measurement | ConvertTo-Json | Set-Content $measurementJson
 }
-if (-not (Test-Path $cobertura)) { throw "no $cobertura; run without -SkipTests" }
+if (-not ((Test-Path $cobertura) -and (Test-Path $measurementJson))) { throw "no complete run in $work; run without -SkipTests" }
+$measurement = Get-Content $measurementJson -Raw | ConvertFrom-Json
 $testLog = Get-Content $testsTxt -Raw
 $count = { param($name) if ($testLog -match "(?m)^\s*${name}:\s*(\d+)") { [int]$Matches[1] } else { 0 } }
 $tests = [pscustomobject]@{ Total = & $count "total"; Passed = & $count "succeeded"; Failed = & $count "failed"; Skipped = & $count "skipped" }
@@ -187,24 +269,27 @@ $fieldBound = @($fieldRows | Where-Object Bound).Count
 $fieldTotal = @($fieldRows).Count
 
 # ------------------------------------------------------------------------------------------ report
-$commit = if (Test-Path $measuredTxt) { (Get-Content $measuredTxt -Raw).Trim() } else { Measured }
-$nriRef = (git -C (Join-Path $root "nri") describe --tags --always)
-$patchCount = @(Get-ChildItem (Join-Path $root "patches") -Filter "*.patch").Count
-$gpus = if ($IsWindows) { (Get-CimInstance Win32_VideoController | ForEach-Object Name) -join ", " }
-elseif (Get-Command vulkaninfo -ErrorAction SilentlyContinue) {
-    $PSNativeCommandUseErrorActionPreference = $false
-    (vulkaninfo --summary 2>$null | Select-String '^\s*deviceName\s*=\s*(.+)$' | ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() }) -join ", "
-    $PSNativeCommandUseErrorActionPreference = $true
-}
-if (-not $gpus) { $gpus = uname -m }
-$date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+$m = $measurement
+$at = $m.Commit.Substring(0, 7)
+$stamp = $m.Dirty ? "$at plus uncommitted changes" : $at
 $rel = { param($file, $line) if ($file) { "$([IO.Path]::GetRelativePath($root, $file) -replace '\\', '/'):$line" } else { "?" } }
 
 $md = [System.Collections.Generic.List[string]]::new()
 $md.Add("# Coverage")
 $md.Add("")
-$md.Add("Generated by ``pwsh tools/coverage.ps1``; do not edit. Measured on $date at commit $commit, NRI ``$nriRef`` with $patchCount patches,")
-$md.Add("on $($IsWindows ? 'Windows' : (uname -s)) ($gpus). Tests: $($tests.Total) total, $($tests.Passed) passed, $($tests.Failed) failed, $($tests.Skipped) skipped.")
+$md.Add("Measured at commit ``$stamp`` on $($m.Date): NRI ``$($m.Nri)`` with $($m.Patches) patches, $($m.Payload) payload,")
+$md.Add("on $($m.Os) with $($m.Adapters). Tests: $($tests.Total) total, $($tests.Passed) passed, $($tests.Failed) failed, $($tests.Skipped) skipped.")
+$md.Add("")
+$md.Add("These figures describe that commit only. ``pwsh tools/coverage.ps1 -Check``, which the coverage")
+$md.Add("workflow runs on every change to the binding, its tests, the patches or NRI, fails once any of")
+$md.Add("them differs from it. Generated by ``pwsh tools/coverage.ps1``; do not edit.")
+$md.Add("")
+if ($m.Dirty) { $md.Add("<!-- coverage inputs: uncommitted changes on top of $($m.Commit) -->") }
+else {
+    $md.Add("<!-- coverage inputs: git ls-tree $($m.Commit) -- $($inputPaths -join ' ')")
+    foreach ($l in $m.Inputs) { $md.Add($l) }
+    $md.Add("-->")
+}
 $md.Add("")
 $md.Add("- **Bound surface**: NRI's functions (every function-pointer field of the interface tables NRI")
 $md.Add("  fills, and every flat export) that PrismNRI's own code calls, and the fields of NRI's native")
@@ -283,8 +368,7 @@ $md.Add("|---|---|---|---|---|")
 foreach ($f in $fileRows | Sort-Object @{ Expression = { if ($_.Lines) { $_.Covered / $_.Lines } else { 1 } } }, Path) {
     $md.Add("| $($f.Path) | $($f.Lines) | $($f.Covered) | $(Pct $f.Covered $f.Lines) | $(Pct $f.Taken $f.Branches) |")
 }
-$docs = Join-Path $root "docs"
-($md -join $nl) + $nl | Set-Content (Join-Path $docs "coverage.md") -NoNewline -Encoding utf8NoBOM
+($md -join $nl) + $nl | Set-Content $report -NoNewline -Encoding utf8NoBOM
 
 # ------------------------------------------------------------------------------------------ badges
 function Badge([string]$label, [string]$value, [double]$percent, [string]$path) {
@@ -306,15 +390,17 @@ function Badge([string]$label, [string]$value, [double]$percent, [string]$path) 
 "@
     ($svg -replace "`r`n", "`n") + "`n" | Set-Content $path -NoNewline -Encoding utf8NoBOM
 }
-$badges = Join-Path $docs "badges"
+# Each badge names the commit its figure was measured at; -Check holds them to the report's
 New-Item -ItemType Directory -Force -Path $badges | Out-Null
+$badgeAt = $m.Dirty ? "$at+uncommitted" : $at
 $fnPct = 100.0 * $fnBound / $fnTotal
 $fieldPct = 100.0 * $fieldBound / $fieldTotal
-Badge "NRI surface bound" ("functions {0:0.#}% | fields {1:0.#}%" -f $fnPct, $fieldPct) ([Math]::Min($fnPct, $fieldPct)) (Join-Path $badges "bound-surface.svg")
+Badge "NRI surface bound" ("functions {0:0.#}%, fields {1:0.#}% @ {2}" -f $fnPct, $fieldPct, $badgeAt) ([Math]::Min($fnPct, $fieldPct)) (Join-Path $badges "bound-surface.svg")
 $linePct = 100.0 * $total.Covered / $total.Lines
-Badge "test coverage" ("{0:0.#}% lines" -f $linePct) $linePct (Join-Path $badges "test-coverage.svg")
+Badge "test coverage" ("{0:0.#}% lines @ {1}" -f $linePct, $badgeAt) $linePct (Join-Path $badges "test-coverage.svg")
 
 Write-Host ""
+Write-Host "measured at $stamp on $($m.Os) with $($m.Adapters)"
 Write-Host ("bound surface: functions {0}/{1}, fields {2}/{3}; call sites run by the tests: {4}/{5}" -f $fnBound, $fnTotal, $fieldBound, $fieldTotal, $fnRan, $fnTotal)
 Write-Host ("test coverage: lines {0}/{1} ({2}), branches {3}/{4} ({5})" -f $total.Covered, $total.Lines, (Pct $total.Covered $total.Lines), $total.Taken, $total.Branches, (Pct $total.Taken $total.Branches))
 Write-Host "==> docs/coverage.md, docs/badges/bound-surface.svg, docs/badges/test-coverage.svg"
