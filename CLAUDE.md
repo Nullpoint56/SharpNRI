@@ -365,8 +365,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
   run; at a5e1364 (the same inputs) lavapipe in WSL ran 137 and skipped 155, lines 71.2%, 176 of
   253. After the coverage tests (c2a0294): Windows 481 tests, 12 skipped, lines 97.3%, branches
   80.0%, 251 of 253 (the two left need the Upscalers payload or a feedback resolve no backend here
-  asks for); lavapipe 480, 266 skipped, the clipping-primitive counter failing (Multisampling,
-  copies and queries). The committed report is measured where its header says; CI does not run it.
+  asks for); lavapipe 480, 266 skipped, with the clipping-primitive counter a recorded lavapipe
+  bug (Multisampling, copies and queries). The committed report is measured where its header says; CI does not run it.
 
 ---
 
@@ -458,7 +458,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
 - **Name- and backend-keyed skips are allowed only for measured defects with no capability bit**:
   Apple Paravirtual `HOST_TRANSFER` crash, paravirtual timestamps (both via
   `TestDevice.IsAppleParavirtualVK`), Reflex on VK, H.264 and AV1 encode on VK, the D3D12 micromap
-  barrier (NRI's, Ray tracing), and the Vulkan driver's micromap-size query pools. A failing job on every push hides everything else; a physical Mac is not covered by the name skips.
+  barrier (NRI's, Ray tracing), the Vulkan driver's micromap-size query pools, and lavapipe's
+  clipping-primitive counter (a known bug the test asserts as still present). A failing job on every push hides everything else; a physical Mac is not covered by the name skips.
 - **macOS deployment target 15.0**: NRI pins none, so the dylib inherited the runner's 26.0;
   MoltenVK needs 12.0; .NET 11 supports 15+; 15.0 is the lowest that can matter.
 - **Sampler bias test** asks `min(0.5, samplerLodBiasMax)` and records both.
@@ -1026,8 +1027,8 @@ Measured by `MultisampleTests`, `TextureCopyTests` and `QueryTests`.
     bits, so nothing here trips it.
   - Lavapipe counts no clipping output primitives: two visible triangles give 0 where Vulkan
     requires at least 1 per primitive with a vertex inside the clip volume. The test asserts that
-    bound, so lavapipe fails it. What to do there is the owner's call: a recorded exception, or
-    the counter recorded and not asserted.
+    bound everywhere else. On lavapipe it asserts the wrong value instead (`TestDevice.IsLavapipeVK`;
+    a known bug, owner 2026-10-22), so a Mesa fix fails the test and the exception is removed.
 - **Calibrated timestamps.** A GPU timestamp written between two calibrated readings lies between
   them. On WARP the clock is 10 MHz and the GPU value equals the CPU value (QPC).
 - **Shading rate and sample locations.**
@@ -1578,8 +1579,11 @@ extensions.
 - Skip strings name the capability: feature bit, extension, file. The exceptions quote a measured
   defect: `TestDevice.IsAppleParavirtualVK` (adapter name "Apple Paravirtual device":
   `HOST_TRANSFER` crash, timestamps), backend-keyed Reflex VK, H.264 and AV1 encode VK, the D3D12
-  micromap barrier (an NRI defect the skip quotes; the memory-path tests work around it) and the
-  Vulkan driver's refused micromap-size query pools.
+  micromap barrier (an NRI defect the skip quotes; the memory-path tests work around it), the
+  Vulkan driver's refused micromap-size query pools, and lavapipe's clipping-primitive counter
+  (`TestDevice.IsLavapipeVK`, owner 2026-10-22). That last one is a known bug to remove: on lavapipe
+  the pipeline-statistics test asserts the wrong value 0 instead of skipping, so the day Mesa counts
+  the primitives the test fails, naming the exception, and it goes.
 - **No skip turns a wrong result into a pass on a software adapter** (lavapipe, WARP), or on any
   adapter: a skip names a missing capability only. A wrong answer fails, with enough in the message
   (the hit map for ray queries) to diagnose it. The two macOS device-name skips are the recorded

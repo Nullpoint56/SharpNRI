@@ -55,6 +55,16 @@ public static class TestDevice
     public static bool IsAppleParavirtualVK(GraphicsAPI api) =>
         api == GraphicsAPI.VK && AdapterFor(GraphicsAPI.VK)?.Name == "Apple Paravirtual device";
 
+    /// <summary>
+    /// The Vulkan adapter is lavapipe, Mesa's CPU implementation and CI's Linux adapter. A known
+    /// bug, to be removed when Mesa fixes it: lavapipe counts no clipping output primitives in
+    /// pipeline statistics (measured 0 for two visible triangles, where Vulkan requires at least one
+    /// per primitive with a vertex inside the clip volume). <c>QueryTests</c> asserts the wrong value
+    /// there, so the fix shows up as a failure that names this exception (CLAUDE.md: Tests and skips).
+    /// </summary>
+    public static bool IsLavapipeVK(GraphicsAPI api) =>
+        api == GraphicsAPI.VK && AdapterFor(GraphicsAPI.VK)?.Name.StartsWith("llvmpipe", StringComparison.Ordinal) == true;
+
     /// <summary>Marks the test skipped when the backend is unavailable; returns normally otherwise.</summary>
     public static void RequireAvailable(Backend backend)
     {

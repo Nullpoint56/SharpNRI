@@ -264,8 +264,16 @@ public sealed class QueryTests
         Assert.Equal(2UL, draw.rasterizerInPrimitiveNum);
         // Vulkan: "If at least one vertex of the input primitive lies inside the clipping volume, the
         // counter is incremented by one or more", so two visible triangles give at least 2 (measured 2
-        // on a discrete GPU; lavapipe reports 0, see CLAUDE.md: Multisampling, copies and queries).
-        Assert.True(draw.rasterizerOutPrimitiveNum >= 2, $"clipping output primitives {draw.rasterizerOutPrimitiveNum} < 2 visible triangles");
+        // on a discrete GPU).
+        if (TestDevice.IsLavapipeVK(backend.Api))
+        {
+            // Known lavapipe bug, kept visible: it counts no clipping output primitives (measured 0).
+            // The day it counts them this fails; then remove the exception here, in TestDevice and in
+            // CLAUDE.md (Tests and skips).
+            Assert.True(draw.rasterizerOutPrimitiveNum == 0, $"lavapipe now counts {draw.rasterizerOutPrimitiveNum} clipping output primitives: its known bug is fixed, so remove the exception (TestDevice.IsLavapipeVK, CLAUDE.md: Tests and skips)");
+        }
+        else
+            Assert.True(draw.rasterizerOutPrimitiveNum >= 2, $"clipping output primitives {draw.rasterizerOutPrimitiveNum} < 2 visible triangles");
         // At most once per pixel per triangle: helper invocations of the 2x2 quads the shared edge
         // crosses may be counted (measured: 256 on a discrete GPU, 288 = 256 + 8 quads x 4 on a
         // software rasterizer), nothing beyond.
