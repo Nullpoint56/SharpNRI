@@ -79,6 +79,11 @@ question; the draft states the shape and offers the PR.
 | N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | phase 1 candidate, not filed: owner's trigger |
 | N4 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` | bug | phase 1 candidate, not filed: owner's trigger |
 | N5 D3D12 2D texture views ignore `layerOffset` | bug | phase 1 candidate, not filed: owner's trigger; the fix shape (refuse or document) is his |
+| N6 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` | bug | phase 1 candidate, not filed: owner's trigger |
+| N7 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 | bug | phase 1 candidate, not filed: owner's trigger |
+| N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | phase 1 candidate, not filed: owner's trigger |
+| N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | phase 2: the desc carries no frame type, so the fix is his API choice |
+| `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it |
 | Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
 | Draw-parameters emulation on Vulkan | design question | phase 2: validation demands `DrawBaseDesc` strides on every backend, while Vulkan reads plain records at `offset` |
@@ -545,8 +550,8 @@ enumeration would change it. Patch attached
 Found on 2026-10-21 by the tests that close the coverage report's blind spots (branch
 `coverage-tests`, on master). Measured on v190 with master's patches, none of which touch these
 lines, on the development machine's discrete GPU, and on WARP where it says so. Line numbers and
-code are NRI main's at 2f7a49f, where every line N1 to N5 cite is unchanged. N1 to N5 are written
-in the filed form.
+code are NRI main's at 2f7a49f, where every line N1 to N9 cite is unchanged. N1 to N8 are written
+in the filed form; N9 is a phase 2 question.
 
 ### N1: Vulkan: vertex attributes bind to streamIndex, not the stream's bindingSlot
 
@@ -632,6 +637,74 @@ initial commit.
 declaration. So refuse `layerOffset != 0` for `TEXTURE` / `STORAGE_TEXTURE` views of a 2D texture
 in validation, pointing to the `_ARRAY` types, or document it in `TextureViewDesc`.
 
+### N6: D3D12: micromap barriers with MICROMAP_WRITE fail Close
+
+**Observed.** After `CmdBuildMicromaps`, a buffer barrier whose before side is
+`{MICROMAP_WRITE, MICROMAP}` (before the BLAS build that links the micromap) gives
+`[1331] ID3D12CommandList::Barrier: SyncBefore bits D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO are incompatible with AccessBefore bits D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE in buffer barrier at group [0], index [0].`
+`Close` then fails with `E_INVALIDARG`, with or without the debug layer. The build alone closes; with
+`ALL` stages on that side, the micromap links and traces.
+
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:179-180` add
+`EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO` to the `ACCELERATION_STRUCTURE | MICROMAP`
+stages unless the access holds `ACCELERATION_STRUCTURE_WRITE`. Meanwhile `:234-235` map
+`MICROMAP_WRITE` to the same D3D12 write access. Since 022f7e6.
+
+**Fix.**
+
+```cpp
+if (!(accessBits & (AccessBits::ACCELERATION_STRUCTURE_WRITE | AccessBits::MICROMAP_WRITE)))
+```
+
+### N7: D3D12: acceleration-structure memory is reported 128-byte aligned; placements need 256
+
+**Observed.** On a device with tight alignment (Agility 1.619), `GetAccelerationStructureMemoryDesc2`
+reports an alignment of 128. A TLAS placed at offset 2688, which is a multiple of 128 but not of 256,
+passes NRI validation's placement check. Its descriptor is then refused:
+`[31] ID3D12Device::TryCreateShaderResourceView: For D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE, the address (149441152) must be aligned to 256 bytes.`
+Vulkan reports 256.
+
+**Cause.** `Source/D3D12/ImplD3D12.cpp:1017-1023` size the structure as a plain buffer, and
+`DeviceD3D12.hpp:1478-1479` give every buffer `D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT`. The result
+drops below `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT`, which
+`memoryAlignment.accelerationStructureOffset` already reports (`:997`). Since 3371cdb.
+
+**Fix.** In `GetAccelerationStructureMemoryDesc2` and `AccelerationStructureD3D12::GetMemoryDesc`:
+
+```cpp
+memoryDesc.alignment = std::max(memoryDesc.alignment, (uint32_t)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+```
+
+### N8: D3D12: AV1 encode with the default picture flags fails Close
+
+**Observed.** An AV1 key frame encoded with NRI's default picture flags, on an encoder whose required
+feature flags include automatic segmentation, gives
+`[1306] CVideoEncodeCommandList::EncodeFrame: D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAGS - D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAG_ENABLE_FRAME_SEGMENTATION_AUTO is required in RequiredFeatureFlags but not set.`
+`Close` then fails with `E_INVALIDARG`.
+
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1536-1537` set `ENABLE_FRAME_SEGMENTATION_AUTO` only
+when the picture flags hold `SEGMENTATION_ENABLED`, which `GetDefaultPictureFlags`
+(`Source/Shared/SharedVideo.h:571-573`) leaves out. The session merges the required and the supported
+feature flags (`VideoSessionD3D12.hpp:411-412`), so by the time the picture is built the encoder's
+required set is gone. Since 3b9fe2d.
+
+**Fix.** Keep `RequiredFeatureFlags` in the session, and set the picture flag when
+`AUTO_SEGMENTATION` is required, as well as when the picture asks for segmentation.
+
+### N9: D3D12: GetVideoAV1EncodeDecodeInfo fails silently on a payload header and infers the frame type (phase 2)
+
+**Observed.**
+- With `encodedPayloadHeader` set to the first bytes of a D3D12 AV1 payload, the call answers
+  `FAILURE` with no message. The D3D12 encoder writes bare tile data, with no OBUs.
+- With a DPB snapshot passed for a key frame, the info describes the frame as inter.
+
+**Cause.** `Source/D3D12/VideoSessionD3D12.hpp:128-129` parse a given header as OBUs. `:193` decides
+inter from `desc.referenceNum` (since 39ce136), and `VideoAV1EncodeDecodeInfoDesc` carries no frame
+type.
+
+**Fix.** His choice. Either ignore the header on D3D12 or report why it fails. Then either say in
+`NRIVideo.h` that `references` stays empty for key frames, or add the frame type to the desc.
+
 ### Not filed
 
 - **D3D12 attachment resolve into a non-zero layer or mip.** In v190 `EndRendering` passed
@@ -658,6 +731,17 @@ in validation, pointing to the `_ARRAY` types, or document it in `TextureViewDes
     of 16 is refused ("'stride' is too small, expected >= 24"), `DrawBaseDesc` records at stride 24
     draw nothing, and at `offset + 8` they draw.
   - The portable rule today: set the flag on D3D12 only.
+- **`WriteShaderGroupIdentifiers` group range.** Held, because it was found by reading and not
+  measured. `PipelineVal::WriteShaderGroupIdentifiers` checks only the stride (`PipelineVal.hpp:25`),
+  and the D3D12 backend reads `m_ShaderGroupNames[shaderGroupIndex]` without a bound
+  (`PipelineD3D12.hpp:691`), so a base index plus group count past the pipeline's groups is never
+  refused.
+- **Driver behaviour, not NRI.**
+  - On the development machine's D3D12 driver, an H.265 decode capability query at 64x64 removes the
+    device (`[233] ... DXGI_ERROR_DRIVER_INTERNAL_ERROR`), inside the decoder-heap creation of NRI's
+    `CanCreateVideoDecodeSession` (`VideoSessionD3D12.hpp:3-23`).
+  - Its Vulkan driver refuses `MICROMAP_COMPACTED_SIZE` and `SERIALIZATION_SIZE` query pools with
+    `VK_ERROR_UNKNOWN` and the layer silent; a raw `vkCreateQueryPool` does the same.
 - **Knowledge, not reports.**
   - A `STORAGE_TEXTURE` view with `mipNum` over two mips is cleared whole by Vulkan
     (`CommandBufferVK.hpp`, `levelCount = mipNum`) and mip 0 only by D3D12 (a UAV addresses one
