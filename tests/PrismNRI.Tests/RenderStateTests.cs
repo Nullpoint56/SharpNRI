@@ -324,6 +324,43 @@ public sealed class RenderStateTests
     }
 
     /// <summary>
+    /// A stencil clear mid-pass is what the next draw compares: the stencil is cleared to 5 at
+    /// BeginRendering, ClearAttachments sets it to 7 under quadrant 1's quad, and a full-target draw
+    /// testing EQUAL with reference 7 colours exactly that quad. The depth-stencil view is passed
+    /// as both RenderingDesc::depth and ::stencil, as Canvas does: measured, with ::stencil alone
+    /// NRI's D3D12 ClearAttachments reads the depth attachment it never set
+    /// (CommandBufferD3D12.hpp, m_Depth.attachment) and the process dies with an access violation.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void ClearAttachments_on_the_stencil_plane_is_what_the_next_draw_compares(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        Assert.SkipWhen(device.Desc.features.rectDepthStencilClears == 0, $"{backend}: features.rectDepthStencilClears = 0");
+        var format = RequireStencilFormat(device);
+
+        using var layout = CreateRectLayout(device);
+        using var equal = CreateRectPipeline(device, layout, format, stencil: Both(StencilTest(CompareOp.EQUAL)));
+
+        var stencilClear = new ClearAttachmentDesc { planes = PlaneBits.STENCIL };
+        stencilClear.value.depthStencil = new DepthStencil { stencil = 7 };
+        var quad = Quadrants[1];
+        using var canvas = new Canvas(device, depthStencilFormat: format);
+        var image = canvas.Render(cmd =>
+        {
+            cmd.ClearAttachments([stencilClear], [new Rect { x = (short)quad.X0, y = (short)quad.Y0, width = (ushort)(quad.X1 - quad.X0), height = (ushort)(quad.Y1 - quad.Y0) }]);
+            Bind(cmd, layout, equal);
+            cmd.SetStencilReference(7, 7);
+            DrawRect(cmd, Full, Green);
+        }, stencilClear: 5)[0];
+
+        image.ExpectQuadrants([null, Green, null, null], $"stencil 5, quadrant 1 cleared to 7, EQUAL 7 ({format})");
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
     /// With two colour attachments, ClearAttachments' colorAttachmentIndex picks the target: index 1
     /// is cleared to green whole, then index 0 to blue in its top half. Attachment 0 is blue on top
     /// and still black below; attachment 1 is green everywhere.
