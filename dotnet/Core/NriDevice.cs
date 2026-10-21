@@ -242,7 +242,7 @@ public sealed unsafe partial class NriDevice : NriObject
     /// <summary>
     /// The last error message NRI or a validation layer reported on this device, on any thread, or
     /// null. A record of the device, not of one call: an <see cref="NriException"/> carries only the
-    /// text reported on its own thread during the call that failed.
+    /// text reported on its own thread since the binding last checked a result there.
     /// </summary>
     public string? LastError => Volatile.Read(ref _lastError);
 

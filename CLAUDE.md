@@ -86,8 +86,8 @@ L0  dotnet/Native/       ClangSharp output. Never referenced above L1 except des
   `NativeSplit.props` so the two projects cannot disagree.
 - L1 does four things a generator cannot: `InterfaceTable.Acquire<T>` (size check;
   `UNSUPPORTED` -> `NriUnsupportedException`, a capability answer); `Result` -> `NriException` with
-  call name and the error text the message callback reported on the calling thread during the
-  failing call (`DEVICE_LOST`, `UNSUPPORTED` get own types; Device creation and callbacks:
+  call name and the last error text the message callback reported on the calling thread since the
+  previous check there (`DEVICE_LOST`, `UNSUPPORTED` get own types; Device creation and callbacks:
   Exception texts); `[UnmanagedCallersOnly]` thunks for `CallbackInterface` and `AllocationCallbacks`
   recovering the receiver from a `GCHandle` in `userArg` (no managed exception crosses a native
   frame: a throwing handler loses that one message; a throwing allocator returns null, which NRI does

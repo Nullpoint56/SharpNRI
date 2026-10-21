@@ -3,11 +3,12 @@
 // NRI reports failure two ways at once: a Result from the call, and a MessageCallback invocation
 // with the reason, fired before the call returns. The exception carries the code and, as its
 // detail, the reason: the last error text reported on the calling thread since the binding last
-// checked a result on that thread, which is the failing call's own text. NRI and the validation
+// checked a result on that thread. That is the failing call's own text, unless a call nothing
+// checks (a Cmd*, which returns nothing) reported one on this thread since. NRI and the validation
 // layers report synchronously, on the thread of the call, so a text reported on another thread, or
-// before an earlier check on this one, belongs to another call and is never attached; a call that
-// reported nothing gets no detail. The text also went to the message handler the device was created
-// with, which sees every message on every thread.
+// before an earlier check on this one, belongs to another call and is never attached; when nothing
+// was reported there is no detail. The text also went to the message handler the device was
+// created with, which sees every message on every thread.
 
 using PrismNRI.Native;
 
@@ -16,14 +17,15 @@ namespace PrismNRI;
 /// <summary>An NRI call returned something other than <see cref="Result.SUCCESS"/>.</summary>
 /// <remarks>
 /// The message is <c>"{call}: {result}"</c>, followed by the last error text NRI or a validation
-/// layer reported on the calling thread during the failing call, when it reported one. A call that
-/// failed without a message carries none, whatever other calls or threads reported before.
+/// layer reported on the calling thread since the binding last checked a result there: the failing
+/// call's own, or that of an unchecked call before it on this thread (a refused <c>Cmd*</c>). Text
+/// reported on another thread, or before that check, is never attached; with none, there is no detail.
 /// </remarks>
 public class NriException : Exception
 {
     // The last ERROR text reported on this thread since the binding last checked a result here.
-    // Written by MessageBridge, taken (and cleared) by every check, so it never outlives the call
-    // that reported it. A thread-static reference: no lock and no allocation on the success path.
+    // Written by MessageBridge, taken (and cleared) by every check, so it never outlives the next
+    // check on its thread. A thread-static reference: no lock and no allocation on the success path.
     [ThreadStatic] private static string? t_reported;
 
     /// <summary>The code NRI returned.</summary>
