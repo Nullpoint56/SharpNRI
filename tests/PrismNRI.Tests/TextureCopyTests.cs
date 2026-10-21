@@ -532,6 +532,48 @@ public sealed class TextureCopyTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// The host copies refuse a span shorter than the region before NRI touches it: NRI reads
+    /// (rows - 1) row pitches plus one row of texel bytes per slice from the upload span and writes
+    /// as much into the readback span, whatever the span's length (measured before the binding
+    /// checked: an 8x8 RGBA8 readback into a 16-byte span wrote all 256 bytes, 240 past the span).
+    /// A span one byte short throws ArgumentException and the memory past it keeps its sentinel;
+    /// the exact length is accepted.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Host_memory_copies_refuse_a_span_shorter_than_the_region(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        SkipOnParavirtualHostTransfer(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        RequireHostCopy(device, Format.RGBA8_UNORM);
+        var queue = device.GetQueue(QueueType.GRAPHICS);
+
+        const int size = 8, rowPitch = 40;
+        const int needed = (size - 1) * rowPitch + size * 4; // the last row ends after its texels, not its pitch
+        using var texture = CreateTexture(device, Format.RGBA8_UNORM, size, size, usage: TextureUsageBits.HOST_TRANSFER);
+        var whole = new TextureRegionDesc { planes = PlaneBits.COLOR };
+        Run(device, cmd => cmd.Barrier(new NriTextureBarrier(texture, Undefined, HostWrite)));
+
+        var source = Pattern(101, needed + 64);
+        var upload = Assert.Throws<ArgumentException>(() => queue.UploadHostMemoryToTexture(texture, whole, source.AsSpan(0, needed - 1), rowPitch));
+        Record($"{backend}: upload of {needed - 1} bytes for {needed}: {upload.Message}");
+        queue.UploadHostMemoryToTexture(texture, whole, source.AsSpan(0, needed), rowPitch);
+        Run(device, cmd => cmd.Barrier(new NriTextureBarrier(texture, HostWrite, HostRead)));
+
+        var sink = Fill(0x77, needed + 64);
+        var readback = Assert.Throws<ArgumentException>(() => queue.ReadbackTextureToHostMemory(texture, whole, sink.AsSpan(0, needed - 1), rowPitch));
+        Record($"{backend}: readback into {needed - 1} bytes for {needed}: {readback.Message}");
+        AssertBytes(Fill(0x77, needed + 64), sink, "host memory after the refused readback");
+
+        queue.ReadbackTextureToHostMemory(texture, whole, sink.AsSpan(0, needed), rowPitch);
+        AssertBytes(source[..needed].Select((b, i) => i % rowPitch < size * 4 ? b : (byte)0x77).ToArray(), sink[..needed], "host memory after the readback of exactly the region");
+        AssertBytes(Fill(0x77, 64), sink[needed..], "host memory past the span");
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
     // ---------------------------------------------------------------- checks and requirements
 
     private static void AssertBytes(byte[] expected, byte[] actual, string what)
