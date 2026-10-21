@@ -16,6 +16,7 @@ on:
       - "Directory.Build.props"
       - ".github/workflows/regen.yml"
   pull_request:
+    branches: [master] # pull requests into "next" are verified locally (CLAUDE.md: Branches)
     paths:
       - "nri"
       - "patches/**"

@@ -4,6 +4,11 @@ Each patch in `patches/` is either a bug upstream should fix or an extension ups
 This file holds the report text for each, so that filing is a copy and a link to a commit rather
 than a reconstruction. Status is updated as they are filed and answered.
 
+**This is master's copy: the v190 document.** It holds the report text for the patches master
+carries, with the status it had when the branches split on 2026-10-21. Filing status since then,
+the maintainer's replies, the patches upstream has fixed and the drafts of later rounds are in the
+copy on the `next` branch (CLAUDE.md: Branches).
+
 | Patch | Kind | Status |
 |---|---|---|
 | 0003 validation `HAS_BUFFER` crash | bug | filed 2026-10-16, [#279](https://github.com/NVIDIA-RTX/NRI/issues/279) |

@@ -34,6 +34,43 @@ integer-versioned, breaks between versions and promises no ABI. .NET 11 / C# 14,
 | `docs/guide.md` | usage reference |
 | `docs/upstream.md` | report text for each patch (owner's rule: it lives there) |
 
+### Branches
+
+Decided 2026-10-21 (owner): two long-lived branches, both in this repository. NRI itself is only
+read; nothing is pushed to it from here until an upstream PR is planned.
+
+| Branch | `nri/` | `patches/` | For |
+|---|---|---|---|
+| `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
+| `next` | a commit of NRI's main, held by the submodule pointer and moved on purpose | the patches still needed on that commit | integration: testing against current NRI, upstream reports and PRs written against what the maintainer reads |
+
+- **Direction.** Binding work that does not depend on the NRI version lands on master and is
+  merged forward into `next` often (`git merge master` on `next`). After a forward merge,
+  regenerate L0 on `next` instead of resolving conflicts in `dotnet/Native` by hand. NRI-side work
+  (new patches, re-cuts, upstream reports) starts on `next`; a patch reaches master only when a
+  consumer needs it before the next tag.
+- **Upstream document.** `docs/upstream.md` on master is the v190 document: the report text for
+  master's patch set, with the status it had when the branches split. The live status, filings,
+  replies and drafts are in `next`'s copy.
+- **Adopting a tag.** On `next`: point `nri` at the tag, set `<NriVersion>`, drop the patches the
+  tag carries, regenerate, run both legs. Then merge `next` into master through a pull request and
+  release from master.
+- **Moving `next`'s NRI commit.** `git -C nri fetch origin`, `git -C nri checkout <commit>`, then
+  `git update-index --cacheinfo 160000,<commit>,nri` (the one sanctioned way to stage the pointer;
+  never `git add nri`), apply the patches, regenerate, both legs, and record the commit in
+  `next`'s CLAUDE.md.
+- **CI.** `ci.yml` and `regen.yml` run for pushes to master and pull requests into master only.
+  `next` is verified locally (Windows, WSL) before every push, as master is.
+- **Switching a checkout.** The submodule pointer differs between the branches, and `runtimes/`
+  holds whichever `NRI.dll` was built last: `git -C nri checkout -- .`, `git -C nri clean -fdq`,
+  `git submodule update`, then `pwsh tools/build-native.ps1` and `dotnet build`. The pin test
+  cannot catch a stale `NRI.dll`: NRI's main still says `NRI_VERSION 190`, while its `StageBits` /
+  `AccessBits` values differ from v190's (48d4a33). For both branches at once, use a second
+  worktree: `git worktree add ../PrismNRI-next next`, then `git submodule update --init` there.
+- `build-native.ps1`'s offline-dependency key includes the NRI commit: NRI's main moves its
+  dependency pins without bumping `NRI_VERSION` (a7de504 moved VMA and D3D12MA), and the key
+  would otherwise reuse a stale `_deps`.
+
 ### Layers
 
 ```

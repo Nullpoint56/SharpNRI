@@ -222,7 +222,10 @@ $delayLoad = $targetWindows -and (& $on NRI_ENABLE_XESS_SDK)
 $delayLoadFragment = Join-Path $PSScriptRoot "cmake" "xess-delayload.cmake"
 
 $optString = ($opt.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ";"
-$depsKey = "nri=$NriVersion;patches=$patchHash;rid=$Rid;$optString$(if ($dlssDir) { ";ngx=$dlssDir" })"
+# NRI_VERSION alone does not identify the sources: NRI's main moves its dependency pins (VMA, D3D12MA)
+# without bumping it, and the "next" branch builds such commits (CLAUDE.md: Branches).
+$nriCommit = (git -C $nri rev-parse HEAD 2>$null) -join ""
+$depsKey = "nri=$NriVersion;commit=$nriCommit;patches=$patchHash;rid=$Rid;$optString$(if ($dlssDir) { ";ngx=$dlssDir" })"
 $depsMarker = Join-Path $deps ".prismnri-deps"
 $offline = (Test-Path $depsMarker) -and ((Get-Content $depsMarker -Raw).Trim() -eq $depsKey)
 
