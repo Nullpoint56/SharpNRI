@@ -385,7 +385,8 @@ public sealed unsafe class InteropTests
     /// <summary>
     /// NriSharedHandle.Dispose closes the OS handle, once: GetHandleInformation accepts the exported
     /// fence handle before and refuses it after with ERROR_INVALID_HANDLE, and the disposed object
-    /// reads 0 and invalid. Windows hands a closed value to the next handle the process opens
+    /// reads 0 and invalid, in its properties and in ToString (what a log or debugger shows).
+    /// Windows hands a closed value to the next handle the process opens
     /// (measured outside the suite: every time in 20,000 close-and-create pairs, also with four
     /// threads opening and closing handles meanwhile), so the events opened next get it back, and a
     /// second Dispose leaves them all open; the record struct NriSharedHandle was before closed the
@@ -405,6 +406,7 @@ public sealed unsafe class InteropTests
         var handle = device.SharedHandles.GetSharedHandle(fence);
         var value = handle.Handle;
         Assert.True(handle.IsValid);
+        Assert.Contains($"Handle = {value}, Type = {handle.Type}", handle.ToString(), StringComparison.Ordinal);
         Assert.NotEqual(0, GetHandleInformation(value, out _));
 
         handle.Dispose();
@@ -412,6 +414,8 @@ public sealed unsafe class InteropTests
         Assert.Equal(6, Marshal.GetLastPInvokeError()); // ERROR_INVALID_HANDLE
         Assert.False(handle.IsValid);
         Assert.Equal(0, handle.Handle);
+        Assert.Contains("Handle = 0,", handle.ToString(), StringComparison.Ordinal);
+        Assert.EndsWith("IsValid = False }", handle.ToString(), StringComparison.Ordinal);
 
         // New handles, kept open, until one has the closed value; then the second Dispose.
         var events = new List<nint>();
