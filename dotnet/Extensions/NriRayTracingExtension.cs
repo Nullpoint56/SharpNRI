@@ -282,8 +282,9 @@ public sealed unsafe class NriRayTracingExtension
     /// </summary>
     public void WriteShaderGroupIdentifiers(NriPipeline pipeline, uint baseShaderGroupIndex, uint shaderGroupNum, uint dstStride, Span<byte> dst)
     {
-        if (dst.Length < shaderGroupNum * dstStride)
-            throw new ArgumentException($"dst holds {dst.Length} bytes; {shaderGroupNum} groups at stride {dstStride} need {shaderGroupNum * dstStride}", nameof(dst));
+        var needed = (ulong)shaderGroupNum * dstStride; // 64-bit: a 32-bit product wraps and lets a short span through
+        if ((ulong)dst.Length < needed)
+            throw new ArgumentException($"dst holds {dst.Length} bytes; {shaderGroupNum} groups at stride {dstStride} need {needed}", nameof(dst));
         fixed (byte* p = dst)
         {
             Device.Check(Table.WriteShaderGroupIdentifiers(pipeline.Raw, baseShaderGroupIndex, shaderGroupNum, dstStride, p), "WriteShaderGroupIdentifiers");
