@@ -89,8 +89,9 @@ L0  dotnet/Native/       ClangSharp output. Never referenced above L1 except des
   call name and the last error text the message callback reported (`DEVICE_LOST`, `UNSUPPORTED` get
   own types); `[UnmanagedCallersOnly]` thunks for `CallbackInterface` and `AllocationCallbacks`
   recovering the receiver from a `GCHandle` in `userArg` (no managed exception crosses a native
-  frame: throwing handler loses one message, throwing allocator returns null = OOM; bridges outlive
-  the native device until `nriDestroyDevice` returns); lifetime (`NriObject`).
+  frame: a throwing handler loses that one message; a throwing allocator returns null, which NRI does
+  not survive, see Device creation and callbacks; bridges outlive the native device until
+  `nriDestroyDevice` returns); lifetime (`NriObject`).
 - L2: names are `Nri` + NRI's name; `Cmd*` methods drop the prefix and keep argument order. Desc
   structs are the generated ones, used directly. A second managed form exists only where NRI holds
   pointer + count (`PipelineLayoutDesc`, `DescriptorSetDesc`, `VertexInputDesc`, `OutputMergerDesc`,
@@ -362,7 +363,10 @@ configured per machine: the adapter named is whichever one the suite picked on t
   hits is bound, but no test calls it. The numbers are the machine's (2026-10-21): at f17a5d8
   Windows on the RTX 4070 SUPER ran 287 tests and skipped 5, lines 83.2%, 207 of 253 call sites
   run; at a5e1364 (the same inputs) lavapipe in WSL ran 137 and skipped 155, lines 71.2%, 176 of
-  253. The committed report is measured where its header says; CI does not run it.
+  253. After the coverage tests (c2a0294): Windows 481 tests, 12 skipped, lines 97.3%, branches
+  80.0%, 251 of 253 (the two left need the Upscalers payload or a feedback resolve no backend here
+  asks for); lavapipe 480, 266 skipped, the clipping-primitive counter failing (Multisampling,
+  copies and queries). The committed report is measured where its header says; CI does not run it.
 
 ---
 
@@ -453,8 +457,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
   nothing; wrong for anything that asks a question.
 - **Name- and backend-keyed skips are allowed only for measured defects with no capability bit**:
   Apple Paravirtual `HOST_TRANSFER` crash, paravirtual timestamps (both via
-  `TestDevice.IsAppleParavirtualVK`), Reflex on VK, H.264 encode on VK, D3D12 micromap `Close`. A
-  failing job on every push hides everything else; a physical Mac is not covered by the name skips.
+  `TestDevice.IsAppleParavirtualVK`), Reflex on VK, H.264 and AV1 encode on VK, the D3D12 micromap
+  barrier (NRI's, Ray tracing), and the Vulkan driver's micromap-size query pools. A failing job on every push hides everything else; a physical Mac is not covered by the name skips.
 - **macOS deployment target 15.0**: NRI pins none, so the dylib inherited the runner's 26.0;
   MoltenVK needs 12.0; .NET 11 supports 15+; 15.0 is the lowest that can matter.
 - **Sampler bias test** asks `min(0.5, samplerLodBiasMax)` and records both.
@@ -583,6 +587,54 @@ configured per machine: the adapter named is whichever one the suite picked on t
 - Rider flags `?.` on a pointer-returning member ("Unable to lift conditional access expression
   type 'void*' to nullable type"); Roslyn compiles it, a false positive. The allocator thunks use
   explicit null checks instead (`dotnet/Interop/AllocatorBridge.cs`).
+- **An allocator that fails crashes NRI (N10, not patched).**
+  - `CreateImplementation` (main: `DeviceVK.h:204-205`, `DeviceD3D12.h:87-88`) calls `Create` on
+    whatever `Allocate` returned, and device creation does the same (`ImplVK.cpp:64-65`,
+    `ImplD3D12.cpp:63-64`). NRI's `Allocate` itself handles null.
+  - Measured in child processes, with the bridge returning null for `CreateFence`: 0xC0000005 in
+    `CreateFence` on VK and D3D12, with NRI validation on and off.
+  - So the bridge's catch, which returns null, is no out-of-memory path, and an `INriAllocator`
+    must not fail.
+  - A throwing `Free` is harmless: every free threw (NONE 2, VK 33, D3D12 20) and disposal still
+    ended with `Live` 0 (`InteropTests`).
+- **Forwarding to the third-party allocators.**
+  - Vulkan: 31 allocations without `ForwardAllocatorToThirdParty`, and 10,840 plus 210
+    reallocations with it. That VMA path is the one that reaches `OnReallocate`.
+  - D3D12: 18 and 26.
+  - `Live` is 0 in every case.
+  - `NriCountingAllocator.Reallocate(p, 0)` keeps a 1-byte block where Vulkan's reallocation
+    contract says free; it has not been seen in practice.
+- **Queue priorities.**
+  - D3D12 makes a queue HIGH only above 0.5 (`QueueD3D12.hpp:5`), while `NRIDeviceCreation.h`
+    documents "high > 0". Measured: 1 gives High, 0 and -1 give Normal.
+  - Vulkan passes the value clamped at 0 (`DeviceVK.hpp:336-337`), so low and normal are the same;
+    2 draws VUID-VkDeviceQueueCreateInfo-pQueuePriorities-00383.
+  - A priority list of the wrong length throws `ArgumentException` before NRI is called.
+- **Exception texts.**
+  - `NriException.For` cannot be reached through the public API. Core and Helper acquisitions never
+    fail, `TryAcquire` turns UNSUPPORTED into false, and `nriEnumerateAdapters2` adds a NONE adapter
+    when it finds none (`Creation.cpp:1284-1313`).
+  - `NriDevice.Fail` attaches the last error text the callback reported, which is an earlier call's
+    when this call reported nothing. Measured: a silent FAILURE carried an earlier `EncodeVideo`
+    message. Binding follow-up.
+- **Device lost, D3D12** (`DeviceLostTests`, child process `d3d12-device-lost`).
+  - `ID3D12Device5::RemoveDevice` logs INFO [234]. Then `QueueSubmit` throws
+    `NriDeviceLostException` with `Call` "QueueSubmit", after NRI's ERROR "Submit(): failed, result =
+    0x887A0005".
+  - `CreateCommittedBuffer` and `DeviceWaitIdle` throw too, because `D3D12MA::CreateResource3` and
+    `CreateFence` fail with 0x887A0005. A fence then reads 0xFFFFFFFFFFFFFFFF.
+  - `ReportDeviceLostInfo` begins "[DeviceLost] GetDeviceRemovedReason: 0x887A0005, result=-3".
+    DRED reports only "Device state: Unknown" and "PageFaultVA=0x0000000000000000 flags=0".
+  - Hardware and WARP behave identically. Vulkan has no call that removes a device, so it skips.
+  - `NriDeviceLostException` carries no NRI text ("QueueSubmit: DEVICE_LOST").
+- **More device-creation facts** (`DeviceTests`):
+  - An explicit Agility path without a trailing separator is normalised ("Using Agility SDK v1.619
+    from '...\AgilitySDK\'").
+  - A wrapped D3D12 device uses the command queues it is given (same native pointers).
+  - A refused wrapped creation throws with the call named and releases its callbacks: weak
+    references die after a collection.
+  - `DisableVkRayTracing` gives `tiers.rayTracing` 0 and a null `TryRayTracing`, with NRI's warning
+    "Interface 'RayTracingInterface' is not supported by the device!".
 
 ### Lifetime
 
@@ -598,6 +650,20 @@ configured per machine: the adapter named is whichever one the suite picked on t
   `fence.Wait` / `Value`, acquire and present): 0 managed bytes, 0 host allocations, reallocations
   or frees; a 300-frame loop over every extension's per-frame path: 0 managed bytes. `Map` is not
   in the frame: NONE's `MapBuffer` returns null, which `NriBuffer.Map` reports as a failure.
+- **Freeing memory before the resources bound to it.**
+  - With NRI validation on, NRI reports "Buffer (... 'unnamed') is still bound to the memory"
+    (`MemoryVal.hpp:16`) and "FreeMemory(): some resources are still bound to the memory"
+    (`DeviceVal.hpp:1283`), then returns without freeing. The allocation leaks, while the binding
+    counts the `NriMemory` as destroyed.
+  - On D3D12, every later `D3D12CreateDevice` in the process then fails with 0x887A0007
+    (`DXGI_ERROR_DEVICE_RESET`), with the debug layer on or off.
+  - With NRI validation off the next device is fine, and Vulkan is unaffected.
+  - Measured in probes only. A test doing it would break the process's later D3D12 tests.
+  - Binding follow-up: `NriMemory` could refuse disposal while resources are bound, as
+    `NriDevice` does for its children.
+- **`NriSharedHandle` is a `readonly struct`.** Disposing it twice, or disposing a copy, closes the
+  value again, and the process may by then have reused that value for another handle. Dispose once.
+  Binding follow-up.
 
 ### Memory and resources
 
@@ -660,6 +726,13 @@ configured per machine: the adapter named is whichever one the suite picked on t
   before NRI reads past it; subresources layer-major. Buffer + 2 layers x 2 mips RGBA8 exact on VK,
   D3D12, WARP. **NV12 refused**: VK VUID-VkCopyBufferToImageInfo2-dstImage-07981 (both planes in one
   region), D3D12 debug error 1417 (second plane's barrier).
+- **Root descriptors, measured** (`RootDescriptorTests`).
+  - Root CBV, SRV and UAV work with no descriptor set, on compute and graphics.
+  - 256-byte views over 512-byte buffers read window 0 at root offset 0 and window 1 at 256, on
+    both backends.
+  - A whole-buffer view at offset 256 draws NRI validation's "'offset=256' must be <= maximum root
+    descriptor 'offset=0'" (`CommandBufferVal.hpp:894`).
+  - Root descriptors switch between dispatches while a descriptor set stays bound.
 
 ### Barriers
 
@@ -868,6 +941,129 @@ configured per machine: the adapter named is whichever one the suite picked on t
   (`E_INVALIDARG`) only logged. With patch 0018's default as the binding passes it (break off
   unless `BreakOnError` and a debugger) every debug-layer error is a message, and NRI returns
   `FAILURE` from the failed creation, which the binding throws as `NriException`.
+
+### Draws, render state and attachments
+
+Measured by `DrawTests`, `IndirectTests` and `RenderStateTests` (every render compares all 4,096
+pixels of a 64x64 target exactly). N-numbers are the reports in `next`'s `docs/upstream.md`.
+
+- **Vulkan vertex attributes bind to `streamIndex` (N1, not patched).**
+  - `PipelineVK.hpp:167` (main) writes the attribute's binding as its stream's index, not the
+    stream's `bindingSlot`; D3D12 goes through the stream.
+  - Streams declared out of slot order draw nothing on Vulkan:
+    "VUID-vkCmdBindVertexBuffers2-pStrides-06209 ... The pStrides value (4) ... is less than the
+    extent of the binding for the attribute (8)". D3D12 is exact.
+  - Rule: declare streams in slot order. Guide: Traps.
+- **An empty `NriVertexInputDesc` makes the Vulkan stride dynamic (N2).** Every draw then reports
+  "VUID-vkCmdDraw-pStrides-04913 ... never called vkCmdBindVertexBuffers2", although the image is
+  right. Pass `VertexInput = null` instead.
+- **D3D12 `ClearAttachments` in a stencil-only pass is an access violation (N3).**
+  `CommandBufferD3D12.hpp:1852` (main) dereferences the depth attachment, which a pass with only
+  `stencil` does not have. Bind the view as `depth` too.
+- **D3D12 does not clear the stencil of a depth-stencil view passed as `depth` only (N4).**
+  - Over a stencil of 9 with a clear value of 5, Vulkan gives 5 and D3D12 keeps 9 (hardware and
+    WARP).
+  - `NRIDescs.h` says `depth` "may be treated as depth-stencil". `DrawTests`' render harness passes
+    the view as both.
+- **Dynamic depth bias exists only for a pipeline with a non-zero static bias.**
+  - NRI adds the dynamic state only then (`PipelineVK.hpp:227`, `:380-381`; `PipelineD3D12.hpp:400`).
+  - `SetDepthBias` on another pipeline draws "VUID-vkCmdDraw-None-08608" on Vulkan and "[1366]
+    ID3D12CommandList::RSSetDepthBias: ... without the D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS
+    flag is undefined" on D3D12. NVIDIA Vulkan then ignores the bias; D3D12 and WARP apply it.
+  - Re-binding the same pipeline after `SetDepthBias`: Vulkan and WARP restore the pipeline's bias,
+    while the development machine's D3D12 driver keeps the dynamic one. Untested, being a driver
+    difference.
+- **Draw-parameters emulation: set the flag on D3D12 only.**
+  - With it on Vulkan, validation demands `sizeof(DrawBaseDesc)` strides while the backend reads
+    plain records at `offset`: a stride of 16 is refused, records at stride 24 draw nothing, and at
+    `offset + 8` they draw.
+  - A phase 2 question upstream. `IndirectTests` sets the flag on D3D12 only.
+- **A missing barrier between a compute write and an indirect read is silent on NVIDIA.** VK and
+  D3D12 read the zeros and draw nothing, with no message from either layer; WARP draws. Only
+  synchronization validation reports it ("SYNC-HAZARD-READ-AFTER-WRITE: vkCmdDrawIndirect(): ...
+  previously written by vkCmdDispatch"). `IndirectTests` keeps that pair as its Vulkan proof.
+- WARP reports every bit these tests gate on (dynamic depth bias, depth bounds, indirect count,
+  independent stencil references, rect clears, draw parameters), shader model 6.8, and attaches both
+  `D32_SFLOAT_S8_UINT` and `D24_UNORM_S8_UINT`.
+
+### Multisampling, copies and queries
+
+Measured by `MultisampleTests`, `TextureCopyTests` and `QueryTests`.
+
+- **Host-memory texture copies check the span (binding fix).** Before the fix, an 8x8 RGBA8
+  `ReadbackTextureToHostMemory` into a 16-byte span wrote all 256 bytes, 240 of them past the span,
+  on VK, D3D12 and WARP. `NriQueue.CheckHostCopySpan` now throws `ArgumentException` before NRI is
+  called. The size it requires is (depth - 1) x slice pitch + (rows - 1) x row pitch + one row of
+  blocks.
+- **D3D12 attachment resolve into a non-zero layer or mip (v190, fixed on NRI main).**
+  - `EndRendering` passed the layer count where `GetSubresourceIndex` takes the mip count
+    (`CommandBufferD3D12.hpp:1959` at v190).
+  - Layer 1 of a 1-mip, 2-layer destination: "[877] ... subresource index is out of bounds", then
+    `Close` fails.
+  - Mip 1, layer 1 of a 2-mip, 3-layer destination lands in subresource 4.
+  - Main's 48d4a33 fixes it, so master has it until the next tag. The ready test is in the
+    scratchpad notes for `next`.
+- **Resolve ops.**
+  - Vulkan reports only `AVERAGE` for colour and `SAMPLE_ZERO` for integer formats (maintenance10).
+  - D3D12 reports `AVERAGE | MIN | MAX` for colour and `MIN | MAX` for integer formats. Yet no
+    integer format reports `MULTISAMPLE_RESOLVE` there, so integer MIN/MAX cannot pass NRI
+    validation.
+  - An attachment resolve equals `ResolveTexture` byte for byte.
+- **D3D12 2D views ignore `layerOffset` (N5).** A `STORAGE_TEXTURE` view of layer 1 clears layer 0
+  on D3D12 and layer 1 on Vulkan, with no message. The `TEXTURE` view drops it the same way
+  (`DescriptorD3D12.hpp:164-167`, not measured). Use the `_ARRAY` view types.
+- **A storage view over several mips** is cleared whole by Vulkan's `ClearStorage` and only at mip 0
+  by D3D12, whose UAV addresses one mip. Use one mip per storage view.
+- **Occlusion queries.** NRI begins Vulkan occlusion queries without `VK_QUERY_CONTROL_PRECISE_BIT`,
+  so Vulkan guarantees only non-zero. Measured counts are exact anyway: 256 for a full 16x16 quad,
+  0 behind a failing depth test, through reset and host reset.
+- **Pipeline statistics.**
+  - Results are `QuerySize` apart: 104 bytes on Vulkan, 112 on D3D12 (`sizeof(PipelineStatisticsDesc)`).
+  - Fragment invocations for 256 pixels: 256 on hardware, 288 on WARP (helper lanes on the diagonal
+    quads).
+  - The Vulkan pool adds the mesh counters on `features.meshShader` rather than
+    `meshShaderPipelineStats` (`QueryPoolVK.hpp:38`, held upstream). Lavapipe and NVIDIA report both
+    bits, so nothing here trips it.
+  - Lavapipe counts no clipping output primitives: two visible triangles give 0 where Vulkan
+    requires at least 1 per primitive with a vertex inside the clip volume. The test asserts that
+    bound, so lavapipe fails it. What to do there is the owner's call: a recorded exception, or
+    the counter recorded and not asserted.
+- **Calibrated timestamps.** A GPU timestamp written between two calibrated readings lies between
+  them. On WARP the clock is 10 MHz and the GPU value equals the CPU value (QPC).
+- **Shading rate and sample locations.**
+  - Shading-rate texel value 5 means 2x2 on both backends.
+  - WARP reports `tiers.sampleLocations` 2, `tiers.shadingRate` 1 and attachment tile size 0. The
+    attachment test skips there.
+
+### Debug aids and native objects
+
+Measured by `DebugAidTests`.
+
+- **Annotations.**
+  - NRI validation counts command-buffer annotations, reporting an unmatched end or begin
+    (`CommandBufferVal.hpp:500-502`).
+  - With it off, Vulkan checks balance only at submit (VUID-vkCmdEndDebugUtilsLabelEXT-commandBuffer-01912),
+    and a region may span command buffers. The Khronos layer never checks queue labels.
+  - D3D12 reports "[1384] ... Number of `PixEndEvent` occurrences in command queue (including executed
+    command lists) exceed number of `PixBeginEvent` occurrences". The count is cumulative per queue,
+    so once negative every later end reports.
+  - Lavapipe pops an empty label stack safely (Mesa 25).
+- **Debug names reach the layers.**
+  - A wrong-layout barrier on a named texture prints `VkImage 0x...[name]` (Vulkan) and
+    `'name'` (D3D12, 1334).
+  - The overrun-copy messages (Vulkan VUID-VkCopyBufferInfo2-size-00116, D3D12 841) print no names.
+  - D3D12's `GetPrivateData(WKPDID_D3DDebugObjectName)` returns the name with a terminating NUL.
+  - `NriQueue` is not an `NriObject` and has no `SetDebugName`; use `device.Core.SetDebugName`.
+- **Native objects are the real ones.**
+  - The D3D12 queue's type matches.
+  - On Vulkan, `vkGetDeviceQueue(family, 0)` returns the same `VkQueue`.
+  - A raw `vkCmdCopyBuffer` / `CopyBufferRegion` recorded between NRI commands executes in order.
+- **Memory budget.**
+  - A 64 MiB allocation raises usage by exactly 67,108,864 bytes on hardware VK, hardware D3D12 and
+    WARP, and the free returns it.
+  - Lavapipe reports system-wide usage (heap size minus available memory, Mesa's `lvp_device.c`),
+    which moves only once pages are written.
+  - WARP is UMA; DXGI's non-local budget there is 0.
 
 ### D3D12 and the Agility SDK
 
@@ -1096,11 +1292,42 @@ extensions.
 - **Micromaps, VK**: transparent micro-triangle hides the non-opaque triangle, opaque shows it.
   Index-less OMM (NONE, address 0) draws VUID-...-pInfos-10904 from VVL 1.4.341, likely a false
   positive; with an index buffer it is clean.
-- **Micromaps, D3D12**: NRI's prebuild query passes no input buffer or per-OMM descs: debug error
-  1162, SEH via break-on-error (measured before patch 0018; without a debugger the break is now
-  off and 1162 would be an ERROR message that fails the test instead). So that test runs D3D12
-  without the debug layer (NRI validation on). Then the BLAS build linking the micromap fails `Close` with `E_INVALIDARG`: skipped on D3D12 naming
-  that.
+- **Micromaps, D3D12.**
+  - NRI's prebuild query passes no input buffer or per-OMM descs, which draws debug error 1162. That
+    was an SEH exception through break-on-error before patch 0018; without a debugger it is now an
+    ERROR message. So the pipeline test runs D3D12 without the debug layer (NRI validation on).
+  - The BLAS build's `Close` failure, long recorded here as a D3D12 limit, is NRI's barrier (N6).
+    - A `{MICROMAP_WRITE, MICROMAP}` before side gets `SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO`
+      next to `ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE` (main: `CommandBufferD3D12.hpp:179-180`, `:234-235`).
+    - The layer refuses that pair: "[1331] ... SyncBefore bits ..._POSTBUILD_INFO are incompatible
+      with AccessBefore bits ..._ACCELERATION_STRUCTURE_WRITE in buffer barrier". `Close` then fails
+      with `E_INVALIDARG`, with the layer on or off.
+  - With `ALL` stages on that side the BLAS links and traces, which `RayTracingMemoryTests` uses to
+    pass on D3D12. The pipeline test still skips on D3D12, quoting it.
+- **Placed acceleration structures** (`RayTracingMemoryTests`).
+  - Sizes: on Vulkan, BLAS 2,560 B and TLAS 2,048 B at alignment 256. On D3D12 the same sizes at
+    128 under tight alignment. On WARP, 65,536 each.
+  - D3D12's 128 is too little for an acceleration structure (N7). A TLAS at 2,688 passes NRI
+    validation, and then its descriptor is refused: "[31]
+    ID3D12Device::TryCreateShaderResourceView: For D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE,
+    the address (...) must be aligned to 256 bytes." Place at
+    `memoryAlignment.accelerationStructureOffset`, which is 256.
+  - A placed pair traces the committed pair's hit map.
+- **Micromap memory paths.**
+  - Created, bound, placed, and cloned or compacted micromaps all trace like a committed one. Sizes:
+    768 B at 256 on Vulkan, 640 B at 128 on D3D12.
+  - `WriteMicromapSizes` on D3D12 reports 640 B, the full size.
+  - The development machine's Vulkan driver refuses `MICROMAP_COMPACTED_SIZE` and
+    `SERIALIZATION_SIZE` query pools with `VK_ERROR_UNKNOWN` (-13), the layer silent. A raw
+    `vkCreateQueryPool` fails the same way; the test skips quoting it.
+- **AABB geometry** (`FromAabbs`, at offset 32 and stride 32). Committing every procedural
+  candidate gives the boxes' exact hit map on VK, D3D12 and WARP.
+- **`WriteShaderGroupIdentifiers`.**
+  - The binding's size check now multiplies in 64 bits. The 32-bit product wrapped (2^28 x 16 = 0)
+    and let an empty span reach NRI, where only the stride check stopped it.
+  - NRI does not check the group range. Validation checks only the stride (`PipelineVal.hpp:25`),
+    and D3D12 indexes `m_ShaderGroupNames` unbounded (`PipelineD3D12.hpp:691`). Held upstream: read,
+    not measured.
 
 ### Upscalers and vendor runtimes
 
@@ -1127,6 +1354,15 @@ extensions.
   reports NIS, FSR, XESS, DLSR, DLRR on D3D12 (NIS, FSR, DLSR, DLRR on VK); raw DLSR without
   `nvngx_dlss*.dll` is a clean `FAILURE`.
 - NIS test skips under Base (not compiled in).
+- **What the Base payload reaches** (`UpscalerExtensionTests`).
+  - `IsRuntimeInstalled` follows the vendor files beside the application, not the compiled-in set,
+    so it is true for NIS and MetalFX, which need none.
+  - Vulkan and D3D12 devices refuse every vendor type at NRI validation ("CreateUpscaler: 'type' is
+    not supported").
+  - NONE claims them all; there the binding refuses FSR, XeSS, DLSR and DLRR, naming the missing
+    file.
+  - `DispatchUpscale` writes each union arm (NIS, METALFX_TEMPORAL, METALFX_DENOISED) with 0 managed
+    bytes over 300 dispatches, on NONE.
 
 ### Shared handles
 
@@ -1269,6 +1505,33 @@ extensions.
   `vkQueuePresentKHR`; with implicit layers disabled VK passed, but later `D3D12CreateDevice` calls in the process returned `0x887A0007`
   (`DXGI_ERROR_DEVICE_RESET`), with or without `ALLOW_LOW_LATENCY` and `VSYNC`, failing unrelated
   D3D12 tests. VK case skipped naming that (`LowLatencyExtensionTests.cs`).
+- **AV1 and H.265** (`VideoExtensionTests`).
+  - AV1 capabilities:
+    - Vulkan: decode level 73; encode tiles 16x128, tile size 192x64 to 4096x2304, references
+      7/4/7, q index 1-255.
+    - D3D12: level 41; encode tiles 1x1, q index 1-255, required features 0x1A, supported 0x3B.
+  - Minimum sizes: Vulkan decode AV1 128x128 and H.265 144x144; encode AV1 192x128 and H.265 160x64.
+    D3D12 answers min = max = the size asked.
+  - D3D12's AV1 and H.265 encode need no feedback resolve, so `ResolveVideoEncodeFeedback` runs
+    nowhere here; Vulkan encode is skipped.
+  - H.265 and AV1 decodes record and close, and NRI validation names each broken field.
+- **D3D12 AV1 encode with NRI's default picture flags fails (N8).**
+  - The encoder requires `AUTO_SEGMENTATION`, `LOOP_RESTORATION_FILTER` and `CDEF_FILTERING`. NRI
+    enables automatic segmentation only for pictures holding `SEGMENTATION_ENABLED`, so: "[1306]
+    ... ENABLE_FRAME_SEGMENTATION_AUTO is required in RequiredFeatureFlags but not set", and
+    `Close` fails.
+  - Add `SEGMENTATION_ENABLED` when `av1EncodeRequiredFeatureFlags` has `AUTO_SEGMENTATION`, as
+    the test does.
+  - Under CQP the picture desc's base q index is ignored, so set it through the rate control. Key
+    frames at q 40 and 160 come out as 22 and 21 bytes of bare tile data.
+- **`GetVideoAV1EncodeDecodeInfo` on D3D12 (N9).** The payload-header path answers FAILURE silently,
+  since the payload has no OBUs. With a reference snapshot, a key frame is described as inter.
+  Leave both the header and the references empty for key frames.
+- **An H.265 decode capability query at 64x64 removed the device** on the development machine's
+  D3D12 driver ("[233] ... DXGI_ERROR_DRIVER_INTERNAL_ERROR"), inside NRI's decoder-heap probe. The
+  tests use 256x256.
+- `NriVideoMarshal.ToNative(NriVideoDecodeBitstreamRange)` and `ToNative(NriVideoPictureDesc)` have
+  no callers. Binding follow-up.
 
 ### Wrappers
 
@@ -1287,6 +1550,15 @@ extensions.
   `vkDestroyInstance` / `vkDestroyDevice` through that table. NRI destroys its own objects, so the
   entry outlives the device and a later device at the same address gets dead pointers.
   `tests/PrismNRI.Tests/VulkanApi.cs` builds a fresh table per object (`new VkDeviceApi(...)`).
+- **`CreateQueryPoolVK` maps the query type by value (binding fix).** The binding took
+  `ACCELERATION_STRUCTURE_SIZE` and `MICROMAP_COMPACTED_SIZE` from the values of the serialization
+  query types (1000386000, 1000396000). It now uses 1000386001 and 1000396001, as NRI's
+  `GetQueryTypeVK` does; before, a raw acceleration-structure size pool reported `TIMESTAMP`. Unknown
+  types still map to `TIMESTAMP`.
+- `CreatePipelineVK`:
+  - NRI draws with a wrapped raw graphics pipeline.
+  - On a wrapped ray-tracing pipeline, `WriteShaderGroupIdentifiers` equals
+    `vkGetRayTracingShaderGroupHandlesKHR`, packed and at a wider stride.
 
 ### Flat exports and formats
 
@@ -1305,8 +1577,9 @@ extensions.
 
 - Skip strings name the capability: feature bit, extension, file. The exceptions quote a measured
   defect: `TestDevice.IsAppleParavirtualVK` (adapter name "Apple Paravirtual device":
-  `HOST_TRANSFER` crash, timestamps), backend-keyed Reflex VK and H.264 encode VK, D3D12 micromap
-  `Close`.
+  `HOST_TRANSFER` crash, timestamps), backend-keyed Reflex VK, H.264 and AV1 encode VK, the D3D12
+  micromap barrier (an NRI defect the skip quotes; the memory-path tests work around it) and the
+  Vulkan driver's refused micromap-size query pools.
 - **No skip turns a wrong result into a pass on a software adapter** (lavapipe, WARP), or on any
   adapter: a skip names a missing capability only. A wrong answer fails, with enough in the message
   (the hit map for ray queries) to diagnose it. The two macOS device-name skips are the recorded

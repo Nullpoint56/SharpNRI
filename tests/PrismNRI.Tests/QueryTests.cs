@@ -262,7 +262,10 @@ public sealed class QueryTests
         Assert.Equal(2UL, draw.inputPrimitiveNum);
         Assert.True(draw.vertexShaderInvocationNum >= 6, $"vertex shader invocations {draw.vertexShaderInvocationNum} < 6 vertices");
         Assert.Equal(2UL, draw.rasterizerInPrimitiveNum);
-        Assert.Equal(2UL, draw.rasterizerOutPrimitiveNum);
+        // Vulkan: "If at least one vertex of the input primitive lies inside the clipping volume, the
+        // counter is incremented by one or more", so two visible triangles give at least 2 (measured 2
+        // on a discrete GPU; lavapipe reports 0, see CLAUDE.md: Multisampling, copies and queries).
+        Assert.True(draw.rasterizerOutPrimitiveNum >= 2, $"clipping output primitives {draw.rasterizerOutPrimitiveNum} < 2 visible triangles");
         // At most once per pixel per triangle: helper invocations of the 2x2 quads the shared edge
         // crosses may be counted (measured: 256 on a discrete GPU, 288 = 256 + 8 quads x 4 on a
         // software rasterizer), nothing beyond.
