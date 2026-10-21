@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The bound-surface half of tools/coverage.ps1: which of NRI's functions PrismNRI's own code
+    calls and which native struct fields its API reaches. Reads the built PrismNRI.Descs.dll (the
+    interface tables and structs), PrismNRI.dll and its PDB (the calls and where they are). Not in
+    PrismNRI.slnx; built and run by the script.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>
