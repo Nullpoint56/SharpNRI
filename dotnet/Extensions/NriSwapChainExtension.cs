@@ -126,12 +126,44 @@ public sealed unsafe class NriSwapChainExtension
 
     /// <summary>
     /// A swap chain for a window. Its textures are created as colour attachments; query the real
-    /// count and format from <see cref="NriSwapChain.Textures"/>.
+    /// count, size and format from <see cref="NriSwapChain.Textures"/>. Vulkan clamps the size to
+    /// what the surface allows (the window's current size without present scaling) and answers
+    /// <c>NOT_READY</c> for a window with no drawable area, typically a minimised one, which this
+    /// method throws as <see cref="NriException"/>; <see cref="TryCreateSwapChain"/> returns it.
     /// </summary>
     public NriSwapChain CreateSwapChain(NriSwapChainDesc swapChainDesc)
     {
+        var desc = ToNative(swapChainDesc);
+        SwapChain* handle = null;
+        Device.Check(_table.CreateSwapChain(Device.Raw, &desc, &handle), "CreateSwapChain");
+        return new NriSwapChain(this, handle, swapChainDesc.Queue);
+    }
+
+    /// <summary>
+    /// <see cref="CreateSwapChain"/> for a window that may have no drawable area: returns
+    /// <see cref="NriSwapChainStatus.NotReady"/> with no swap chain instead of throwing when Vulkan
+    /// answers <c>NOT_READY</c> (zero surface extent). Process window events and retry. Every
+    /// other failure throws.
+    /// </summary>
+    public NriSwapChainStatus TryCreateSwapChain(NriSwapChainDesc swapChainDesc, out NriSwapChain? swapChain)
+    {
+        var desc = ToNative(swapChainDesc);
+        SwapChain* handle = null;
+        var result = _table.CreateSwapChain(Device.Raw, &desc, &handle);
+        if (result == Result.NOT_READY)
+        {
+            swapChain = null;
+            return NriSwapChainStatus.NotReady;
+        }
+        Device.Check(result, "CreateSwapChain");
+        swapChain = new NriSwapChain(this, handle, swapChainDesc.Queue);
+        return NriSwapChainStatus.Ok;
+    }
+
+    private static SwapChainDesc ToNative(NriSwapChainDesc swapChainDesc)
+    {
         ArgumentNullException.ThrowIfNull(swapChainDesc);
-        var desc = new SwapChainDesc
+        return new SwapChainDesc
         {
             window = swapChainDesc.Window.ToNative(),
             queue = swapChainDesc.Queue.Raw,
@@ -145,10 +177,6 @@ public sealed unsafe class NriSwapChainExtension
             gravityX = swapChainDesc.GravityX,
             gravityY = swapChainDesc.GravityY,
         };
-
-        SwapChain* handle = null;
-        Device.Check(_table.CreateSwapChain(Device.Raw, &desc, &handle), "CreateSwapChain");
-        return new NriSwapChain(this, handle, swapChainDesc.Queue);
     }
 
     internal void DestroySwapChain(SwapChain* swapChain) => _table.DestroySwapChain(swapChain);
@@ -231,4 +259,10 @@ public enum NriSwapChainStatus
 
     /// <summary><c>OUT_OF_DATE</c> (Vulkan): the swap chain no longer matches its window; recreate it.</summary>
     OutOfDate,
+
+    /// <summary>
+    /// <c>NOT_READY</c> (Vulkan, <see cref="NriSwapChainExtension.TryCreateSwapChain"/>): the window has
+    /// no drawable area, typically while minimised; no swap chain was created. Retry later.
+    /// </summary>
+    NotReady,
 }

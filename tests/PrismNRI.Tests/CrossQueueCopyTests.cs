@@ -1,6 +1,6 @@
 // A texture uploaded on the COPY queue and consumed on the GRAPHICS queue, with NRI's copy
-// layouts on both queues and the hand-off named in srcQueue / dstQueue (patch 0022), and what the
-// Vulkan layer makes of the hand-off on CONCURRENT and EXCLUSIVE images (patch 0023). See
+// layouts on both queues and the hand-off named in srcQueue / dstQueue (NRI 732f737), and what the
+// Vulkan layer makes of the hand-off on CONCURRENT and EXCLUSIVE images (NRI 2603edc). See
 // CLAUDE.md: Barriers.
 
 using PrismNRI.Native;
@@ -149,7 +149,7 @@ public sealed class CrossQueueCopyTests
     /// of an EXCLUSIVE image must name the same transition, and no transition but to and from the
     /// copy layouts is expressible on a D3D12 copy list.
     /// Vulkan copies hard-code TRANSFER_SRC/DST_OPTIMAL, so COPY_DESTINATION is the layout the
-    /// upload needs there. D3D12 copy lists allow only the COMMON layout: patch 0022 records
+    /// upload needs there. D3D12 copy lists allow only the COMMON layout: NRI (732f737) records
     /// COPY_SOURCE / COPY_DESTINATION as COMMON in a copy list and on the copy-queue side of a
     /// barrier whose srcQueue or dstQueue is a copy queue; without it the copy-list barrier is 1334
     /// and Close fails, and without the queues on the GRAPHICS barrier its COPY_DEST LayoutBefore
@@ -186,8 +186,8 @@ public sealed class CrossQueueCopyTests
     /// an EXCLUSIVE image or with the external family; the layer treats any barrier whose two
     /// family indices differ as one, whatever the sharing mode, and with maintenance9 supported it
     /// flags it on an image without attachment usage as "BestPractices-PipelineBarrier-unneeded-QFOT"
-    /// (text in CLAUDE.md: Barriers), once for the release and once for the acquire. Upstream NRI
-    /// writes the two queues' indices whatever the sharing mode; patch 0023 writes
+    /// (text in CLAUDE.md: Barriers), once for the release and once for the acquire. NRI v190
+    /// wrote the two queues' indices whatever the sharing mode; since 2603edc it writes
     /// VK_QUEUE_FAMILY_IGNORED on both sides for a CONCURRENT image. The checks are switched on
     /// through the process environment before device creation (the layer reads it at instance
     /// creation); .NET on Unix does not write the native environment, so the test skips there, with
@@ -240,9 +240,9 @@ public sealed class CrossQueueCopyTests
     /// an acquire's layouts and ignores a release's, so the GRAPHICS command buffer expects
     /// TRANSFER_SRC_OPTIMAL where the layer tracks TRANSFER_DST_OPTIMAL and the submit draws
     /// VUID-vkCmdDraw-None-09600 (text in CLAUDE.md: Barriers). That is the EXCLUSIVE case, and the
-    /// CONCURRENT case before patch 0023, since upstream NRI wrote the family indices there too.
-    /// After the patch a CONCURRENT image's two barriers carry no indices: two ordinary barriers on
-    /// their own queues, ordered by the fence, and legal.
+    /// CONCURRENT case on NRI v190, which wrote the family indices there too. Since 2603edc a
+    /// CONCURRENT image's two barriers carry no indices: two ordinary barriers on their own queues,
+    /// ordered by the fence, and legal.
     /// (The layer matches a release and an acquire by queues and subresources only, so a pair
     /// that differs only in the acquire's new layout draws nothing on either mode.)
     /// </summary>

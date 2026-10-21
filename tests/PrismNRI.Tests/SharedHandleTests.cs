@@ -168,7 +168,8 @@ public sealed class SharedHandleTests
     /// Release to the external queue family and acquire back. With one queue the Vulkan image is
     /// EXCLUSIVE (one active family); with graphics, compute and copy queues fetched it is
     /// CONCURRENT, where Vulkan wants VK_QUEUE_FAMILY_IGNORED on the side that is not external
-    /// (patch 0023 writes that; upstream wrote the queue's family index).
+    /// (NRI 2603edc writes that for ordinary queues and patch 0002 keeps the external side; NRI
+    /// v190 wrote the queue's family index).
     /// </summary>
     [Theory]
     [MemberData(nameof(GpuBackendsAndQueueSetups))]

@@ -121,10 +121,10 @@ public sealed class BufferTests
     }
 
     /// <summary>
-    /// ZeroBuffer is ordered by a COPY barrier on both backends (patch 0021). On D3D12 it is
+    /// ZeroBuffer is ordered by a COPY barrier on both backends (NRI 1163658). On D3D12 it is
     /// CopyBufferRegion from a zero buffer (sync COPY); on Vulkan it is vkCmdFillBuffer, a clear
-    /// command, whose stage is VK_PIPELINE_STAGE_2_CLEAR_BIT, which upstream's COPY mapping
-    /// (VK_PIPELINE_STAGE_2_COPY_BIT only) does not include. The buffer is first filled with 0xAB by a
+    /// command, whose stage is VK_PIPELINE_STAGE_2_CLEAR_BIT, which v190's COPY mapping
+    /// (VK_PIPELINE_STAGE_2_COPY_BIT only) did not include. The buffer is first filled with 0xAB by a
     /// copy, then zeroed, then copied to a readback buffer, with a COPY barrier before and after the
     /// zero. On Vulkan the Khronos synchronization validation is switched on through the layer's
     /// environment variables for this device only, with a positive control (a zero and a copy with

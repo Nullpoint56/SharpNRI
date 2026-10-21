@@ -275,8 +275,8 @@ public sealed unsafe class NriStreamerExtension
     /// <summary>
     /// (HOST) Streams texels into the dynamic buffer for a copy to <c>DstTexture</c> by
     /// <see cref="CopyStreamedData"/>. Returns where the texels landed. A block-compressed format
-    /// is staged in rows of blocks (patch 0010; upstream v190 staged texel rows, 16 times the
-    /// space for 4x4 blocks, and read past the end of <c>Data</c>).
+    /// is staged in rows of blocks (NRI bc3ebe7; v190 staged texel rows, 16 times the space for
+    /// 4x4 blocks, and read past the end of <c>Data</c>).
     /// </summary>
     public NriBufferOffset StreamTextureData(NriStreamer streamer, in NriStreamTextureDataDesc streamTextureDataDesc)
     {
