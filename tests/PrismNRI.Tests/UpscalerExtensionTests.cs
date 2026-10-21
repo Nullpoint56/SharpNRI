@@ -77,15 +77,17 @@ public sealed class UpscalerExtensionTests
 
     /// <summary>
     /// <c>CreateUpscaler</c> for a type this NRI build lacks (<c>IsUpscalerSupported</c> false: every
-    /// type of the Base variant) asks no runtime file and lets NRI answer: its validation reports
-    /// "CreateUpscaler: 'type' is not supported" and returns UNSUPPORTED, so NriUnsupportedException
-    /// with <c>Call</c> "CreateUpscaler" and no object created. For a type the build has whose vendor
-    /// file is missing, the binding refuses before NRI is called (XeSS would otherwise fault in its
-    /// delay-load stub, CLAUDE.md: Upscalers and vendor runtimes), naming the file, and NRI says
-    /// nothing. Types the build has with their runtime present are not created here.
+    /// type of the Base variant on VK and D3D12) asks no runtime file and lets NRI answer: its
+    /// validation reports "CreateUpscaler: 'type' is not supported" and returns UNSUPPORTED, so
+    /// NriUnsupportedException with <c>Call</c> "CreateUpscaler" and no object created. For a type
+    /// NRI claims whose vendor file is missing, the binding refuses before NRI is called (XeSS would
+    /// otherwise fault in its delay-load stub, CLAUDE.md: Upscalers and vendor runtimes), naming the
+    /// file, and NRI says nothing. On the Base payload only NONE claims a vendor type (it claims
+    /// every type), so NONE is where that refusal is reachable; it is the binding's own check, NONE
+    /// is not asked anything. Types claimed with their runtime present are not created here.
     /// </summary>
     [Theory]
-    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    [MemberData(nameof(TestDevice.AllBackends), MemberType = typeof(TestDevice))]
     public void CreateUpscaler_answers_UNSUPPORTED_for_a_missing_type_or_runtime_before_NRI_creates_anything(Backend backend)
     {
         TestDevice.RequireAvailable(backend);
@@ -129,6 +131,72 @@ public sealed class UpscalerExtensionTests
             tried++;
         }
         Assert.SkipWhen(tried == 0, $"{backend}: every upscaler type is compiled in and has its runtime beside the tests; nothing to refuse");
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// <c>DispatchUpscale</c> allocates nothing on the managed heap ("No heap allocation", its doc)
+    /// for each union arm it writes: NIS settings, the upscaler guides (METALFX_TEMPORAL), and the
+    /// denoiser guides with the DLRR settings (METALFX_DENOISED), every guide resource filled.
+    /// Measured as ExtensionAllocationTests measures: on NONE, which claims every upscaler type and
+    /// does nothing per call, after a warm-up, over 300 dispatches of each. The vendor types (FSR,
+    /// XeSS, DLSS) cannot be created without their runtime files, which no package ships.
+    /// </summary>
+    [Fact]
+    public void DispatchUpscale_writes_each_union_arm_without_allocating()
+    {
+        TestDevice.RequireAvailable(new Backend(GraphicsAPI.NONE));
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(GraphicsAPI.NONE, messages);
+        var ext = device.Upscaler;
+        var queue = device.GetQueue(QueueType.GRAPHICS);
+        using var allocator = queue.CreateCommandAllocator();
+        using var cmd = allocator.CreateCommandBuffer();
+        using var texture = device.CreateCommittedTexture(MemoryLocation.DEVICE, new TextureDesc { type = TextureType.TEXTURE_2D, usage = TextureUsageBits.SHADER_RESOURCE, format = Format.RGBA8_UNORM, width = 4, height = 4 });
+        using var view = texture.CreateView(TextureView.TEXTURE, Format.RGBA8_UNORM);
+        var resource = new NriUpscalerResource(texture, view);
+
+        UpscalerType[] types = [UpscalerType.NIS, UpscalerType.METALFX_TEMPORAL, UpscalerType.METALFX_DENOISED];
+        var upscalers = types.Select(t => ext.CreateUpscaler(new NriUpscalerDesc { UpscaleResolution = new Dim2_t { w = 8, h = 8 }, Type = t })).ToArray();
+        try
+        {
+            Assert.Equal(types, upscalers.Select(u => u.Type));
+            var dispatch = new NriDispatchUpscaleDesc
+            {
+                Input = resource,
+                Output = resource,
+                Guides = new NriDispatchUpscaleGuides
+                {
+                    Upscaler = new NriUpscalerGuides { Mv = resource, Depth = resource, Exposure = resource, Reactive = resource },
+                    Denoiser = new NriDenoiserGuides
+                    {
+                        Mv = resource, Depth = resource, NormalRoughness = resource, DiffuseAlbedo = resource, SpecularAlbedo = resource,
+                        SpecularMvOrHitT = resource, Exposure = resource, Reactive = resource, PreTransparency = resource, Sss = resource,
+                    },
+                },
+                Settings = new NriDispatchUpscaleSettings { Nis = new NISSettings { sharpness = 0.5f }, Fsr = new FSRSettings(), Dlrr = new DLRRSettings() },
+                CurrentResolution = new Dim2_t { w = 4, h = 4 },
+                PreExposure = 1,
+            };
+
+            void Frame()
+            {
+                cmd.Begin();
+                foreach (var upscaler in upscalers) ext.DispatchUpscale(cmd, upscaler, dispatch);
+                cmd.End();
+            }
+
+            Frame(); // warm-up
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 300; i++) Frame();
+            var delta = GC.GetAllocatedBytesForCurrentThread() - before;
+            GpuWork.Record($"NONE: 300 x {upscalers.Length} upscale dispatches: {delta} managed bytes");
+            Assert.Equal(0, delta);
+        }
+        finally
+        {
+            foreach (var upscaler in upscalers) upscaler.Dispose();
+        }
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
