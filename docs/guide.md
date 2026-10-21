@@ -347,26 +347,25 @@ fence.Wait(1);
   `NriAttachment`, `NriVertexBuffer`, `NriFenceSubmit`. Native arrays are built on the stack;
   a whole frame allocates nothing ([Zero allocation](#zero-allocation)).
 - Barriers are never inserted for you. `AccessStage` / `AccessLayoutStage` are NRI's before/after.
-- **A texture barrier side with access `NONE` and a defined layout is layout-only on D3D12**
-  (patch 0020): it is recorded with `SYNC_NONE` whatever its stages, because the D3D12 debug layer
-  refuses `NO_ACCESS` with a layout other than `UNDEFINED` and any other sync (1331, then `End`
-  throws `INVALID_ARGUMENT` from `Close`). On Vulkan the same side is an execution dependency on
-  its stages with no access, e.g. after a semaphore wait. So such a side orders nothing on D3D12
-  beyond the layout transition; give it the access the previous work used when the order matters.
-  It also says "nothing touched this subresource earlier in this submit" on D3D12: after an access
-  in the same command list (an upload, say) the debug layer refuses it with 1417 ("has been
-  accessed before, a barrier that specifies D3D12_BARRIER_SYNC_NONE as SyncBefore is invalid").
-  Use it only for the first barrier of a submit on a resource another submit finished with;
-  otherwise name the real access (`COPY_DESTINATION` after an upload).
-- **`ZeroBuffer` is stage `COPY`, access `COPY_DESTINATION`, on both backends** (patch 0021). It
+- **A texture barrier side with access `NONE` and a defined layout, on D3D12** (NRI 48a14c3):
+  with stages it is recorded with the conservative `COMMON` access and the stages' sync, so the
+  dependency on those stages holds and the barrier may flush caches; with stages `NONE` it is
+  layout-only (`SYNC_NONE`, `NO_ACCESS`). A layout-only side says "nothing touched this subresource
+  earlier in this submit": after an access in the same command list (an upload, say) the debug
+  layer refuses it with 1417 ("has been accessed before, a barrier that specifies
+  D3D12_BARRIER_SYNC_NONE as SyncBefore is invalid"). On Vulkan either side is an execution
+  dependency on its stages with no access, e.g. after a semaphore wait. Name stages whenever the
+  order matters; use stages `NONE` only for the first barrier of a submit on a resource another
+  submit finished with.
+- **`ZeroBuffer` is stage `COPY`, access `COPY_DESTINATION`, on both backends** (NRI 1163658). It
   is `CopyBufferRegion` from a zero buffer on D3D12 and `vkCmdFillBuffer` on Vulkan, a clear
-  command; NRI's Vulkan `COPY` stage includes `VK_PIPELINE_STAGE_2_CLEAR_BIT` with the patch.
+  command; NRI's Vulkan `COPY` stage includes `VK_PIPELINE_STAGE_2_CLEAR_BIT`.
   `CLEAR_STORAGE` is wrong for it on D3D12 (`CLEAR_UNORDERED_ACCESS_VIEW`).
 - **Copy queues: use `COPY_DESTINATION` / `COPY_SOURCE` on every queue, and name the hand-off.**
   Vulkan's copies (`CopyTexture`, `ResolveTexture`, `UploadBufferToTexture`,
   `ReadbackTextureToBuffer`) require the transfer layouts, so a texture in `GENERAL` cannot be
-  their destination there. D3D12 copy command lists allow only `D3D12_BARRIER_LAYOUT_COMMON`; with
-  patch 0022 NRI records `COPY_SOURCE` / `COPY_DESTINATION` as `COMMON` in a copy list and on the
+  their destination there. D3D12 copy command lists allow only `D3D12_BARRIER_LAYOUT_COMMON`; NRI
+  (732f737) records `COPY_SOURCE` / `COPY_DESTINATION` as `COMMON` in a copy list and on the
   copy-queue side of a texture barrier whose `SrcQueue` / `DstQueue` is a copy queue. Across
   queues: on the COPY queue `{UNDEFINED}` -> `{COPY_DESTINATION}`, the copy, then a release
   `{COPY_DESTINATION}` -> `{COPY_DESTINATION}` with `SrcQueue: copy, DstQueue: graphics`; on the
@@ -378,12 +377,20 @@ fence.Wait(1);
 - **`SrcQueue` / `DstQueue` on Vulkan are an ownership transfer only for `EXCLUSIVE` textures**
   (or with `NriQueue.External` on one side). On a `CONCURRENT` texture (the default, with more
   than one queue family in use) NRI writes `VK_QUEUE_FAMILY_IGNORED` for every side that is not
-  external (patch 0023), so the release and the acquire of a hand-off are two ordinary barriers,
-  each validated against its own queue: the COPY queue's barrier may name only copy stages. Before
-  the patch the Khronos layer treated them as a transfer: a release and acquire naming different
+  external (NRI 2603edc), so the release and the acquire of a hand-off are two ordinary barriers,
+  each validated against its own queue: the COPY queue's barrier may name only copy stages. On NRI
+  v190 the Khronos layer treated them as a transfer: a release and acquire naming different
   transitions drew VUID-vkCmdDraw-None-09600, and best practices flagged a sampled-only texture's
   hand-off as `BestPractices-PipelineBarrier-unneeded-QFOT`. The portable hand-off above is right
-  for both modes; on D3D12 the queues are only the copy-queue hint of patch 0022.
+  for both modes; on D3D12 the queues are only the copy-queue hint.
+- **Attachment resolves have their own stage and accesses** (NRI 48d4a33). With
+  `NriAttachment.ResolveDst` set, add `RESOLVE_ATTACHMENT_SOURCE` access and the
+  `RESOLVE_ATTACHMENT` stage to the multisampled attachment's barriers, and prepare the resolve
+  destination with `RESOLVE_ATTACHMENT_DESTINATION` and `RESOLVE_ATTACHMENT` (layout
+  `COLOR_ATTACHMENT`; not `GENERAL` or `INPUT_ATTACHMENT`, and not on `SIMULTANEOUS` textures).
+  `GRAPHICS` and `ALL_ATTACHMENT` no longer include resolves; `ALL_RESOLVE` does. Measured on
+  NVIDIA: a 4x RGBA8 triangle resolved this way validates clean on both backends, and so do the
+  older colour-attachment barriers, with the same pixels.
 - **One recording command buffer per allocator at a time.** D3D12 `Begin` resets the command
   list against its allocator; a second `Begin` while another command buffer of the same
   allocator records draws debug error 540 (`COMMAND_ALLOCATOR_CONTENTION`) and throws
@@ -482,8 +489,9 @@ if (device.TryRayTracing is { } rt)
 }
 ```
 
-- `NriBuffer.HasBuffer` (NRI's `HAS_BUFFER`) sizes a structure before its inputs exist. Upstream's
-  validation layer dereferences it (access violation); patch 0003 fixes it in the shipped library.
+- `NriBuffer.HasBuffer` (NRI's `HAS_BUFFER`) sizes a structure before its inputs exist. NRI v190's
+  validation layer dereferenced it (access violation); fixed in NRI 7915eca, which also refuses it
+  at build time: pass the real buffers to `BuildBottomLevelAccelerationStructure`.
 - Unbound size equals `GetAccelerationStructureMemoryDesc`'s prediction. Measured one-triangle BLAS:
   VK 3,072 B at 256, D3D12 2,944 B at 128, WARP 65,536 B.
 - Update scratch: equal to build scratch on NVIDIA (1,664 B); WARP reports build 120 B, update 0 B.
@@ -618,7 +626,7 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   current frame. The code stopped doing that in May 2025; the comment is stale and not patched.
   Measured: with 2, frame 2 reuses frame 0's offset.
 - **Block-compressed textures**: `StreamTextureData`'s `DataRowPitch` is the distance between rows
-  of blocks. With patch 0010 they are staged in rows of blocks. Upstream v190 staged texel rows,
+  of blocks, and they are staged in rows of blocks (NRI bc3ebe7). NRI v190 staged texel rows,
   16 times the space for 4x4 blocks (a 64x64 BC1 mip took 32,768 B instead of 2,048), and read
   past the end of `Data`. The bytes still arrived intact, so only the footprint showed it.
 - `EndStreamerFrame` discards every copy batch not yet recorded with `CopyStreamedData`: fill and
@@ -654,14 +662,15 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 - A wrapped Vulkan device that uses the swap chain needs `VK_KHR_surface`, the platform surface
   extension and `VK_KHR_get_surface_capabilities2` on its instance: NRI calls
   `vkGetPhysicalDeviceSurfaceCapabilities2KHR` unconditionally (an access violation without it).
-- **With present scaling the requested extent need not be the window's current size** (patch
-  0014). Vulkan accepts any extent in the surface's scaled range when the swap chain has present
-  scaling; upstream v190 checked the unscaled range, which on Windows is exactly the current
-  client size, and refused a size that lagged a resize, or a window minimised at creation, with
-  `INVALID_ARGUMENT` ("swapChainDesc.width is out of [w, w] range"). Measured on NVIDIA: a 100x80
-  swap chain on a 64x64 window creates with 100x80 textures and presents. Without scaling (a
-  wrapped device with only `VK_KHR_swapchain`) the refusal stays, as Vulkan requires. A 0x0
-  extent is refused either way: do not create or rebuild for a minimised window.
+- **The swap chain's size is clamped, not checked** (NRI PR #285): with present scaling to the
+  surface's scaled range, without it to the window's current size, so read the real size from
+  `NriSwapChain.Textures`. Measured on NVIDIA: 100x80 asked on a 64x64 window gives 100x80
+  textures with scaling and 64x64 without. A window with no client area, a minimised one, makes
+  Vulkan answer `NOT_READY` when the clamp gives zero: `TryCreateSwapChain` returns
+  `NriSwapChainStatus.NotReady` and no swap chain, `CreateSwapChain` throws `NriException`
+  (`NOT_READY`). With present scaling a driver may still create one there (NVIDIA does, at the
+  requested size), so do not rely on either answer for a minimised window: skip frames while it
+  has no client area.
 - **`SwapChainBits.LATEST_READY` with `VSYNC`** (patch 0017) asks for Vulkan's FIFO_LATEST_READY:
   paced to the display like FIFO, no tearing, but at each vblank the newest ready image is shown
   and older queued ones are dropped. It applies only when `device.Desc.features.latestReadySwapChain`
@@ -746,7 +755,7 @@ Nri.ReportLiveObjects();                                             // DXGI deb
 - `Format.MAX_NUM` and beyond throw `ArgumentOutOfRangeException`: NRI indexes its tables
   unchecked (`nriGetFormatProps(MAX_NUM)` returned another format's entry).
 - **`ConvertVKFormatToNRI`** is the inverse of `ConvertNRIFormatToVK` for all 108 formats,
-  block-compressed ones included (patch 0008; NRI v190's table ended at 130 and returned `UNKNOWN`
+  block-compressed ones included (NRI 5ed8bb6; NRI v190's table ended at 130 and returned `UNKNOWN`
   for all 52 BC, ETC2 and ASTC formats). BC1's RGB `VkFormat`s (131, 132) stay `UNKNOWN`.
 - **`ConvertDXGIFormatToNRI(18)`** returns `RGB32_SINT`.
 - `ConvertNRIFormatToDXGI` has no value for the 38 ETC2 / ASTC formats.
@@ -819,14 +828,14 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
   Details: CLAUDE.md, "CI runners and flakes".
 - NRI `dlopen`s `libvulkan.so.1` at device creation.
 - **Loader older than the driver** (Ubuntu 24.04's stock 1.3.275 loader with Mesa 25's 1.4
-  lavapipe): upstream NRI loads core 1.4 entry points the driver returns null for, and
-  `CmdSetRootConstants` crashes (SIGSEGV at 0) while `HOST_TRANSFER` textures are rejected. Patch 0004
-  clamps NRI's Vulkan version to the instance's; fixed in the shipped library. Such a device reports
+  lavapipe): NRI v190 loaded core 1.4 entry points the driver returns null for, and
+  `CmdSetRootConstants` crashed (SIGSEGV at 0) while `HOST_TRANSFER` textures were rejected. NRI
+  a4e562e clamps its Vulkan version to the instance's. Such a device reports
   as Vulkan 1.3.
 - lavapipe: no external semaphores (no `SharedHandles`); a first ray tracing submit can take
   seconds (JIT, see RayTracing).
 - `NriAdapter.Uid` is built from the device UUID (no LUID on Linux).
-- Building NRI with GCC 13 needs patch 0005 (included); clang is what CI uses.
+- NRI builds with GCC 13 since 9b45d77; clang is what CI uses.
 
 ### macOS
 
@@ -864,9 +873,9 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Non-zero `VkBindingOffsets` mismatch | descriptors bind to the wrong slots | Descriptors |
 | Vulkan COMPUTE/COPY queue fetched late | resources switch to concurrent sharing | Threads |
 | Pixel compare without tolerance | UNORM rounding differs by one | Recording |
-| Texture barrier side with access `NONE` and a layout | D3D12: layout-only (`SYNC_NONE`, patch 0020); before the patch debug error 1331 and `End` throws | Recording |
-| `ZeroBuffer` ordered with `CLEAR_STORAGE` | wrong on D3D12 (a copy there); use `COPY` (patch 0021 makes it cover the Vulkan fill) | Recording |
-| `COPY_DESTINATION` on a D3D12 COPY queue, or `GENERAL` around a Vulkan copy | before patch 0022 D3D12 debug error 1334 and `End` throws; Vulkan refuses a copy in `GENERAL`; use the copy layouts and `SrcQueue` / `DstQueue` on the hand-off | Recording |
+| Texture barrier side with access `NONE`, a layout and no stages, after an access in the same list | D3D12 debug error 1417; name the stages (then `COMMON` access, NRI 48a14c3) or the real access | Recording |
+| `ZeroBuffer` ordered with `CLEAR_STORAGE` | wrong on D3D12 (a copy there); use `COPY`, which covers the Vulkan fill (NRI 1163658) | Recording |
+| `GENERAL` around a Vulkan copy, or a hand-off without `SrcQueue` / `DstQueue` | Vulkan refuses a copy in `GENERAL`; D3D12 debug error 1334 at execution; use the copy layouts and name both queues on the hand-off (NRI 732f737) | Recording |
 | Two command buffers of one allocator recording at once | D3D12: debug error 540, `Begin` throws | Recording |
 | Same-submission timestamp copy on MoltenVK | reads 0 | Queries |
 | One DXIL library for a D3D12 RT pipeline | `CreateRayTracingPipeline` faults | RayTracing |
@@ -890,11 +899,11 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Buffer barrier on a `CreateBufferVK` import | refused (usage NONE); use a global barrier | Wrappers |
 | Raw `VkInstance` on macOS | MoltenVK hidden without portability enumeration | Wrappers |
 | Raw `NriApi` device creation with null `AbortExecution` | `DebugBreak()` kills the process on any error | Wrappers |
-| `ConvertVKFormatToNRI` on BC1 RGB (131, 132) | `UNKNOWN` (NRI has BC1 RGBA only; other compressed formats map, patch 0008) | Flat exports |
+| `ConvertVKFormatToNRI` on BC1 RGB (131, 132) | `UNKNOWN` (NRI has BC1 RGBA only; other compressed formats map, NRI 5ed8bb6) | Flat exports |
 | Wrapped VK device without `VK_KHR_get_surface_capabilities2` | access violation in `CreateSwapChain` | SwapChain |
 | Expecting `OUT_OF_DATE` on resize | none with present scaling (`features.resizableSwapChain`) | SwapChain |
 | DXGI conversions on Linux / macOS | 0 / `UNKNOWN` | Flat exports |
 | `Format.MAX_NUM` to a flat export | `ArgumentOutOfRangeException` | Flat exports |
 | Khronos layer older than NRI's headers | "unknown VkStructureType" errors | Test device |
-| Vulkan loader older than the driver | crash in `CmdSetRootConstants` (fixed by patch 0004) | Platform: Linux |
+| Vulkan loader older than the driver | crashed in `CmdSetRootConstants` on NRI v190 (fixed in NRI a4e562e) | Platform: Linux |
 | Homebrew Vulkan on macOS | not found without `DYLD_FALLBACK_LIBRARY_PATH` and `VK_DRIVER_FILES` | Platform: macOS |

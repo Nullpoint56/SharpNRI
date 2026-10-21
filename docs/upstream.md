@@ -20,19 +20,44 @@ a4e562e; the dropped patches' own tests (BC staging, the format round trip, `HAS
 stale-extent swap chain) pass on upstream's fixes. Line numbers in the drafts of the next round
 are main's.
 
+2026-10-21: the second round (#281-#284) was fixed on 2026-10-20, three as filed and #281
+differently: a texture side with access `NONE`, a defined layout and stages gets
+`D3D12_BARRIER_ACCESS_COMMON` and keeps the stages' sync, and only a side without stages stays
+`SYNC_NONE` ("forcing `SYNC_NONE` discards the caller's requested execution dependency and imposes
+additional restrictions on surrounding accesses and barriers. Using `COMMON` access preserves
+synchronization, at the cost of potentially extra cache work"). Main also took a community PR
+(#285) that turns the swap-chain extent check into a clamp and answers `NOT_READY` for a zero
+extent, and 48d4a33, which makes attachment resolves explicit in barriers and renumbers
+`StageBits` / `AccessBits`. `next` pins 2f7a49f with thirteen patches, 0002 re-cut. Measured:
+Windows 297 tests, 0 failed (NVIDIA; the COMMON-access shapes draw no message at all, not even a
+warning); Linux lavapipe 297, 0 failed.
+
+On #49 he answered: "A PR would be very welcome! Regarding the API shape, I would prefer extending
+the existing `buffer`, `texture` and `fence` descs if the additions fit naturally and keep the API
+small. There's no need for a separate extension just to introduce parallel creation functions. If
+the functionality requires substantial new API surface or fits more cleanly into a separate
+interface, an extension would be preferable." Read against NRI main: textures and buffers can take
+an export field in `TextureDesc` / `BufferDesc`, plus `AllocateMemoryDesc` for placed resources,
+with `CreateCommittedTexture` / `CreateCommittedBuffer` as the dedicated path that 0002's
+`CreateSharedTexture` is today. Fences have no desc: `CreateFence` takes an initial value only, with
+`SWAPCHAIN_SEMAPHORE` as its one sentinel, so "the fence desc" would be new API. The handle
+getters fit beside Core's `Get*NativeObject` functions. The `EXTERNAL_QUEUE` sentinel and the
+exportable binary semaphore need a place too. To ask before writing the PR: a `FenceDesc` or
+another shape for shared fences, and whether three getters in Core count as small.
+
 | Patch | Kind | Status |
 |---|---|---|
-| 0003 validation `HAS_BUFFER` crash | bug | filed 2026-10-16, [#279](https://github.com/NVIDIA-RTX/NRI/issues/279); fixed 2026-10-19 in 7915eca (also refuses `HAS_BUFFER` at build time); drop at the next tag |
-| 0004 Vulkan minor version above the instance's | bug | filed 2026-10-16, [#278](https://github.com/NVIDIA-RTX/NRI/issues/278); fixed 2026-10-19 in a4e562e (`m_InstanceVersion`, another shape); drop at the next tag, explicitly: ours still applies on top |
-| 0005 `MemoryHeap::alignment` uninitialised (read before written) | bug | filed 2026-10-16, [#275](https://github.com/NVIDIA-RTX/NRI/issues/275); fixed 2026-10-19 in 9b45d77; drop at the next tag |
-| 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | filed 2026-10-16, [#276](https://github.com/NVIDIA-RTX/NRI/issues/276); fixed 2026-10-19 in 5ed8bb6 (our table); drop at the next tag |
-| 0010 Streamer stages compressed textures in texel rows | bug | filed 2026-10-16, [#274](https://github.com/NVIDIA-RTX/NRI/issues/274); fixed 2026-10-19 in bc3ebe7; drop at the next tag |
-| 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277); fixed 2026-10-19 in 81245bd; drop at the next tag |
-| 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | filed 2026-10-19 against main 8ee40ca, [#281](https://github.com/NVIDIA-RTX/NRI/issues/281) |
-| 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | filed 2026-10-19 against main 8ee40ca, [#282](https://github.com/NVIDIA-RTX/NRI/issues/282) |
-| 0022 D3D12 copy layouts refused in copy command lists | bug | filed 2026-10-19 against main 8ee40ca, [#283](https://github.com/NVIDIA-RTX/NRI/issues/283) |
-| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | filed 2026-10-19 against main 8ee40ca, [#284](https://github.com/NVIDIA-RTX/NRI/issues/284) |
-| 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
+| 0003 validation `HAS_BUFFER` crash | bug | filed 2026-10-16, [#279](https://github.com/NVIDIA-RTX/NRI/issues/279); fixed 2026-10-19 in 7915eca (also refuses `HAS_BUFFER` at build time); dropped on `next` 2026-10-21 |
+| 0004 Vulkan minor version above the instance's | bug | filed 2026-10-16, [#278](https://github.com/NVIDIA-RTX/NRI/issues/278); fixed 2026-10-19 in a4e562e (`m_InstanceVersion`, another shape); dropped on `next` 2026-10-21 (by hand: ours still applied on top) |
+| 0005 `MemoryHeap::alignment` uninitialised (read before written) | bug | filed 2026-10-16, [#275](https://github.com/NVIDIA-RTX/NRI/issues/275); fixed 2026-10-19 in 9b45d77; dropped on `next` 2026-10-21 |
+| 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | filed 2026-10-16, [#276](https://github.com/NVIDIA-RTX/NRI/issues/276); fixed 2026-10-19 in 5ed8bb6 (our table); dropped on `next` 2026-10-21 |
+| 0010 Streamer stages compressed textures in texel rows | bug | filed 2026-10-16, [#274](https://github.com/NVIDIA-RTX/NRI/issues/274); fixed 2026-10-19 in bc3ebe7; dropped on `next` 2026-10-21 |
+| 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277); fixed 2026-10-19 in 81245bd; dropped on `next` 2026-10-21 |
+| 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | filed 2026-10-19 against main 8ee40ca, [#281](https://github.com/NVIDIA-RTX/NRI/issues/281); fixed 2026-10-20 in 48a14c3, another shape: a side with stages gets `COMMON` access and keeps its sync, one without stages stays `SYNC_NONE` ("forcing SYNC_NONE discards the caller's requested execution dependency"); dropped on `next` |
+| 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | filed 2026-10-19 against main 8ee40ca, [#282](https://github.com/NVIDIA-RTX/NRI/issues/282); fixed 2026-10-20 in 1163658, ours verbatim; dropped on `next` |
+| 0022 D3D12 copy layouts refused in copy command lists | bug | filed 2026-10-19 against main 8ee40ca, [#283](https://github.com/NVIDIA-RTX/NRI/issues/283); fixed 2026-10-20 in 732f737, ours without the sentinel guard, which 0002 now carries; dropped on `next` |
+| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | filed 2026-10-19 against main 8ee40ca, [#284](https://github.com/NVIDIA-RTX/NRI/issues/284); fixed 2026-10-20 in 2603edc, the sharing mode recorded at creation; dropped on `next`, 0002 keeps the external family |
+| 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs, an extension only for substantial new API surface (2026-10-21 note above) |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2, drafted 2026-10-19, not filed; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2, drafted 2026-10-19 as a question, not filed: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
 | 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2, drafted 2026-10-19, not filed; the uncapped order is his and stays |
