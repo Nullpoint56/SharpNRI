@@ -181,9 +181,10 @@ Caveats:
   `InvalidOperationException` naming the count, before NRI is called, while a buffer, texture,
   acceleration structure or micromap bound into it (`Bind*Memory`) or placed in it
   (`CreatePlaced*`) is alive; the memory stays usable. Freeing it first would leak it (NRI's
-  validation refuses) and, on D3D12, make every later device creation in the process fail. The
-  allocations `AllocateAndBindMemory` returns are not counted (NRI does not say which resource went
-  into which): dispose their resources first yourself.
+  validation refuses) and, on D3D12, make every later device creation in the process fail. NRI
+  does not say which resource `AllocateAndBindMemory` put into which allocation, so each allocation
+  it returns refuses while any resource of that call is alive: dispose every resource of the call,
+  then its allocations.
 - `SetDebugName(string)` on every object, and on `NriQueue`.
 
 ```csharp
@@ -211,7 +212,7 @@ using var mem = device.AllocateMemory(new AllocateMemoryDesc { size = req.size, 
 using var tex = unbound;
 device.BindTextureMemory(tex, mem);
 
-// Group unbound resources into few allocations
+// Group unbound resources into few allocations; dispose tex2 and buf2 before any of these
 NriMemory[] allocations = device.AllocateAndBindMemory(MemoryLocation.DEVICE, [tex2], [buf2]);
 
 // Placed
@@ -865,7 +866,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | `GetQueue` bad index | `INVALID_ARGUMENT`, no message | Device creation |
 | Video without video queues requested | `Video` is `UNSUPPORTED` | Extensions: Video |
 | Disposing the device first | throws, device stays usable | Lifetime |
-| Disposing memory with a bound resource | `InvalidOperationException` naming the count, the memory kept, for resources bound or placed through `Bind*Memory` / `CreatePlaced*`; an `AllocateAndBindMemory` allocation is not counted, and freeing it first is a validation error, a leak, and on D3D12 every later `D3D12CreateDevice` in the process failing 0x887A0007 | Lifetime |
+| Disposing memory with a bound resource | `InvalidOperationException` naming the count, the memory kept, for resources bound or placed through `Bind*Memory` / `CreatePlaced*`; an `AllocateAndBindMemory` allocation refuses while any resource of its call is alive. Freed first, it would be a validation error, a leak, and on D3D12 every later `D3D12CreateDevice` in the process failing 0x887A0007 | Lifetime |
 | `HOST_READ` / `HOST_WRITE` in a buffer barrier | validation error; fence wait is the visibility | Memory |
 | `UploadData` on NV12 | VK VUID-...-07981, D3D12 error 1417 | Memory |
 | `HOST_TRANSFER` on Apple Paravirtual | segfault in `vkBindImageMemory` | Memory |

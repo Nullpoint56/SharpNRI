@@ -9,7 +9,7 @@ namespace PrismNRI;
 public sealed unsafe class NriBuffer : NriObject
 {
     private readonly bool _owned;
-    private NriMemory? _memory; // bound into or placed in through the binding; NriMemory refuses disposal while set
+    private NriMemory.Holders? _memory; // of the memory bound into or placed in through the binding, which refuses disposal while set
 
     internal NriBuffer(NriDevice device, Buffer* handle, bool owned = true) : base(handle, "NriBuffer")
     {

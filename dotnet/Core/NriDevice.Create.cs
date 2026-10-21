@@ -166,11 +166,9 @@ public sealed unsafe partial class NriDevice
     /// <summary>
     /// Allocates and binds memory for a group of unbound resources in as few allocations as NRI
     /// can manage. Returns the allocations; dispose them after the resources. NRI does not say
-    /// which resource went into which allocation, so these, unlike the memory of
-    /// <see cref="BindBufferMemory(ReadOnlySpan{NriBufferMemoryBinding})"/> and the placed
-    /// creations, do not refuse disposal while their resources are alive: NRI validation then
-    /// reports the resources and leaves the allocation unfreed, and on D3D12 later device creation
-    /// in the process fails.
+    /// which resource went into which allocation, so each allocation refuses disposal, throwing
+    /// <see cref="InvalidOperationException"/>, while any resource of this call is alive (see
+    /// <see cref="NriMemory"/>).
     /// </summary>
     public NriMemory[] AllocateAndBindMemory(MemoryLocation location, ReadOnlySpan<NriTexture> textures, ReadOnlySpan<NriBuffer> buffers, ulong preferredMemorySize = 0, float residencyPriority = 0, bool vma = false)
     {
@@ -195,8 +193,13 @@ public sealed unsafe partial class NriDevice
         var handles = stackalloc Memory*[checked((int)count)];
         Check(Helper.AllocateAndBindMemory(Raw, &desc, handles), "AllocateAndBindMemory");
 
+        // The allocations share one count, so each resource of the call holds every one of them.
         var result = new NriMemory[count];
-        for (var i = 0; i < count; i++) result[i] = new NriMemory(this, handles[i]);
+        var group = new NriMemory.Holders(group: true);
+        for (var i = 0; i < count; i++) result[i] = new NriMemory(this, handles[i], group);
+        if (count == 0) return result; // NONE allocates nothing
+        foreach (var texture in textures) texture.BoundTo(result[0]);
+        foreach (var buffer in buffers) buffer.BoundTo(result[0]);
         return result;
     }
 

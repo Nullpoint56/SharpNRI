@@ -147,7 +147,7 @@ public readonly record struct NriDispatchRays(
 /// <summary>A bottom- or top-level acceleration structure.</summary>
 public sealed unsafe class NriAccelerationStructure : NriObject
 {
-    private NriMemory? _memory; // bound into or placed in through the binding; NriMemory refuses disposal while set
+    private NriMemory.Holders? _memory; // of the memory bound into or placed in through the binding, which refuses disposal while set
 
     internal NriAccelerationStructure(NriRayTracingExtension extension, AccelerationStructure* handle, AccelerationStructureType type) : base(handle, "NriAccelerationStructure")
     {
@@ -204,7 +204,7 @@ public sealed unsafe class NriAccelerationStructure : NriObject
 /// <summary>An opacity micromap.</summary>
 public sealed unsafe class NriMicromap : NriObject
 {
-    private NriMemory? _memory; // bound into or placed in through the binding; NriMemory refuses disposal while set
+    private NriMemory.Holders? _memory; // of the memory bound into or placed in through the binding, which refuses disposal while set
 
     internal NriMicromap(NriRayTracingExtension extension, Micromap* handle) : base(handle, "NriMicromap")
     {

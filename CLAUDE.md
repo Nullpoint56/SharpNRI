@@ -687,9 +687,15 @@ configured per machine: the adapter named is whichever one the suite picked on t
     which its `tiers.rayTracing` 2 lacks): counts 2 and 1 refused with no message, a copy through
     the bound and placed buffers still reads back, each memory disposes once its resources are
     gone, and a D3D12 device created afterwards works.
-  - Not counted: the allocations `AllocateAndBindMemory` returns. NRI does not report which
-    resource it bound into which allocation (`HelperDeviceMemoryAllocator` groups by memory type
-    and size), so freeing one of those first still leaks as above.
+  - The allocations of one `AllocateAndBindMemory` call share one count (owner, 2026-10-22). NRI's
+    helper does not report which resource it bound into which allocation (`HelperInterface.hpp`
+    packs by memory type up to `preferredMemorySize`, plus one allocation per dedicated resource),
+    so each allocation refuses while any resource of the call is alive, even one whose own
+    resources are gone: "every resource, then the allocations" is the only order a caller can
+    know to be safe. Not an NRI defect (C++ callers free in that order and never need the
+    mapping); an output field for it would be a proposal. Measured (`MemoryTests`; hardware VK
+    and D3D12, WARP): with `preferredMemorySize` 1, two buffers and a texture get three
+    allocations, each refusing with 3, then with 2 once a buffer is disposed.
 - **`NriSharedHandle` is a sealed class whose `Dispose` closes once.** As a `readonly record
   struct`, disposing it twice or disposing a copy closed the value again, and the process may by
   then have reused that value for another handle. `Dispose` now takes the value with
