@@ -83,6 +83,7 @@ question; the draft states the shape and offers the PR.
 | N7 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 | bug | phase 1 candidate, not filed: owner's trigger |
 | N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | phase 1 candidate, not filed: owner's trigger |
 | N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | phase 2: the desc carries no frame type, so the fix is his API choice |
+| N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | phase 1 candidate, not filed: owner's trigger |
 | `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it |
 | Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
@@ -550,7 +551,7 @@ enumeration would change it. Patch attached
 Found on 2026-10-21 by the tests that close the coverage report's blind spots (branch
 `coverage-tests`, on master). Measured on v190 with master's patches, none of which touch these
 lines, on the development machine's discrete GPU, and on WARP where it says so. Line numbers and
-code are NRI main's at 2f7a49f, where every line N1 to N9 cite is unchanged. N1 to N8 are written
+code are NRI main's at 2f7a49f, where every line N1 to N10 cite is unchanged. N1 to N8 and N10 are written
 in the filed form; N9 is a phase 2 question.
 
 ### N1: Vulkan: vertex attributes bind to streamIndex, not the stream's bindingSlot
@@ -704,6 +705,25 @@ type.
 
 **Fix.** His choice. Either ignore the header on D3D12 or report why it fails. Then either say in
 `NRIVideo.h` that `references` stays empty for key frames, or add the frame type to the desc.
+
+### N10: an allocator that returns null crashes NRI instead of failing the creation
+
+**Observed.** An `AllocationCallbacks::Allocate` that returns null for the allocation of a fence:
+`CreateFence` dies with an access violation (0xC0000005), on Vulkan and D3D12, with NRI validation on
+and off.
+
+**Cause.** `Allocate` returns null safely (`Source/Shared/SharedExternal.h:457-463`), but
+`CreateImplementation` calls `Create` on the result without a check (`Source/VK/DeviceVK.h:204-205`,
+`Source/D3D12/DeviceD3D12.h:87-88`). Device creation does the same (`ImplVK.cpp:64-65`,
+`ImplD3D12.cpp:63-64`). Since 2104586.
+
+**Fix.**
+
+```cpp
+Implementation* impl = Allocate<Implementation>(GetAllocationCallbacks(), *this);
+if (!impl)
+    return Result::OUT_OF_MEMORY;
+```
 
 ### Not filed
 
