@@ -67,7 +67,16 @@ $bound = Get-Content $boundJson -Raw | ConvertFrom-Json
 # ------------------------------------------------------------------------------------------ test coverage
 $cobertura = Join-Path $work "coverage.cobertura.xml"
 $testsTxt = Join-Path $work "tests.txt"
+# The commit the tests ran on, kept beside their output so -SkipTests reports it, not today's HEAD.
+# What the numbers measure is the binding, its tests and the patch set (nri/ always shows the patches)
+$measuredTxt = Join-Path $work "measured.txt"
+function Measured {
+    $commit = git -C $root rev-parse --short HEAD
+    $dirty = git -C $root status --porcelain --ignore-submodules -- dotnet descs testing tests patches
+    if ($dirty) { "$commit plus uncommitted changes" } else { $commit }
+}
 if (-not $SkipTests) {
+    $measured = Measured
     Write-Host "==> dotnet test --coverage (the whole suite)"
     Remove-Item $cobertura -ErrorAction SilentlyContinue
     $PSNativeCommandUseErrorActionPreference = $false
@@ -78,6 +87,7 @@ if (-not $SkipTests) {
     $PSNativeCommandUseErrorActionPreference = $true
     $output | Set-Content $testsTxt
     if ($testExit -ne 0) { $output | Select-Object -Last 30 | Out-Host; throw "dotnet test failed ($testExit); coverage of a failing suite is not published" }
+    $measured | Set-Content $measuredTxt
 }
 if (-not (Test-Path $cobertura)) { throw "no $cobertura; run without -SkipTests" }
 $testLog = Get-Content $testsTxt -Raw
@@ -177,10 +187,7 @@ $fieldBound = @($fieldRows | Where-Object Bound).Count
 $fieldTotal = @($fieldRows).Count
 
 # ------------------------------------------------------------------------------------------ report
-$commit = (git -C $root rev-parse --short HEAD)
-# What the numbers measure: the binding, its tests and the patch set (nri/ always shows the applied patches)
-$dirty = git -C $root status --porcelain --ignore-submodules -- dotnet descs testing tests patches
-if ($dirty) { $commit += " plus uncommitted changes" }
+$commit = if (Test-Path $measuredTxt) { (Get-Content $measuredTxt -Raw).Trim() } else { Measured }
 $nriRef = (git -C (Join-Path $root "nri") describe --tags --always)
 $patchCount = @(Get-ChildItem (Join-Path $root "patches") -Filter "*.patch").Count
 $gpus = if ($IsWindows) { (Get-CimInstance Win32_VideoController | ForEach-Object Name) -join ", " }

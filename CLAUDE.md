@@ -282,9 +282,10 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
 `pwsh tools/coverage.ps1` (after `build-native.ps1`) builds with `-p:PrismNRICoverage=true`, runs
 the suite under coverage and writes `docs/coverage.md` and the two README badges in
 `docs/badges/`; `-SkipBuild` / `-SkipTests` reuse the last build or run (`_build/coverage/`).
-Commit report and badges together from a committed tree: the header names the commit, NRI ref,
-patch count, GPUs and test totals, and adds "plus uncommitted changes" when `dotnet`, `descs`,
-`testing`, `tests` or `patches` differ from it. A failing suite publishes nothing.
+Commit report and badges together from a committed tree: the header names the commit the tests
+ran on (`_build/coverage/measured.txt`, so `-SkipTests` keeps it), NRI ref, patch count, GPUs and
+test totals, and adds "plus uncommitted changes" when `dotnet`, `descs`, `testing`, `tests` or
+`patches` differed from it. A failing suite publishes nothing.
 
 - **Bound surface** (`tools/coverage/BoundSurface`, System.Reflection.Metadata over the built
   `PrismNRI.Descs.dll` and `PrismNRI.dll` with its PDB; not in the solution): an NRI function is
