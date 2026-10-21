@@ -532,9 +532,12 @@ public sealed unsafe class DebugAidTests
     /// <summary>
     /// The memory budget (DXGI's QueryVideoMemoryInfo on D3D12, VK_EXT_memory_budget on Vulkan): the
     /// device-local budget is non-zero and covers the usage, and a committed 64 MiB device buffer
-    /// raises the device-local usage by at least 64 MiB (measured: exactly 67,108,864 bytes, VK and
-    /// D3D12 on the discrete GPU and WARP, back to the start after the buffer is freed). The host
-    /// figure is recorded only: WARP is UMA and DXGI's non-local segment group reports budget 0.
+    /// raises the device-local usage (measured: by exactly 67,108,864 bytes, VK and D3D12 on the
+    /// discrete GPU and WARP, back to the start after the buffer is freed). The buffer is zero-filled
+    /// first and a quarter of it is allowed as slack because lavapipe's heap usage is the system's
+    /// (heap size minus available system memory, lvp_device.c in Mesa 25), which counts pages only once
+    /// written and moves with other processes. The host figure is recorded only: WARP is UMA and
+    /// DXGI's non-local segment group reports budget 0 there.
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -559,6 +562,11 @@ public sealed unsafe class DebugAidTests
         VideoMemoryInfo with;
         using (var buffer = device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = size }))
         {
+            Run(device, cmd =>
+            {
+                cmd.Barrier(new NriBufferBarrier(buffer, Nothing, CopyDestination));
+                cmd.ZeroBuffer(buffer, 0, size);
+            });
             with = device.QueryVideoMemoryInfo(MemoryLocation.DEVICE);
         }
         var after = device.QueryVideoMemoryInfo(MemoryLocation.DEVICE);
@@ -566,7 +574,7 @@ public sealed unsafe class DebugAidTests
 
         Assert.True(before.budgetSize > 0, "device-local budget 0");
         Assert.True(before.usageSize <= before.budgetSize, $"usage {before.usageSize} above budget {before.budgetSize}");
-        Assert.True(with.usageSize >= before.usageSize + size, $"usage {before.usageSize} -> {with.usageSize} with a 64 MiB buffer");
+        Assert.True(with.usageSize >= before.usageSize + size - size / 4, $"usage {before.usageSize} -> {with.usageSize} with a 64 MiB buffer written");
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
