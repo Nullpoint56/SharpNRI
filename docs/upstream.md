@@ -40,10 +40,14 @@ interface, an extension would be preferable." Read against NRI main: textures an
 an export field in `TextureDesc` / `BufferDesc`, plus `AllocateMemoryDesc` for placed resources,
 with `CreateCommittedTexture` / `CreateCommittedBuffer` as the dedicated path that 0002's
 `CreateSharedTexture` is today. Fences have no desc: `CreateFence` takes an initial value only, with
-`SWAPCHAIN_SEMAPHORE` as its one sentinel, so "the fence desc" would be new API. The handle
-getters fit beside Core's `Get*NativeObject` functions. The `EXTERNAL_QUEUE` sentinel and the
-exportable binary semaphore need a place too. To ask before writing the PR: a `FenceDesc` or
-another shape for shared fences, and whether three getters in Core count as small.
+`SWAPCHAIN_SEMAPHORE` as its one sentinel, so the fence desc he names would be a new `FenceDesc`
+that `CreateFence` takes (`initialValue` plus the export field), which is his API to change. The
+handle getters are not parallel creation functions and fit beside Core's `Get*NativeObject`; they
+are needed in any shape, because Core exposes no native fence or memory object for an application
+to export itself. The `EXTERNAL_QUEUE` sentinel follows `HAS_BUFFER`. Placed resources (the field on
+`AllocateMemoryDesc` plus a memory getter) can follow: some Vulkan drivers export images only from
+dedicated allocations, so they need a capability check first. Read this way, the reply needs no
+question; the draft states the shape and offers the PR.
 
 | Patch | Kind | Status |
 |---|---|---|
@@ -70,6 +74,14 @@ another shape for shared fences, and whether three getters in Core count as smal
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
 | 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
 | 0015 Khronos message id name not forwarded | reporting | not filed: a format he changed on purpose in 59d0785 |
+| N1 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` | bug | phase 1 candidate, not filed: owner's trigger |
+| N2 Vulkan empty vertex input makes the binding stride dynamic | bug | phase 1 candidate, not filed: owner's trigger |
+| N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | phase 1 candidate, not filed: owner's trigger |
+| N4 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` | bug | phase 1 candidate, not filed: owner's trigger |
+| N5 D3D12 2D texture views ignore `layerOffset` | bug | phase 1 candidate, not filed: owner's trigger; the fix shape (refuse or document) is his |
+| D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it |
+| Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
+| Draw-parameters emulation on Vulkan | design question | phase 2: validation demands `DrawBaseDesc` strides on every backend, while Vulkan reads plain records at `offset` |
 
 The texts as filed, and the audit that preceded them (every claim re-verified against the unpatched
 tree by reviewers given the patches but not these conclusions), are the sections below; the filed
@@ -525,3 +537,130 @@ D3D devices keep the full enumeration, because for an adapter both passes list t
 pass's (queue counts 16, 8, 2 on NVIDIA where the D3D pass says 4, 4, 4) and a D3D-only
 enumeration would change it. Patch attached
 (`patches/0024-enumerate-adapters-by-graphics-api.patch`), twenty-one lines.
+
+---
+
+## Found by the coverage tests (no patch)
+
+Found on 2026-10-21 by the tests that close the coverage report's blind spots (branch
+`coverage-tests`, on master). Measured on v190 with master's patches, none of which touch these
+lines, on the development machine's discrete GPU, and on WARP where it says so. Line numbers and
+code are NRI main's at 2f7a49f, where every line N1 to N5 cite is unchanged. N1 to N5 are written
+in the filed form.
+
+### N1: Vulkan: vertex attributes bind to streamIndex, not the stream's bindingSlot
+
+**Observed.** Two vertex streams declared out of slot order, each attribute naming its stream by
+index: D3D12 renders the quad exactly; Vulkan draws nothing, and the Khronos layer reports
+`[2656940963] VUID-vkCmdBindVertexBuffers2-pStrides-06209: vkCmdDrawIndexed(): (attribute binding 1, attribute location 0) The pStrides value (4) parameter in the last call to vkCmdDrawIndexed is not 0 and is less than the extent of the binding for the attribute (8).`
+Streams declared in slot order hide it, because index and slot then agree.
+
+**Cause.** `Source/VK/PipelineVK.hpp:167` sets `vertexAttributeDesc.binding = attribute.streamIndex`,
+while `:177` gives the binding `stream.bindingSlot`. D3D12 goes through the stream
+(`PipelineD3D12.hpp:281`, `InputSlot = stream.bindingSlot`). Since 42ddcff.
+
+**Fix.**
+
+```cpp
+vertexAttributeDesc.binding = vi->streams[attribute.streamIndex].bindingSlot;
+```
+
+### N2: Vulkan: an empty vertex input makes the binding stride dynamic
+
+**Observed.** A graphics pipeline whose `vertexInput` has no attributes and no streams, drawn with
+`CmdDraw` and nothing bound: `[2005986124] VUID-vkCmdDraw-pStrides-04913: vkCmdDraw(): VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE state is dynamic, but the command buffer never called vkCmdBindVertexBuffers2.`
+The image equals the one with `vertexInput = nullptr`; D3D12 is clean.
+
+**Cause.** `Source/VK/PipelineVK.hpp:378-379` add the dynamic stride for any non-null `vertexInput`;
+with no streams there is nothing to bind. Since 254424c.
+
+**Fix.**
+
+```cpp
+if (vi && vi->streamNum && m_Device.GetDesc().features.extendedDynamicState)
+```
+
+### N3: D3D12: CmdClearAttachments crashes in a stencil-only pass
+
+**Observed.** `CmdBeginRendering` with a `D32_SFLOAT_S8_UINT` view as `stencil` and no `depth`, then
+`CmdClearAttachments` with `planes = STENCIL`: an access violation inside NRI (0xC0000005). Vulkan is
+clean, and so is D3D12 when the view is passed as `depth` too.
+
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1852` takes the view from `m_Depth.attachment`,
+which `CmdBeginRendering` sets only from `RenderingDesc::depth` (`:1889`); a stencil-only pass has
+`m_Stencil.attachment` (`:1901`). Since 110a667.
+
+**Fix.**
+
+```cpp
+const DescriptorD3D12* depthStencil = m_Depth.attachment ? m_Depth.attachment : m_Stencil.attachment;
+D3D12_CPU_DESCRIPTOR_HANDLE handle = {depthStencil->GetDescriptorHandleCPU()};
+```
+
+### N4: D3D12: the stencil of a depth-stencil view passed as depth is not cleared
+
+**Observed.** `RenderingDesc::depth` set to a `D32_SFLOAT_S8_UINT` view with `loadOp = CLEAR` and a
+stencil clear value of 5, `stencil` left empty, over a stencil of 9: Vulkan reads back 5, D3D12 9
+(hardware and WARP). `NRIDescs.h:1719` says `depth` "may be treated as depth-stencil", and Vulkan
+does: it points `pStencilAttachment` at the depth attachment when the format has stencil
+(`CommandBufferVK.hpp:1634-1636`). D3D12 does too for resolves (`m_Stencil = m_Depth`, `:1896-1897`).
+
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1919-1926` take the stencil clear flag and value
+from `renderingDesc.stencil` only. Since 110a667.
+
+**Fix.**
+
+```cpp
+const AttachmentDesc& stencil = renderingDesc.stencil.descriptor ? renderingDesc.stencil : renderingDesc.depth;
+if (m_Stencil.attachment && stencil.loadOp == LoadOp::CLEAR)
+    clearFlags |= D3D12_CLEAR_FLAG_STENCIL;
+// ... and stencil.clearValue.depthStencil.stencil in ClearDepthStencilView
+```
+
+### N5: D3D12: 2D texture views ignore layerOffset
+
+**Observed.** A two-layer `R32_UINT` `TEXTURE_2D`, a `STORAGE_TEXTURE` view with `layerOffset = 1`,
+`CmdClearStorage`: Vulkan clears layer 1, D3D12 clears layer 0 (hardware and WARP). Neither NRI
+validation nor either backend's layer says anything.
+
+**Cause.** `Source/D3D12/DescriptorD3D12.hpp:214-218` create a `D3D12_UAV_DIMENSION_TEXTURE2D`
+view, which has no array slice, so `layerOffset` is dropped. `:164-167` do the same for `TEXTURE`
+(an SRV; not measured). Vulkan honours it (`baseArrayLayer`, `DescriptorVK.hpp:286`). Since the
+initial commit.
+
+**Fix.** D3D12 has no non-array 2D view of layer N, and an array view would not match a `Texture2D`
+declaration. So refuse `layerOffset != 0` for `TEXTURE` / `STORAGE_TEXTURE` views of a 2D texture
+in validation, pointing to the `_ARRAY` types, or document it in `TextureViewDesc`.
+
+### Not filed
+
+- **D3D12 attachment resolve into a non-zero layer or mip.** In v190 `EndRendering` passed
+  `DepthOrArraySize` where `GetSubresourceIndex` takes the mip count (`CommandBufferD3D12.hpp:1959`
+  at v190, since 110a667). Measured there:
+  - Layer 1 of a 1-mip, 2-layer destination gives
+    `[877] ID3D12CommandList::ResolveSubresourceRegion: Source or destination subresource index is out of bounds.`
+    and then a failed `Close`.
+  - Mip 1, layer 1 of a 2-mip, 3-layer destination lands in subresource 4, with
+    `[1334] ... subresource = [4], does not support the required access (D3D12_BARRIER_ACCESS_RESOLVE_DEST)`.
+  - Vulkan is correct in both.
+
+  Main's 48d4a33 passes `MipLevels` (`:2010`, `:2052`), so it is fixed. Master keeps the bug until
+  the next tag, and the test written for it belongs on `next`.
+- **Vulkan pipeline-statistics pool.** `QueryPoolVK.hpp:38` adds the task and mesh counters when
+  `features.meshShader` is set, and the query size follows (`:47`, `:56`). NRI's own
+  `features.meshShaderPipelineStats` (`DeviceVK.hpp:1633`, from `meshShaderQueries`) is the bit that
+  allows them (VUID-VkQueryPoolCreateInfo-meshShaderQueries-07068). Since f53490f. Held: found by
+  reading, and every device here reports both bits, so nothing measures it.
+- **Draw-parameters emulation on Vulkan** (phase 2, a question).
+  - Validation (`CommandBufferVal.hpp`) demands `sizeof(DrawBaseDesc)` strides for indirect draws
+    with the emulation flag on every backend.
+  - The Vulkan backend reads plain records at `offset`. Measured with the flag on Vulkan, a stride
+    of 16 is refused ("'stride' is too small, expected >= 24"), `DrawBaseDesc` records at stride 24
+    draw nothing, and at `offset + 8` they draw.
+  - The portable rule today: set the flag on D3D12 only.
+- **Knowledge, not reports.**
+  - A `STORAGE_TEXTURE` view with `mipNum` over two mips is cleared whole by Vulkan
+    (`CommandBufferVK.hpp`, `levelCount = mipNum`) and mip 0 only by D3D12 (a UAV addresses one
+    mip): use one mip per storage view.
+  - Dynamic depth bias applies only to a pipeline with a non-zero static bias
+    (`PipelineVK.hpp:227`, `:380-381`; `PipelineD3D12.hpp:400`), which `NRI.h` does not say.
