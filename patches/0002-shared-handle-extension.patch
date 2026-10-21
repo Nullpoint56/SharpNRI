@@ -2,8 +2,8 @@ SharedHandle extension: export textures and fences to other APIs and processes.
 
 NRI has no way to export a texture's memory or a fence: TextureDesc and AllocateMemoryDesc carry no
 exportable flag, CreateFence takes no desc, and the Vulkan backend loads one external-memory entry
-point for its own use only. A compositor or editor that imports the engine's viewport needs exactly
-that (docs/design.md §5).
+point for its own use only. A compositor or editor that imports a renderer's output needs exactly
+that.
 
 This patch adds one NRI-shaped extension, NRISharedHandle.h:
 
@@ -13,14 +13,24 @@ This patch adds one NRI-shaped extension, NRISharedHandle.h:
                                                  with the SWAPCHAIN_SEMAPHORE initial value an exportable binary semaphore (VK only,
                                                  UNSUPPORTED on D3D12), the signal-once/wait-once object external compositors import
   - SharedHandleInterface::GetTextureSharedHandle / GetFenceSharedHandle   a new caller-owned handle per call (VK: vkGetMemory*/vkGetSemaphore* Win32HandleKHR or FdKHR; D3D12: ID3D12Device::CreateSharedHandle)
+  - EXTERNAL_QUEUE                               a sentinel for TextureBarrierDesc::srcQueue / dstQueue: VK writes VK_QUEUE_FAMILY_EXTERNAL
+                                                 for it, also on CONCURRENT images where every other side is IGNORED; validation passes
+                                                 it through; D3D12's copy-queue check skips it
 
 The Vulkan backend enables VK_KHR_external_memory_win32/fd and VK_KHR_external_semaphore_win32/fd
 when the device has them (skipping any the app already requested through vkExtensions) and reports
-the extension UNSUPPORTED when it does not. The NONE backend returns dummy objects and a zero
-handle. The validation layer wraps the four calls. Applies on top of NRI v190 and patch 0001.
+the extension UNSUPPORTED when it does not. CreateSharedTexture records the image's sharing mode as
+TextureVK::Create does, so barriers on a CONCURRENT shared texture carry no queue family indices.
+The NONE backend returns dummy objects and a zero handle. The validation layer wraps the four
+calls.
+
+Applies on top of NRI main 2f7a49f and patch 0001. Re-cut on 2026-10-21 over 2603edc (#284) and
+732f737 (#283), which left three of its spots stale: the barrier's queue family lines, the
+concurrency flag of its own create path, and D3D12's copy-queue check, which would otherwise read a
+QueueD3D12 at address 1.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 1d48b9f..576f86e 100644
+index 10aede9..bb11bf8 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -1243,6 +1243,7 @@ set(NRI_EXTENSIONS
@@ -99,6 +109,20 @@ index 81330cb..0116b55 100644
      } else if (hash == Hash(NRI_STRINGIFY(RayTracingInterface))) {
          realInterfaceSize = sizeof(RayTracingInterface);
          if (realInterfaceSize == interfaceSize)
+diff --git a/Source/D3D12/CommandBufferD3D12.hpp b/Source/D3D12/CommandBufferD3D12.hpp
+index 0f2c0f0..1897147 100644
+--- a/Source/D3D12/CommandBufferD3D12.hpp
++++ b/Source/D3D12/CommandBufferD3D12.hpp
+@@ -300,7 +300,8 @@ constexpr std::array<D3D12_BARRIER_LAYOUT, (size_t)Layout::MAX_NUM> g_BarrierLay
+ NRI_VALIDATE_ARRAY(g_BarrierLayouts);
+ 
+ static inline bool IsCopyQueue(const Queue* queue) {
+-    return queue && ((const QueueD3D12*)queue)->GetType() == D3D12_COMMAND_LIST_TYPE_COPY;
++    // PrismNRI patch 0002: "EXTERNAL_QUEUE" is a sentinel, not a "QueueD3D12"
++    return queue && queue != EXTERNAL_QUEUE && ((const QueueD3D12*)queue)->GetType() == D3D12_COMMAND_LIST_TYPE_COPY;
+ }
+ 
+ static inline D3D12_BARRIER_LAYOUT GetBarrierLayout(Layout layout, AccessBits accessBits, bool isCopyQueue) {
 diff --git a/Source/D3D12/DeviceD3D12.h b/Source/D3D12/DeviceD3D12.h
 index 1d694d8..de21513 100644
 --- a/Source/D3D12/DeviceD3D12.h
@@ -343,7 +367,7 @@ index e73a9ee..7d5d668 100644
          return Result::UNSUPPORTED;
      }
 diff --git a/Source/Shared/SharedExternal.h b/Source/Shared/SharedExternal.h
-index 43c2868..d71230c 100644
+index 002dd7d..4ca7e34 100644
 --- a/Source/Shared/SharedExternal.h
 +++ b/Source/Shared/SharedExternal.h
 @@ -34,6 +34,7 @@ typedef uint32_t DXGI_FORMAT;
@@ -355,23 +379,23 @@ index 43c2868..d71230c 100644
  #include "Extensions/NRIStreamer.h"
  #include "Extensions/NRISwapChain.h"
 diff --git a/Source/VK/CommandBufferVK.hpp b/Source/VK/CommandBufferVK.hpp
-index f59794d..e062b6c 100644
+index 6770763..ccc4168 100644
 --- a/Source/VK/CommandBufferVK.hpp
 +++ b/Source/VK/CommandBufferVK.hpp
-@@ -2568,8 +2568,9 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
+@@ -2569,8 +2569,9 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
          out.dstAccessMask = GetAccessFlags(in.after.access);
          out.oldLayout = GetImageLayout(in.before.layout);
          out.newLayout = GetImageLayout(in.after.layout);
--        out.srcQueueFamilyIndex = in.srcQueue ? srcQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED;
--        out.dstQueueFamilyIndex = in.dstQueue ? dstQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED;
-+        // PrismNRI patch 0002: "EXTERNAL_QUEUE" is the external queue family
-+        out.srcQueueFamilyIndex = in.srcQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : (in.srcQueue ? srcQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
-+        out.dstQueueFamilyIndex = in.dstQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : (in.dstQueue ? dstQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
+-        out.srcQueueFamilyIndex = (in.srcQueue && !isConcurrent) ? srcQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED;
+-        out.dstQueueFamilyIndex = (in.dstQueue && !isConcurrent) ? dstQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED;
++        // PrismNRI patch 0002: "EXTERNAL_QUEUE" is the external queue family, which a transfer may name for either sharing mode
++        out.srcQueueFamilyIndex = in.srcQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : ((in.srcQueue && !isConcurrent) ? srcQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
++        out.dstQueueFamilyIndex = in.dstQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : ((in.dstQueue && !isConcurrent) ? dstQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
          out.image = textureVK.GetHandle();
          out.subresourceRange = {
              aspectFlags,
 diff --git a/Source/VK/DeviceVK.h b/Source/VK/DeviceVK.h
-index 41fc447..73f92bc 100644
+index 5117a6c..faffc68 100644
 --- a/Source/VK/DeviceVK.h
 +++ b/Source/VK/DeviceVK.h
 @@ -254,6 +254,7 @@ struct DeviceVK final : public DeviceBase {
@@ -383,10 +407,10 @@ index 41fc447..73f92bc 100644
      Result FillFunctionTable(VideoInterface& table) const override;
      Result FillFunctionTable(StreamerInterface& table) const override;
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index 2816318..a29ced9 100644
+index 6aeed95..dab0044 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
-@@ -589,6 +589,15 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
+@@ -590,6 +590,15 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
  
      APPEND_EXT(deviceLostInfoLevel != DeviceLostInfoLevel::NONE, VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
  
@@ -402,7 +426,7 @@ index 2816318..a29ced9 100644
      APPEND_EXT(true, VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME);
      APPEND_EXT(true, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
      APPEND_EXT(true, VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
-@@ -2408,6 +2417,19 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
+@@ -2410,6 +2419,19 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
          GET_DEVICE_FUNC(GetMemoryWin32HandlePropertiesKHR);
  #endif
  
@@ -581,10 +605,10 @@ index 9cd5b02..149ed36 100644
 +
 +#pragma endregion
 diff --git a/Source/VK/TextureVK.h b/Source/VK/TextureVK.h
-index 16add5f..cac54a0 100644
+index a25f308..f88fc51 100644
 --- a/Source/VK/TextureVK.h
 +++ b/Source/VK/TextureVK.h
-@@ -34,6 +34,8 @@ struct TextureVK final : public DebugNameBase {
+@@ -38,6 +38,8 @@ struct TextureVK final : public DebugNameBase {
      Result Create(const TextureDesc& textureDesc);
      Result Create(const TextureVKDesc& textureVKDesc);
      Result AllocateAndBindMemory(MemoryLocation memoryLocation, float priority, bool committed);
@@ -593,17 +617,17 @@ index 16add5f..cac54a0 100644
      Result BindMemory(const MemoryVK& memory, uint64_t offset);
      void GetMemoryDesc(MemoryLocation memoryLocation, MemoryDesc& memoryDesc) const;
  
-@@ -48,6 +50,8 @@ private:
+@@ -52,6 +54,8 @@ private:
      VkImage m_Handle = VK_NULL_HANDLE;
      TextureDesc m_Desc = {};
      VmaAllocation m_VmaAllocation = nullptr;
 +    VkDeviceMemory m_SharedMemory = VK_NULL_HANDLE; // PrismNRI patch 0002
 +    uint64_t m_SharedSize = 0;
      bool m_OwnsNativeObjects = true;
+     bool m_IsConcurrent = false; // TODO: sharing mode is unknown for wrapped images
  };
- 
 diff --git a/Source/VK/TextureVK.hpp b/Source/VK/TextureVK.hpp
-index 76eb018..1194b84 100644
+index 014a306..6fb5109 100644
 --- a/Source/VK/TextureVK.hpp
 +++ b/Source/VK/TextureVK.hpp
 @@ -8,6 +8,9 @@ TextureVK::~TextureVK() {
@@ -616,7 +640,7 @@ index 76eb018..1194b84 100644
      }
  }
  
-@@ -155,3 +158,97 @@ void TextureVK::GetMemoryDesc(MemoryLocation memoryLocation, MemoryDesc& memoryD
+@@ -156,3 +159,98 @@ void TextureVK::GetMemoryDesc(MemoryLocation memoryLocation, MemoryDesc& memoryD
  NRI_INLINE void TextureVK::SetDebugName(const char* name) {
      m_Device.SetDebugNameToTrivialObject(VK_OBJECT_TYPE_IMAGE, (uint64_t)m_Handle, name);
  }
@@ -637,6 +661,7 @@ index 76eb018..1194b84 100644
 +
 +    VkImageCreateInfo info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 +    m_Device.FillCreateInfo(m_Desc, info);
++    m_IsConcurrent = info.sharingMode == VK_SHARING_MODE_CONCURRENT;
 +    externalInfo.pNext = info.pNext;
 +    info.pNext = &externalInfo;
 +
@@ -715,10 +740,10 @@ index 76eb018..1194b84 100644
 +    return Result::SUCCESS;
 +}
 diff --git a/Source/Validation/CommandBufferVal.hpp b/Source/Validation/CommandBufferVal.hpp
-index 063c805..3e24f7e 100644
+index d2c2a83..6098063 100644
 --- a/Source/Validation/CommandBufferVal.hpp
 +++ b/Source/Validation/CommandBufferVal.hpp
-@@ -1131,8 +1131,9 @@ NRI_INLINE void CommandBufferVal::Barrier(const BarrierDesc& barrierDesc) {
+@@ -1197,8 +1197,9 @@ NRI_INLINE void CommandBufferVal::Barrier(const BarrierDesc& barrierDesc) {
          memcpy(textures, barrierDesc.textures, sizeof(TextureBarrierDesc) * barrierDesc.textureNum);
          for (uint32_t i = 0; i < barrierDesc.textureNum; i++) {
              textures[i].texture = NRI_GET_IMPL(Texture, barrierDesc.textures[i].texture);
@@ -770,10 +795,10 @@ index 276ac86..60b63b6 100644
      VideoInterface m_iVideoImpl = {};
      SwapChainInterface m_iSwapChainImpl = {};
 diff --git a/Source/Validation/DeviceVal.hpp b/Source/Validation/DeviceVal.hpp
-index 07c3e31..77958e8 100644
+index e63df57..686eef9 100644
 --- a/Source/Validation/DeviceVal.hpp
 +++ b/Source/Validation/DeviceVal.hpp
-@@ -161,6 +161,7 @@ bool DeviceVal::Create() {
+@@ -212,6 +212,7 @@ bool DeviceVal::Create() {
      m_IsExtSupported.descriptorHeap = deviceBaseImpl.FillFunctionTable(m_iDescriptorHeapImpl) == Result::SUCCESS;
      m_IsExtSupported.lowLatency = deviceBaseImpl.FillFunctionTable(m_iLowLatencyImpl) == Result::SUCCESS;
      m_IsExtSupported.meshShader = deviceBaseImpl.FillFunctionTable(m_iMeshShaderImpl) == Result::SUCCESS;

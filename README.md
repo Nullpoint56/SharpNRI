@@ -9,7 +9,8 @@ both in this repository.
 
 ## Status
 
-`0.4.0-alpha`, against NRI `v190` plus twenty-three patches ([patches/](patches/README.md)), on .NET 11.
+This is the `next` branch: NRI main at 2f7a49f plus thirteen patches ([patches/](patches/README.md)), on .NET 11, for testing
+against current NRI. Releases come from master, which pins NRI `v190` with twenty-three patches.
 Windows x64, Linux x64, macOS arm64. On macOS the binding is Vulkan through MoltenVK; NRI's Metal
 backend is not built, only the Base package exists, the application provides the Vulkan loader and
 MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
@@ -111,7 +112,7 @@ dotnet test --solution PrismNRI.slnx -c Release --no-build
 | OS | Needs |
 |---|---|
 | Windows | Visual Studio with C++, CMake 3.30+, .NET 11 SDK. First Base build downloads about 250 MB; Upscalers about 1.6 GB |
-| Linux | CMake 3.30+, clang (GCC 13 also works with patch 0005), Ninja, `libvulkan1`, X11 and Wayland headers, pwsh 7, .NET 11 SDK. `tools/ci/verify-linux.sh` installs them and runs the whole leg |
+| Linux | CMake 3.30+, clang (GCC 13 also works since NRI 9b45d77), Ninja, `libvulkan1`, X11 and Wayland headers, pwsh 7, .NET 11 SDK. `tools/ci/verify-linux.sh` installs them and runs the whole leg |
 | macOS | Xcode command-line tools, CMake, Ninja if present, pwsh 7, .NET 11 SDK. Tests: Homebrew `molten-vk`, `vulkan-loader`, `vulkan-validationlayers`, with `DYLD_FALLBACK_LIBRARY_PATH` and `VK_DRIVER_FILES` set as the `osx-arm64` job in `.github/workflows/ci.yml` sets them |
 
 The native payload is not committed. `pwsh tools/generate-native.ps1` regenerates the interop layer
