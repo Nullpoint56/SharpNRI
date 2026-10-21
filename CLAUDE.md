@@ -308,9 +308,10 @@ patch count, GPUs and test totals, and adds "plus uncommitted changes" when `dot
   Microsoft .NET Library licence, and its native collector has no osx-arm64 or linux-arm64
   build, so plain builds and CI never restore it.
 - "Call site run by the tests" joins the two: a bound function whose call-site lines have no
-  hits is bound, but no test calls it. The numbers are the machine's: the dev machine runs
-  nearly everything, WARP and lavapipe skip about half. The committed report is the dev
-  machine's (Windows, NVIDIA); CI does not run it.
+  hits is bound, but no test calls it. The numbers are the machine's (2026-10-21, same tree):
+  Windows on the RTX 4070 SUPER ran 287 tests and skipped 5, lines 83.2%, 207 of 253 call sites
+  run; lavapipe in WSL ran 137 and skipped 155, lines 71.2%, 176 of 253. The committed report is
+  the dev machine's (Windows, NVIDIA, Base payload: the upscaler tests skip); CI does not run it.
 
 ---
 

@@ -183,7 +183,13 @@ $dirty = git -C $root status --porcelain --ignore-submodules -- dotnet descs tes
 if ($dirty) { $commit += " plus uncommitted changes" }
 $nriRef = (git -C (Join-Path $root "nri") describe --tags --always)
 $patchCount = @(Get-ChildItem (Join-Path $root "patches") -Filter "*.patch").Count
-$gpus = if ($IsWindows) { (Get-CimInstance Win32_VideoController | ForEach-Object Name) -join ", " } else { (uname -sm) }
+$gpus = if ($IsWindows) { (Get-CimInstance Win32_VideoController | ForEach-Object Name) -join ", " }
+elseif (Get-Command vulkaninfo -ErrorAction SilentlyContinue) {
+    $PSNativeCommandUseErrorActionPreference = $false
+    (vulkaninfo --summary 2>$null | Select-String '^\s*deviceName\s*=\s*(.+)$' | ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() }) -join ", "
+    $PSNativeCommandUseErrorActionPreference = $true
+}
+if (-not $gpus) { $gpus = uname -m }
 $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
 $rel = { param($file, $line) if ($file) { "$([IO.Path]::GetRelativePath($root, $file) -replace '\\', '/'):$line" } else { "?" } }
 
