@@ -258,6 +258,16 @@ public sealed unsafe class NriQueue
     }
 
     /// <summary>
+    /// Sets a debug name on the native queue (<c>ID3D12CommandQueue</c>, <c>VkQueue</c>), shown by
+    /// validation layers and GPU debuggers, as <see cref="NriObject.SetDebugName"/> does for objects.
+    /// </summary>
+    public void SetDebugName(string name)
+    {
+        using var utf8 = new Interop.Utf8.Scoped(name);
+        Device.Core.SetDebugName(_handle, utf8);
+    }
+
+    /// <summary>
     /// The native queue: <c>ID3D12CommandQueue*</c> on D3D12, <c>VkQueue</c> on Vulkan. Last resort.
     /// </summary>
     public nint GetNativeObject() => (nint)Device.Core.GetQueueNativeObject(_handle);

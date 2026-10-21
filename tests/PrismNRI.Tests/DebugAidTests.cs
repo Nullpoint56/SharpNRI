@@ -262,9 +262,9 @@ public sealed unsafe class DebugAidTests
     /// One object of every kind takes a debug name with NRI validation and the backend layer on and
     /// clean: device, buffer, texture, memory, buffer view, texture view, sampler, descriptor pool,
     /// pipeline layout, pipeline, pipeline cache, query pool, fence, command allocator, command
-    /// buffer, and the queue (through the CoreInterface escape hatch: NriQueue has no SetDebugName).
-    /// On D3D12 the name is read back from each object that has a COM interface: the device, buffer,
-    /// texture, command list and queue.
+    /// buffer, and the queue (NriQueue.SetDebugName; the queue is not an NriObject). On D3D12 the
+    /// name is read back from each object that has a COM interface: the device, buffer, texture,
+    /// command list and queue.
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -317,7 +317,7 @@ public sealed unsafe class DebugAidTests
         };
         foreach (var (obj, name) in named) obj.SetDebugName(name);
         const string queueName = "Graphics queue Ä";
-        fixed (byte* name = Encoding.UTF8.GetBytes(queueName + "\0")) device.Core.SetDebugName((void*)queue.NriHandle, (sbyte*)name);
+        queue.SetDebugName(queueName);
 
         // The named objects still work: the pipeline, the set and the command buffer in one dispatch.
         var set = pool.AllocateDescriptorSet(layout, 0);
@@ -341,6 +341,32 @@ public sealed unsafe class DebugAidTests
             Assert.Equal(queueName, D3D12DebugName(queue.GetNativeObject()));
         }
         device.WaitIdle();
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// NriQueue.SetDebugName names the queue it is called on: every queue type the adapter has,
+    /// each with its own name, NRI validation and the backend layer on and clean. On D3D12 each
+    /// ID3D12CommandQueue reads back its own name; Vulkan has no way to read an object name back, so
+    /// there the layers are the check (NRI names the VkQueue through vkSetDebugUtilsObjectNameEXT).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Each_queue_takes_its_own_debug_name(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var adapter = TestDevice.AdapterFor(backend.Api)!;
+        QueueType[] types = [.. new[] { QueueType.GRAPHICS, QueueType.COMPUTE, QueueType.COPY }.Where(t => adapter.QueueCount(t) > 0)];
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages, o => o.QueueFamilies = [.. types.Select(t => new NriQueueFamily(t))]);
+
+        foreach (var type in types) device.GetQueue(type).SetDebugName($"{type} queue Ä");
+
+        Record($"{backend}: named the {string.Join(", ", types)} queues");
+        if (backend.Api == GraphicsAPI.D3D12)
+        {
+            foreach (var type in types) Assert.Equal($"{type} queue Ä", D3D12DebugName(device.GetQueue(type).GetNativeObject()));
+        }
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 

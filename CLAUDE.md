@@ -1057,7 +1057,9 @@ Measured by `DebugAidTests`.
     `'name'` (D3D12, 1334).
   - The overrun-copy messages (Vulkan VUID-VkCopyBufferInfo2-size-00116, D3D12 841) print no names.
   - D3D12's `GetPrivateData(WKPDID_D3DDebugObjectName)` returns the name with a terminating NUL.
-  - `NriQueue` is not an `NriObject` and has no `SetDebugName`; use `device.Core.SetDebugName`.
+  - `NriQueue` is not an `NriObject`; `NriQueue.SetDebugName` names it through the Core table, as
+    `NriObject.SetDebugName` does. On D3D12 each queue type's `ID3D12CommandQueue` reads its own
+    name back; on Vulkan naming the queues is clean with the layers on.
 - **Native objects are the real ones.**
   - The D3D12 queue's type matches.
   - On Vulkan, `vkGetDeviceQueue(family, 0)` returns the same `VkQueue`.

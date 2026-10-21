@@ -179,7 +179,7 @@ Caveats:
   invalidates every set).
 - Dispose resources before the memory they are bound to: NRI's validation refuses freeing memory
   with a resource still bound.
-- `SetDebugName(string)` on every object.
+- `SetDebugName(string)` on every object, and on `NriQueue`.
 
 ```csharp
 using var device = NriDevice.Create(...);
