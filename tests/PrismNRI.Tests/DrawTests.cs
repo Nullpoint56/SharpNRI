@@ -381,7 +381,10 @@ public sealed class DrawTests
     /// depth-stencil attachment, cleared at BeginRendering; the caller's recording before the pass
     /// and inside it, with the viewport and scissor covering the target; the colour attachments
     /// read back. A depth-stencil format with stencil is passed as both the depth and the stencil
-    /// attachment, so both planes are cleared on both backends.
+    /// attachment, so both planes are cleared on both backends: passed as the depth attachment
+    /// alone, Vulkan clears the stencil plane with the depth attachment's clear value and D3D12
+    /// leaves it as it was (measured; NRI's D3D12 BeginRendering takes the stencil clear from
+    /// RenderingDesc::stencil only).
     /// </summary>
     internal sealed class Canvas : IDisposable
     {
