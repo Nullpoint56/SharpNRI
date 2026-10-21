@@ -9,6 +9,7 @@ namespace PrismNRI;
 public sealed unsafe class NriBuffer : NriObject
 {
     private readonly bool _owned;
+    private NriMemory? _memory; // bound into or placed in through the binding; NriMemory refuses disposal while set
 
     internal NriBuffer(NriDevice device, Buffer* handle, bool owned = true) : base(handle, "NriBuffer")
     {
@@ -86,6 +87,9 @@ public sealed unsafe class NriBuffer : NriObject
     /// <summary><c>ID3D12Resource*</c> on D3D12, <c>VkBuffer</c> on Vulkan. Last resort.</summary>
     public ulong GetNativeObject() => Device.Core.GetBufferNativeObject(Raw);
 
+    /// <summary>Bound into or placed in <paramref name="memory"/>, which then outlives this buffer.</summary>
+    internal void BoundTo(NriMemory memory) => NriMemory.Track(ref _memory, memory);
+
     private protected override void Destroy(void* handle)
     {
         if (_owned) Device.Core.DestroyBuffer((Buffer*)handle);
@@ -93,6 +97,7 @@ public sealed unsafe class NriBuffer : NriObject
 
     private protected override void OnDestroyed()
     {
+        NriMemory.Release(ref _memory);
         if (_owned) base.OnDestroyed();
     }
 }

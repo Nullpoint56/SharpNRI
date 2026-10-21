@@ -177,8 +177,13 @@ Caveats:
 - Not disposable: `NriQueue` (the device owns it), `NriDescriptorSet` (a struct, not an object:
   the handle plus its pool; the pool owns the set, and `pool.Reset()` or disposing the pool
   invalidates every set).
-- Dispose resources before the memory they are bound to: NRI's validation refuses freeing memory
-  with a resource still bound.
+- Dispose resources before the memory they are bound to. `NriMemory.Dispose` throws
+  `InvalidOperationException` naming the count, before NRI is called, while a buffer, texture,
+  acceleration structure or micromap bound into it (`Bind*Memory`) or placed in it
+  (`CreatePlaced*`) is alive; the memory stays usable. Freeing it first would leak it (NRI's
+  validation refuses) and, on D3D12, make every later device creation in the process fail. The
+  allocations `AllocateAndBindMemory` returns are not counted (NRI does not say which resource went
+  into which): dispose their resources first yourself.
 - `SetDebugName(string)` on every object, and on `NriQueue`.
 
 ```csharp
@@ -194,14 +199,16 @@ using var vb = device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD,
     new BufferDesc { size = 1024, usage = BufferUsageBits.VERTEX });
 Span<byte> mapped = vb.Map();  vb.Unmap();
 
-// Create, measure, allocate, bind
-using var tex = device.CreateTexture(new TextureDesc
+// Create, measure, allocate, bind. `using` disposes in reverse order and the memory must go last,
+// so the texture's `using` comes after the memory's.
+var unbound = device.CreateTexture(new TextureDesc
 {
     type = TextureType.TEXTURE_2D, usage = TextureUsageBits.SHADER_RESOURCE,
     format = Format.RGBA8_UNORM, width = 256, height = 256,
 });
-var req = tex.GetMemoryDesc(MemoryLocation.DEVICE);
+var req = unbound.GetMemoryDesc(MemoryLocation.DEVICE);
 using var mem = device.AllocateMemory(new AllocateMemoryDesc { size = req.size, type = req.type });
+using var tex = unbound;
 device.BindTextureMemory(tex, mem);
 
 // Group unbound resources into few allocations
@@ -858,7 +865,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | `GetQueue` bad index | `INVALID_ARGUMENT`, no message | Device creation |
 | Video without video queues requested | `Video` is `UNSUPPORTED` | Extensions: Video |
 | Disposing the device first | throws, device stays usable | Lifetime |
-| Freeing memory with a bound resource | validation error, and the memory leaks; on D3D12 every later `D3D12CreateDevice` in the process fails 0x887A0007 | Lifetime |
+| Disposing memory with a bound resource | `InvalidOperationException` naming the count, the memory kept, for resources bound or placed through `Bind*Memory` / `CreatePlaced*`; an `AllocateAndBindMemory` allocation is not counted, and freeing it first is a validation error, a leak, and on D3D12 every later `D3D12CreateDevice` in the process failing 0x887A0007 | Lifetime |
 | `HOST_READ` / `HOST_WRITE` in a buffer barrier | validation error; fence wait is the visibility | Memory |
 | `UploadData` on NV12 | VK VUID-...-07981, D3D12 error 1417 | Memory |
 | `HOST_TRANSFER` on Apple Paravirtual | segfault in `vkBindImageMemory` | Memory |

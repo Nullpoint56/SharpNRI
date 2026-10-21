@@ -672,13 +672,24 @@ configured per machine: the adapter named is whichever one the suite picked on t
   - With NRI validation on, NRI reports "Buffer (... 'unnamed') is still bound to the memory"
     (`MemoryVal.hpp:16`) and "FreeMemory(): some resources are still bound to the memory"
     (`DeviceVal.hpp:1283`), then returns without freeing. The allocation leaks, while the binding
-    counts the `NriMemory` as destroyed.
+    used to count the `NriMemory` as destroyed.
   - On D3D12, every later `D3D12CreateDevice` in the process then fails with 0x887A0007
     (`DXGI_ERROR_DEVICE_RESET`), with the debug layer on or off.
   - With NRI validation off the next device is fine, and Vulkan is unaffected.
   - Measured in probes only. A test doing it would break the process's later D3D12 tests.
-  - Binding follow-up: `NriMemory` could refuse disposal while resources are bound, as
-    `NriDevice` does for its children.
+  - So `NriMemory` refuses disposal while resources are bound to it, as `NriDevice` does for its
+    children. `BindBufferMemory`, `BindTextureMemory`, `BindAccelerationStructureMemory`,
+    `BindMicromapMemory` (after NRI's success) and the four `CreatePlaced*` count each resource on
+    its memory (`NriMemory.Track`, an `Interlocked` count, no lock); the resource's `OnDestroyed`
+    uncounts it. `BeforeDestroy` throws `InvalidOperationException` naming the count, before the
+    handle is given up and before NRI is called, and the memory stays usable. Measured
+    (`MemoryTests`, `RayTracingMemoryTests`; hardware VK and D3D12, and WARP but for micromaps,
+    which its `tiers.rayTracing` 2 lacks): counts 2 and 1 refused with no message, a copy through
+    the bound and placed buffers still reads back, each memory disposes once its resources are
+    gone, and a D3D12 device created afterwards works.
+  - Not counted: the allocations `AllocateAndBindMemory` returns. NRI does not report which
+    resource it bound into which allocation (`HelperDeviceMemoryAllocator` groups by memory type
+    and size), so freeing one of those first still leaks as above.
 - **`NriSharedHandle` is a sealed class whose `Dispose` closes once.** As a `readonly record
   struct`, disposing it twice or disposing a copy closed the value again, and the process may by
   then have reused that value for another handle. `Dispose` now takes the value with

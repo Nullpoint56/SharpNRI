@@ -153,6 +153,122 @@ public sealed class RayTracingMemoryTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// NriMemory refuses disposal while an acceleration structure bound into it
+    /// (<c>BindAccelerationStructureMemory</c>) or placed in it
+    /// (<c>CreatePlacedAccelerationStructure</c>) is alive: a BLAS created unbound and bound at
+    /// offset 0, and a second placed after it in the same allocation. Disposing the allocation
+    /// throws InvalidOperationException naming 2 before NRI is called (no message; the device still
+    /// counts it), and 1 once the placed one is disposed; with both gone it disposes.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Memory_refuses_disposal_while_acceleration_structures_are_bound(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        Assert.SkipWhen(device.TryRayTracing is null, $"{backend}: tiers.rayTracing = {device.Desc.tiers.rayTracing}, no RayTracingInterface");
+        var rt = device.RayTracing;
+        var desc = RayScene.BlasDesc();
+
+        var bound = rt.CreateAccelerationStructure(desc);
+        NriAccelerationStructure? placed = null;
+        NriMemory? memory = null;
+        try
+        {
+            var requirement = bound.GetMemoryDesc(MemoryLocation.DEVICE);
+            Assert.True(requirement.mustBeDedicated == 0, $"{backend}: an acceleration structure needs a dedicated allocation, so two cannot share one");
+            var alignment = Math.Max(Math.Max(1u, requirement.alignment), device.Desc.memoryAlignment.accelerationStructureOffset);
+            var offset = Align(requirement.size, alignment);
+            memory = device.AllocateMemory(new AllocateMemoryDesc { size = offset + requirement.size, type = requirement.type });
+            rt.BindAccelerationStructureMemory(bound, memory);
+            placed = rt.CreatePlacedAccelerationStructure(memory, offset, desc);
+            AssertRefusals(device, messages, memory, placed, backend);
+            bound.Dispose();
+            memory.Dispose();
+            Assert.True(memory.IsDisposed);
+        }
+        finally
+        {
+            placed?.Dispose();
+            bound.Dispose();
+            memory?.Dispose();
+        }
+        Assert.Equal(0, device.LiveObjects);
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// As <see cref="Memory_refuses_disposal_while_acceleration_structures_are_bound"/> for
+    /// micromaps: one created unbound and bound at offset 0 (<c>BindMicromapMemory</c>), a second
+    /// placed after it (<c>CreatePlacedMicromap</c>). D3D12 runs without the debug layer, NRI's
+    /// validation on, as the other micromap tests do.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Memory_refuses_disposal_while_micromaps_are_bound(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages, b => b.EnableGraphicsApiValidation = backend.Api != GraphicsAPI.D3D12);
+        Assert.SkipWhen(device.Desc.tiers.rayTracing < 3, $"{backend}: tiers.rayTracing = {device.Desc.tiers.rayTracing}, no micromaps (needs 3)");
+        var rt = device.RayTracing;
+        var desc = RayScene.MicromapDesc();
+
+        var bound = rt.CreateMicromap(desc);
+        NriMicromap? placed = null;
+        NriMemory? memory = null;
+        try
+        {
+            var requirement = bound.GetMemoryDesc(MemoryLocation.DEVICE);
+            Assert.True(requirement.mustBeDedicated == 0, $"{backend}: a micromap needs a dedicated allocation, so two cannot share one");
+            var offset = Align(requirement.size, Math.Max(1u, requirement.alignment));
+            memory = device.AllocateMemory(new AllocateMemoryDesc { size = offset + requirement.size, type = requirement.type });
+            rt.BindMicromapMemory([(bound, memory, 0UL)]);
+            placed = rt.CreatePlacedMicromap(memory, offset, desc);
+            AssertRefusals(device, messages, memory, placed, backend);
+            bound.Dispose();
+            memory.Dispose();
+            Assert.True(memory.IsDisposed);
+        }
+        finally
+        {
+            placed?.Dispose();
+            bound.Dispose();
+            memory?.Dispose();
+        }
+        Assert.Equal(0, device.LiveObjects);
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// <paramref name="memory"/> holds two objects, <paramref name="placed"/> one of them: disposing
+    /// it is refused with the count, before NRI is called, and again with 1 after
+    /// <paramref name="placed"/> is disposed.
+    /// </summary>
+    private static void AssertRefusals(NriDevice device, List<NriMessage> messages, NriMemory memory, NriObject placed, Backend backend)
+    {
+        // The count first: a wrong one would let Dispose free bound memory in this process.
+        Assert.Equal(2, memory.BoundResources);
+        int start;
+        lock (messages) start = messages.Count;
+        var live = device.LiveObjects;
+
+        var refused = Assert.Throws<InvalidOperationException>(memory.Dispose);
+        Record($"{backend}: {refused.Message}");
+        Assert.Contains("with 2 resource(s) still bound", refused.Message, StringComparison.Ordinal);
+        Assert.False(memory.IsDisposed);
+        Assert.Equal(live, device.LiveObjects);
+        lock (messages) Assert.Equal(start, messages.Count);
+
+        placed.Dispose();
+        Assert.Equal(1, memory.BoundResources);
+        var stillBound = Assert.Throws<InvalidOperationException>(memory.Dispose);
+        Assert.Contains("with 1 resource(s) still bound", stillBound.Message, StringComparison.Ordinal);
+        Assert.False(memory.IsDisposed);
+    }
+
     /// <summary>A device with micromaps (tiers.rayTracing 3), the D3D12 debug layer off (see the remarks above).</summary>
     private static NriDevice CreateMicromapDevice(Backend backend, List<NriMessage> messages)
     {
