@@ -45,14 +45,18 @@ public sealed class RayTracingMemoryTests
         Assert.Equal(blasMemory.type, tlasMemory.type);
         Assert.True(blasMemory.mustBeDedicated == 0 && tlasMemory.mustBeDedicated == 0, $"{backend}: an acceleration structure needs a dedicated allocation, so two cannot share one");
 
-        // The TLAS goes after the BLAS, at the first offset both its memory desc and the device's
-        // memoryAlignment.accelerationStructureOffset allow: never 0. Both, because D3D12 reports the
-        // tight-placement alignment of the buffer (128, measured) while its acceleration structure
-        // addresses must be 256-aligned: a TLAS placed at 2688 passed NRI's validation and its
-        // descriptor was refused ("[31] ID3D12Device::TryCreateShaderResourceView: For
+        // The TLAS goes after the BLAS, at the first offset its memory desc allows: never 0. That
+        // alignment covers what an acceleration structure's address needs, the device's
+        // memoryAlignment.accelerationStructureOffset. Before patch 0031 NRI's D3D12 backend reported
+        // the tight-placement alignment of a plain buffer (128, measured) while acceleration
+        // structure addresses must be 256-aligned (N7): a TLAS placed at 2688 passed NRI's validation
+        // and its descriptor was refused ("[31] ID3D12Device::TryCreateShaderResourceView: For
         // D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE, the address (...) must be aligned to 256 bytes.").
-        var alignment = Math.Max(Math.Max(1u, tlasMemory.alignment), device.Desc.memoryAlignment.accelerationStructureOffset);
-        var tlasOffset = Align(blasMemory.size, alignment);
+        var required = device.Desc.memoryAlignment.accelerationStructureOffset;
+        Assert.True(blasMemory.alignment % required == 0 && tlasMemory.alignment % required == 0,
+            $"{backend}: acceleration-structure memory aligned to {blasMemory.alignment} (BLAS) and {tlasMemory.alignment} (TLAS); memoryAlignment.accelerationStructureOffset is {required}");
+        var tlasOffset = Align(blasMemory.size, Math.Max(1u, tlasMemory.alignment));
+        if (tlasOffset == 0) tlasOffset = Math.Max(1u, tlasMemory.alignment);
         var memory = scene.OwnBeneath(device.AllocateMemory(new AllocateMemoryDesc { size = tlasOffset + tlasMemory.size, type = blasMemory.type }));
         var placedBlas = scene.Own(rt.CreatePlacedAccelerationStructure(memory, 0, blasDesc));
         var placedTlas = scene.Own(rt.CreatePlacedAccelerationStructure(memory, tlasOffset, RayScene.TlasDesc));
@@ -179,8 +183,7 @@ public sealed class RayTracingMemoryTests
         {
             var requirement = bound.GetMemoryDesc(MemoryLocation.DEVICE);
             Assert.True(requirement.mustBeDedicated == 0, $"{backend}: an acceleration structure needs a dedicated allocation, so two cannot share one");
-            var alignment = Math.Max(Math.Max(1u, requirement.alignment), device.Desc.memoryAlignment.accelerationStructureOffset);
-            var offset = Align(requirement.size, alignment);
+            var offset = Align(requirement.size, Math.Max(1u, requirement.alignment));
             memory = device.AllocateMemory(new AllocateMemoryDesc { size = offset + requirement.size, type = requirement.type });
             rt.BindAccelerationStructureMemory(bound, memory);
             placed = rt.CreatePlacedAccelerationStructure(memory, offset, desc);

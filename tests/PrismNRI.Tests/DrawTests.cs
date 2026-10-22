@@ -48,11 +48,6 @@ public sealed class DrawTests
     /// The same quad from two streams, positions in slot 0 and colours in slot 1, bound with one
     /// SetVertexBuffers(0, [positions, colours]) call at offsets 64 and 32 into buffers whose leading
     /// bytes are 0xCD: the image is byte for byte the interleaved one.
-    /// The streams are declared in slot order (Streams[i].bindingSlot == i): NRI's Vulkan backend
-    /// takes an attribute's binding from its streamIndex (PipelineVK.hpp, vertexAttributeDesc.binding
-    /// = attribute.streamIndex) where D3D12 takes Streams[streamIndex].bindingSlot, so streams
-    /// declared out of slot order fetch the wrong buffers on Vulkan (measured: nothing drawn, and
-    /// VUID-vkCmdBindVertexBuffers2-pStrides-06209 for the stride of the wrong binding).
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -95,6 +90,91 @@ public sealed class DrawTests
 
         twoStreams.Expect(SplitQuadExpectation, "two streams at offsets");
         Assert.Equal(interleaved.Bytes, twoStreams.Bytes);
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// The two streams declared out of slot order, Streams[0] in slot 1 (colours) and Streams[1] in
+    /// slot 0 (positions), each attribute naming its stream by index: an attribute reads the buffer
+    /// bound at its stream's slot, on both backends, and the image is the interleaved one. Before
+    /// patch 0025 NRI's Vulkan backend bound an attribute to its stream's index instead of the
+    /// stream's slot (N1): nothing was drawn, with VUID-vkCmdBindVertexBuffers2-pStrides-06209 for
+    /// the stride of the wrong binding.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Streams_declared_out_of_slot_order_feed_each_attribute_from_its_stream_slot(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+
+        var interleaved = RenderSplitQuadInterleaved(device);
+
+        var quad = SplitQuad();
+        using var positions = Upload(device, quad.Select(v => new Vector2(v.X, v.Y)).ToArray(), BufferUsageBits.VERTEX);
+        using var colors = Upload(device, quad.Select(v => v.Color).ToArray(), BufferUsageBits.VERTEX);
+        using var indices = Upload(device, SplitQuadIndices, BufferUsageBits.INDEX);
+        using var layout = CreateLayout(device);
+        using var pipeline = CreateColorPipeline(device, layout, "DrawColor", new NriVertexInputDesc
+        {
+            Attributes =
+            [
+                new NriVertexAttributeDesc("POSITION", 0, Location: 0, Offset: 0, Format.RG32_SFLOAT, StreamIndex: 1),
+                new NriVertexAttributeDesc("COLOR", 0, Location: 1, Offset: 0, Format.RGBA8_UNORM, StreamIndex: 0),
+            ],
+            Streams =
+            [
+                new VertexStreamDesc { bindingSlot = 1, stepRate = VertexStreamStepRate.PER_VERTEX, stride = 4 },
+                new VertexStreamDesc { bindingSlot = 0, stepRate = VertexStreamStepRate.PER_VERTEX, stride = 8 },
+            ],
+        });
+
+        using var canvas = new Canvas(device);
+        var image = canvas.Render(cmd =>
+        {
+            cmd.SetPipelineLayout(BindPoint.GRAPHICS, layout);
+            cmd.SetPipeline(pipeline);
+            cmd.SetVertexBuffers(0, [new NriVertexBuffer(positions, 0, 8), new NriVertexBuffer(colors, 0, 4)]);
+            cmd.SetIndexBuffer(indices, 0, IndexType.UINT16);
+            cmd.DrawIndexed(6);
+        })[0];
+
+        image.Expect(SplitQuadExpectation, "streams declared out of slot order");
+        Assert.Equal(interleaved.Bytes, image.Bytes);
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// A pipeline whose vertex input is an empty NriVertexInputDesc (no attributes, no streams)
+    /// draws a vertex-less triangle exactly as one with no vertex input, with nothing bound and no
+    /// message from either layer. Before patch 0026 NRI's Vulkan backend made the binding stride
+    /// dynamic for any vertex input, empty or not (N2), so every draw reported
+    /// VUID-vkCmdDraw-pStrides-04913 (the command buffer never called vkCmdBindVertexBuffers2).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void An_empty_vertex_input_draws_as_no_vertex_input(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+
+        using var layout = CreateLayout(device);
+        using var none = CreateColorPipeline(device, layout, "Triangle", null);
+        using var empty = CreateColorPipeline(device, layout, "Triangle", new NriVertexInputDesc());
+        using var canvas = new Canvas(device);
+        Image Render(NriPipeline pipeline) => canvas.Render(cmd =>
+        {
+            cmd.SetPipelineLayout(BindPoint.GRAPHICS, layout);
+            cmd.SetPipeline(pipeline);
+            cmd.Draw(3);
+        })[0];
+
+        var withNone = Render(none);
+        var withEmpty = Render(empty);
+        Assert.NotEqual(Black, withNone[32, 36]); // the triangle covers the centre
+        Assert.Equal(withNone.Bytes, withEmpty.Bytes);
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 

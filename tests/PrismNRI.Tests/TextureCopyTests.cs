@@ -296,11 +296,11 @@ public sealed class TextureCopyTests
     /// CmdClearStorage on storage texture views: an R32_UINT view of mip 1 of a two-mip texture
     /// takes 0x12345678 there and mip 0 keeps its bytes; an RGBA32_SFLOAT array view of layer 1 of a
     /// two-layer texture takes (1.5, -2.25, 0.125, 1000) there and layer 0 keeps its bytes.
-    /// Each view names exactly one subresource, the layer through STORAGE_TEXTURE_ARRAY: the
-    /// backends disagree otherwise (measured, no message from either). A STORAGE_TEXTURE view of
-    /// layer 1 clears layer 1 on Vulkan and layer 0 on D3D12, whose TEXTURE2D UAV has no array slice
-    /// (DescriptorD3D12.hpp); a view of two mips clears both on Vulkan (vkCmdClearColorImage over the
-    /// view's levels) and the first on D3D12, a UAV being one mip.
+    /// Each view names exactly one subresource, the layer through STORAGE_TEXTURE_ARRAY (a
+    /// STORAGE_TEXTURE view of layer 1 is refused,
+    /// <see cref="A_non_array_view_of_a_layer_other_than_the_first_is_refused"/>). A view of two mips
+    /// clears both on Vulkan (vkCmdClearColorImage over the view's levels) and the first on D3D12, a
+    /// UAV being one mip (measured, no message from either), so each view here is one mip.
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -357,6 +357,48 @@ public sealed class TextureCopyTests
         AssertBytes(Pattern(61, Size(floats, layers[0])), floatImages[0], "RGBA32_SFLOAT layer 0, outside the view");
         AssertBytes(clearedFloats, floatImages[1], "RGBA32_SFLOAT layer 1, the view");
         Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// A non-array view of a layer other than the first, TEXTURE or STORAGE_TEXTURE with
+    /// layerOffset 1 of a two-layer texture and TEXTURE_CUBE with layerOffset 6 of a twelve-layer
+    /// one, is refused with INVALID_ARGUMENT and an error naming layerOffset and the _ARRAY types:
+    /// by NRI's validation on both backends, and by the D3D12 backend itself without it. The same
+    /// views of the first layer are created. D3D12's non-array 1D, 2D and cube views have no array
+    /// slice, so it cannot express such a view; the _ARRAY types can, on both backends. Before patch
+    /// 0029 NRI's D3D12 backend dropped layerOffset (N5): a STORAGE_TEXTURE view of layer 1 cleared
+    /// layer 0 there and layer 1 on Vulkan, with no message from either layer.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void A_non_array_view_of_a_layer_other_than_the_first_is_refused(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        foreach (var nriValidation in new[] { true, false })
+        {
+            if (!nriValidation && backend.Api != GraphicsAPI.D3D12) continue; // without NRI's validation only D3D12, which cannot express the view, refuses it
+            var messages = new List<NriMessage>();
+            using var device = TestDevice.Create(backend.Api, messages, o => o.EnableNriValidation = nriValidation);
+            using var layered = CreateTexture(device, Format.RGBA8_UNORM, 4, 4, layers: 2, usage: TextureUsageBits.SHADER_RESOURCE | TextureUsageBits.SHADER_RESOURCE_STORAGE);
+            using var cubes = CreateTexture(device, Format.RGBA8_UNORM, 4, 4, layers: 12);
+            foreach (var (texture, type, offset, num) in new[] { (layered, TextureView.TEXTURE, 1, 1), (layered, TextureView.STORAGE_TEXTURE, 1, 1), (cubes, TextureView.TEXTURE_CUBE, 6, 6) })
+            {
+                TextureViewDesc View(int layerOffset) => new() { type = type, format = Format.RGBA8_UNORM, mipNum = 1, layerOffset = (ushort)layerOffset, layerNum = (ushort)num, planes = PlaneBits.ALL };
+                int start;
+                lock (messages) start = messages.Count;
+                var refused = Assert.Throws<NriException>(() => texture.CreateView(View(offset)).Dispose()); // a view created after all is disposed at once, so the failure is this one
+                List<NriMessage> provoked;
+                lock (messages) provoked = messages.Skip(start).ToList();
+                Record($"{backend}, NRI validation {(nriValidation ? "on" : "off")}: {type} with layerOffset {offset}: {refused.Message}");
+                Assert.Equal(Result.INVALID_ARGUMENT, refused.Result);
+                var error = Assert.Single(provoked, m => m.IsError);
+                Assert.Contains("layerOffset", error.Text, StringComparison.Ordinal);
+                Assert.Contains("_ARRAY", error.Text, StringComparison.Ordinal);
+                lock (messages) messages.RemoveRange(start, messages.Count - start);
+                using var first = texture.CreateView(View(0));
+            }
+            Assert.DoesNotContain(messages, m => m.IsError);
+        }
     }
 
     /// <summary>
