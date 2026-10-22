@@ -434,11 +434,11 @@ configured per machine: the adapter named is whichever one the suite picked on t
   `git diff --cached HEAD`); on master 0003-0021 and 0024-0036 each also apply alone onto the bare tag (0022 and 0023 do not: their context is 0020's and 0002's lines); on `next` all but 0002 do. 0002 was re-cut once more on `next` (a scratch clone at 2f7a49f with 0001 committed, the old 0002 applied with `--3way`, the conflict and two stale spots fixed, `git diff --cached HEAD`), and again on 2026-10-22 for the null-wrapper checks that 0034 cannot add: a later patch must not change lines an earlier patch adds (the earlier one's `-C0` reverse check then fails and the scripts refuse the tree). Patches to a
   file an earlier patch touches (0012-0035 all are, or are cut the same way) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit; 0025-0035 are master's cuts over v190 + 0001-0024, which apply onto 2f7a49f with line offsets (measured 2026-10-22). There is no 0011: it corrected
-- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 273 structs, 1,844 offsets (1,840 before
-  patches 0017-0019 and 0033 added a field each), 55 fixed buffers, 96 enums, 4 bitfields (exact
-  bytes written), 238 function-pointer fields, 20 `DllImport`s (19 before patch 0024); zero
-  mismatches on x64 (win-x64 at 1,844, 2026-10-22) and arm64 (the macOS CI job, last run before
-  patch 0017). Blind to calling convention, `const`, reference vs pointer,
+- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 273 structs, 1,845 offsets on `next`
+  (1,844 on master at v190: `TextureViewDesc::layout` is main's; 1,840 before patches 0017-0019
+  and 0033 added a field each), 55 fixed buffers, 96 enums, 4 bitfields (exact bytes written),
+  238 function-pointer fields, 20 `DllImport`s (19 before patch 0024); zero mismatches on x64
+  (win-x64, 2026-10-22) and arm64 (the macOS CI job, last run before patch 0017). Blind to calling convention, `const`, reference vs pointer,
   `bool` vs `uint8_t`. The anonymous union in `BottomLevelGeometryDesc` is checked as outer offsets.
 - **`nriGetInterface` checks the table size itself**: mismatch = `INVALID_ARGUMENT` after both sizes
   are reported through the message callback (`Source/Creation/Creation.cpp`). A drifted table fails
