@@ -16,7 +16,9 @@ namespace PrismNRI;
 
 /// <summary>
 /// A host allocator NRI can use for its own bookkeeping. Must be thread safe. Alignment is a
-/// power of two and must be honoured.
+/// power of two and must be honoured. Must not fail: a null (or an exception, which the binding
+/// turns into one) fails the creation of an NRI object with <see cref="Result.OUT_OF_MEMORY"/>
+/// (patch 0034), but NRI's containers allocate here too and cannot survive one.
 /// </summary>
 public interface INriAllocator
 {
@@ -123,8 +125,10 @@ internal sealed unsafe class AllocatorBridge : IDisposable
         return handle.IsAllocated ? (handle.Target as AllocatorBridge)?._allocator : null;
     }
 
-    // Null on any failure, which NRI treats as out-of-memory and reports as such. The alternative,
-    // an exception crossing a native frame, is a process abort on Linux.
+    // Null on any failure. For an NRI object the creation call then fails with OUT_OF_MEMORY (patch
+    // 0034); NRI's containers allocate through the same callbacks and cannot report it, so a null
+    // there is an access violation. The alternative, an exception crossing a native frame, is a
+    // process abort on Linux.
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static void* OnAllocate(void* userArg, nuint size, nuint alignment)

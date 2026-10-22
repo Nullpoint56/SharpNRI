@@ -1,0 +1,34 @@
+D3D12: an attachment resolve lands in the destination view's mip and resolves every layer.
+
+EndRendering computes the destination subresource with the resource's array size where
+GetSubresourceIndex takes its mip count, and resolves only the view's first layer, although its
+barriers cover them all. NRI's main fixed both in 48d4a33 ("array layers and destination mip
+indexing"); this backports those two lines' worth to v190 and leaves the rest of 48d4a33 (the new
+resolve accesses and stages) to the tag that carries it. Drop it with that tag.
+
+Measured on v190, NVIDIA, debug layer and NRI validation on: a resolve into the view of mip 1,
+layer 1 of a two-mip, three-layer texture left that subresource as it was (it went to subresource
+4); into layer 1 of a one-mip, two-layer texture it gave "[877] ... subresource index is out of
+bounds" and Close failed; a two-layer view resolved only layer 0. Vulkan was right in all three.
+With the change D3D12 resolves into the view's mip and layer, and every layer of it.
+
+diff --git a/Source/D3D12/CommandBufferD3D12.hpp b/Source/D3D12/CommandBufferD3D12.hpp
+index 0bcb9af..3905244 100644
+--- a/Source/D3D12/CommandBufferD3D12.hpp
++++ b/Source/D3D12/CommandBufferD3D12.hpp
+@@ -1969,9 +1969,13 @@ NRI_INLINE void CommandBufferD3D12::EndRendering() {
+             ID3D12Resource* dstResource = attachmentDesc->resolveDst->GetResource();
+             D3D12_RESOURCE_DESC dstResourceDesc = dstResource->GetDesc();
+             const TexViewDesc& dstDesc = attachmentDesc->resolveDst->GetTexViewDesc();
+-            uint32_t dstSubresource = GetSubresourceIndex(dstDesc.layerOffset, dstResourceDesc.DepthOrArraySize, dstDesc.mipOffset, dstResourceDesc.DepthOrArraySize, planeBits);
++            uint32_t dstSubresource = GetSubresourceIndex(dstDesc.layerOffset, dstResourceDesc.DepthOrArraySize, dstDesc.mipOffset, dstResourceDesc.MipLevels, planeBits);
+ 
+-            GetGraphicsCommandList()->ResolveSubresourceRegion(dstResource, dstSubresource, 0, 0, srcResource, srcSubresource, nullptr, format.typed, resolveMode);
++            for (uint32_t layer = 0; layer < srcDesc.layerNum; layer++) {
++                GetGraphicsCommandList()->ResolveSubresourceRegion(dstResource, dstSubresource, 0, 0, srcResource, srcSubresource, nullptr, format.typed, resolveMode);
++                srcSubresource += srcResourceDesc.MipLevels;
++                dstSubresource += dstResourceDesc.MipLevels;
++            }
+         }
+ 
+         // Restore state

@@ -721,6 +721,7 @@ internal static unsafe class NriVideoMarshal
         n.sequence = arena.Push(s.Sequence);
         n.encodedPayloadHeader = arena.Copy<byte>(s.EncodedPayloadHeader.Span); n.encodedPayloadHeaderSize = checked((ulong)s.EncodedPayloadHeader.Span.Length);
         { var src = s.References.Span; var dst = arena.Alloc<VideoAV1ReferenceDesc>(src.Length); for (var i = 0; i < src.Length; i++) dst[i] = src[i].ToNative(arena); n.references = dst; n.referenceNum = checked((uint)src.Length); }
+        n.keyFrame = s.KeyFrame ? (byte)1 : (byte)0;
         return n;
     }
 
