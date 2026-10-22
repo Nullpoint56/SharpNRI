@@ -374,8 +374,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
   skipped, lines 98.0%, branches 81.3%, 251 of 253 (the two left need the Upscalers payload or a
   feedback resolve no backend here asks for); lavapipe 493, 273 skipped, 0 failed, the
   clipping-primitive counter asserted as its known bug (Multisampling, copies and queries). With
-  patches 0025-0036 and their tests (7734b1d): Windows 514 tests, 11 skipped, lines 98.0%,
-  branches 81.5%, 251 of 253, fields 1,610 of 1,611 (`keyFrame` added); lavapipe 513, 284
+  patches 0025-0036 and their tests (7cee27f): Windows 516 tests, 11 skipped, lines 98.0%,
+  branches 81.5%, 251 of 253, fields 1,610 of 1,611 (`keyFrame` added); lavapipe 515, 285
   skipped, 0 failed. The committed report is measured where its header says; CI does not run it.
 
 ---
