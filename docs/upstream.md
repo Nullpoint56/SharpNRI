@@ -529,7 +529,9 @@ declared in slot order hide it, because index and slot then agree.
 while `:177` gives the binding `stream.bindingSlot`. D3D12 goes through the stream
 (`PipelineD3D12.hpp:281`, `InputSlot = stream.bindingSlot`). Since 42ddcff.
 
-**Fix.** Patch attached (`patches/0025-vulkan-vertex-attribute-binding-slot.patch`), one line:
+**Fix.** Patch attached (`patches/0025-vulkan-vertex-attribute-binding-slot.patch`), one line, plus a
+validation check that `attributes[i].streamIndex < streamNum` (nothing checked it; D3D12 read
+`streams[]` past the array, and so would Vulkan with the fix):
 
 ```cpp
 vertexAttributeDesc.binding = vi->streams[attribute.streamIndex].bindingSlot;

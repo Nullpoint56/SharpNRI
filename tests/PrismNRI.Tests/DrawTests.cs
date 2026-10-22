@@ -146,6 +146,41 @@ public sealed class DrawTests
     }
 
     /// <summary>
+    /// A vertex attribute whose streamIndex names a stream the vertex input does not have (index 1
+    /// of one stream) is refused by NRI's validation with INVALID_ARGUMENT and an error naming
+    /// streamIndex, on both backends; the same input with streamIndex 0 creates. Before patch 0025
+    /// nothing checked it: both backends read streams[streamIndex] past the array.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void An_attribute_naming_a_stream_the_vertex_input_does_not_have_is_refused(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        using var layout = CreateLayout(device);
+        NriVertexInputDesc Input(ushort streamIndex) => new()
+        {
+            Attributes =
+            [
+                new NriVertexAttributeDesc("POSITION", 0, Location: 0, Offset: 0, Format.RG32_SFLOAT, StreamIndex: 0),
+                new NriVertexAttributeDesc("COLOR", 0, Location: 1, Offset: 8, Format.RGBA8_UNORM, StreamIndex: streamIndex),
+            ],
+            Streams = [new VertexStreamDesc { bindingSlot = 0, stepRate = VertexStreamStepRate.PER_VERTEX, stride = 12 }],
+        };
+
+        var refused = Assert.Throws<NriException>(() => CreateColorPipeline(device, layout, "DrawColor", Input(1)).Dispose());
+        Record($"{backend}: streamIndex 1 of 1 stream: {refused.Message}");
+        Assert.Equal(Result.INVALID_ARGUMENT, refused.Result);
+        var error = Assert.Single(messages, m => m.IsError);
+        Assert.Contains("streamIndex", error.Text, StringComparison.Ordinal);
+        messages.Clear();
+
+        using var pipeline = CreateColorPipeline(device, layout, "DrawColor", Input(0));
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
     /// A pipeline whose vertex input is an empty NriVertexInputDesc (no attributes, no streams)
     /// draws a vertex-less triangle exactly as one with no vertex input, with nothing bound and no
     /// message from either layer. Before patch 0026 NRI's Vulkan backend made the binding stride
