@@ -84,6 +84,7 @@ question; the draft states the shape and offers the PR.
 | N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | phase 1 candidate, not filed: owner's trigger |
 | N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | phase 2: the desc carries no frame type, so the fix is his API choice |
 | N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | phase 1 candidate, not filed: owner's trigger |
+| N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | recorded 2026-10-22, not filed: packing only, so not phase 1 by the rules; owner's judgment |
 | `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it |
 | Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
@@ -549,10 +550,11 @@ enumeration would change it. Patch attached
 ## Found by the coverage tests (no patch)
 
 Found on 2026-10-21 by the tests that close the coverage report's blind spots (branch
-`coverage-tests`, on master). Measured on v190 with master's patches, none of which touch these
-lines, on the development machine's discrete GPU, and on WARP where it says so. Line numbers and
-code are NRI main's at 2f7a49f, where every line N1 to N10 cite is unchanged. N1 to N8 and N10 are written
-in the filed form; N9 is a phase 2 question.
+`coverage-tests`, on master); N11 on 2026-10-22, reading the memory helper while the binding's
+disposal rule for its allocations was written, then measured. Measured on v190 with master's
+patches, none of which touch these lines, on the development machine's discrete GPU, and on WARP
+where it says so. Line numbers and code are NRI main's at 2f7a49f, where every line N1 to N11 cite
+is unchanged. N1 to N8, N10 and N11 are written in the filed form; N9 is a phase 2 question.
 
 ### N1: Vulkan: vertex attributes bind to streamIndex, not the stream's bindingSlot
 
@@ -724,6 +726,38 @@ Implementation* impl = Allocate<Implementation>(GetAllocationCallbacks(), *this)
 if (!impl)
     return Result::OUT_OF_MEMORY;
 ```
+
+### N11: the memory helper's alignment sort leaves out the last buffer and the last texture
+
+**Observed.** `AllocateAndBindMemory` packs the last buffer and the last texture of a group where they
+were passed, after the sorted rest, so the same resources in another order get another layout and,
+with `preferredMemorySize`, another allocation count.
+- Vulkan, three 1000-byte buffers of one memory type, aligned to 16 (vertex), 64 (constant) and 128
+  (scratch). Passed as scratch, constant, vertex, they land at +1024, +0 and +2032: the first two
+  sorted, the vertex buffer last. Passed as vertex, scratch, constant, the constant buffer lands at
+  +2048, after the scratch buffer, and with `preferredMemorySize` 3056 it gets a second allocation,
+  where vertex, constant, scratch fit one.
+- D3D12, one memory type, two shader-resource textures (64x64 and 16x16, 4 KiB aligned) and a 64x64
+  colour attachment (64 KiB aligned), `preferredMemorySize` 128 KiB: one allocation when the
+  attachment is passed last, two whenever a small texture is.
+- Two buffers, or two textures, are never sorted.
+
+**Cause.** `Source/Shared/HelperInterface.hpp:558` and `:570` end the sorted range at
+`&buffers[bufferNum - 1]` and `&textures[textureNum - 1]`, and `std::sort` excludes its end. Since
+b5e2b07 ("improved resource packing", first in v176).
+
+**Fix.**
+
+```cpp
+std::sort(&buffers[0], &buffers[0] + resourceGroupDesc.bufferNum,
+...
+std::sort(&textures[0], &textures[0] + resourceGroupDesc.textureNum,
+```
+
+**Judgment.** Packing only: every layout is valid, so it is not a wrong result, a crash, undefined
+memory or a refused call, and the filing rules do not make it phase 1. The order the fix restores
+is not always the tightest either: as passed, scratch, constant, vertex fit 3,040 bytes; sorted,
+vertex, constant, scratch take 3,056. Recorded for the owner's judgment.
 
 ### Not filed
 
