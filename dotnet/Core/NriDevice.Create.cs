@@ -81,23 +81,29 @@ public sealed unsafe partial class NriDevice
         return new NriTexture(this, handle);
     }
 
+    /// <summary>Binds each buffer into its memory; each memory refuses disposal until its buffers are disposed.</summary>
     public void BindBufferMemory(ReadOnlySpan<NriBufferMemoryBinding> bindings)
     {
         var native = stackalloc BindBufferMemoryDesc[bindings.Length];
         for (var i = 0; i < bindings.Length; i++) native[i] = bindings[i].ToNative();
         Check(Core.BindBufferMemory(native, (uint)bindings.Length), "BindBufferMemory");
+        foreach (ref readonly var binding in bindings) binding.Buffer.BoundTo(binding.Memory);
     }
 
+    /// <summary>Binds <paramref name="buffer"/> into <paramref name="memory"/>, which refuses disposal until the buffer is disposed.</summary>
     public void BindBufferMemory(NriBuffer buffer, NriMemory memory, ulong offset = 0) =>
         BindBufferMemory([new NriBufferMemoryBinding(buffer, memory, offset)]);
 
+    /// <summary>Binds each texture into its memory; each memory refuses disposal until its textures are disposed.</summary>
     public void BindTextureMemory(ReadOnlySpan<NriTextureMemoryBinding> bindings)
     {
         var native = stackalloc BindTextureMemoryDesc[bindings.Length];
         for (var i = 0; i < bindings.Length; i++) native[i] = bindings[i].ToNative();
         Check(Core.BindTextureMemory(native, (uint)bindings.Length), "BindTextureMemory");
+        foreach (ref readonly var binding in bindings) binding.Texture.BoundTo(binding.Memory);
     }
 
+    /// <summary>Binds <paramref name="texture"/> into <paramref name="memory"/>, which refuses disposal until the texture is disposed.</summary>
     public void BindTextureMemory(NriTexture texture, NriMemory memory, ulong offset = 0) =>
         BindTextureMemory([new NriTextureMemoryBinding(texture, memory, offset)]);
 
@@ -135,27 +141,34 @@ public sealed unsafe partial class NriDevice
         return new NriTexture(this, handle);
     }
 
-    /// <summary>A buffer placed into existing memory at an offset.</summary>
+    /// <summary>A buffer placed into existing memory at an offset; the memory refuses disposal until the buffer is disposed.</summary>
     public NriBuffer CreatePlacedBuffer(NriMemory memory, ulong offset, in BufferDesc desc)
     {
         Buffer* handle = null;
         fixed (BufferDesc* p = &desc) Check(Core.CreatePlacedBuffer(Raw, memory.Raw, offset, p, &handle), "CreatePlacedBuffer");
-        return new NriBuffer(this, handle);
+        var buffer = new NriBuffer(this, handle);
+        buffer.BoundTo(memory);
+        return buffer;
     }
 
-    /// <summary>A texture placed into existing memory at an offset.</summary>
+    /// <summary>A texture placed into existing memory at an offset; the memory refuses disposal until the texture is disposed.</summary>
     public NriTexture CreatePlacedTexture(NriMemory memory, ulong offset, in TextureDesc desc)
     {
         Texture* handle = null;
         fixed (TextureDesc* p = &desc) Check(Core.CreatePlacedTexture(Raw, memory.Raw, offset, p, &handle), "CreatePlacedTexture");
-        return new NriTexture(this, handle);
+        var texture = new NriTexture(this, handle);
+        texture.BoundTo(memory);
+        return texture;
     }
 
     // ---------------------------------------------------------------- helper
 
     /// <summary>
     /// Allocates and binds memory for a group of unbound resources in as few allocations as NRI
-    /// can manage. Returns the allocations; dispose them after the resources.
+    /// can manage. Returns the allocations; dispose them after the resources. NRI does not say
+    /// which resource went into which allocation, so each allocation refuses disposal, throwing
+    /// <see cref="InvalidOperationException"/>, while any resource of this call is alive (see
+    /// <see cref="NriMemory"/>).
     /// </summary>
     public NriMemory[] AllocateAndBindMemory(MemoryLocation location, ReadOnlySpan<NriTexture> textures, ReadOnlySpan<NriBuffer> buffers, ulong preferredMemorySize = 0, float residencyPriority = 0, bool vma = false)
     {
@@ -180,8 +193,13 @@ public sealed unsafe partial class NriDevice
         var handles = stackalloc Memory*[checked((int)count)];
         Check(Helper.AllocateAndBindMemory(Raw, &desc, handles), "AllocateAndBindMemory");
 
+        // The allocations share one count, so each resource of the call holds every one of them.
         var result = new NriMemory[count];
-        for (var i = 0; i < count; i++) result[i] = new NriMemory(this, handles[i]);
+        var group = new NriMemory.Holders(group: true);
+        for (var i = 0; i < count; i++) result[i] = new NriMemory(this, handles[i], group);
+        if (count == 0) return result; // NONE allocates nothing
+        foreach (var texture in textures) texture.BoundTo(result[0]);
+        foreach (var buffer in buffers) buffer.BoundTo(result[0]);
         return result;
     }
 

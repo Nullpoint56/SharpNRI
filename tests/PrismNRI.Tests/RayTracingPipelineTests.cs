@@ -12,19 +12,33 @@ namespace PrismNRI.Tests;
 
 public sealed class RayTracingPipelineTests
 {
-    private static NriDevice CreateRayTracingDevice(Backend backend, List<NriMessage> messages, Action<NriDeviceOptionsBuilder>? configure = null)
+    private static NriDevice CreateRayTracingDevice(Backend backend, List<NriMessage> messages, Action<NriDeviceOptionsBuilder>? configure = null) =>
+        RayScene.CreateDevice(backend, messages, configure);
+
+    /// <summary>
+    /// The RayPipeline.hlsl pipeline on the scene's layout, three groups: raygen, miss, closest hit.
+    /// </summary>
+    private static NriPipeline CreatePipeline(NriDevice device, RayScene scene)
     {
-        TestDevice.RequireAvailable(backend);
-        var device = TestDevice.Create(backend.Api, messages, configure);
-        if (device.Desc.tiers.rayTracing < 2)
+        // Groups index the shader library from 1: raygen, miss, closest hit. On Vulkan the three
+        // entry points share one SPIR-V module. On D3D12 each NriShaderDesc becomes a DXIL library
+        // subobject exporting everything in it, so each entry point is its own library (one shared
+        // library exported every name three times, and CreateStateObject faulted).
+        byte[] Library(string entry) => RayScene.Shader(device, device.GraphicsApi == GraphicsAPI.VK ? "RayPipeline.lib" : $"RayPipeline.{entry}");
+        return device.RayTracing.CreateRayTracingPipeline(new NriRayTracingPipelineDesc
         {
-            var tier = device.Desc.tiers.rayTracing;
-            device.Dispose();
-            Assert.Skip(tier == 0
-                ? $"{backend} reports no ray tracing"
-                : $"{backend}: tiers.rayTracing = 1, no ray query to compare against (needs 2)");
-        }
-        return device;
+            PipelineLayout = scene.Layout,
+            Shaders =
+            [
+                new NriShaderDesc(StageBits.RAYGEN_SHADER, Library("rayGen"), "rayGen"),
+                new NriShaderDesc(StageBits.MISS_SHADER, Library("miss"), "miss"),
+                new NriShaderDesc(StageBits.CLOSEST_HIT_SHADER, Library("closestHit"), "closestHit"),
+            ],
+            ShaderGroups = [Group(1), Group(2), Group(3)],
+            RecursionMaxDepth = 1,
+            RayPayloadMaxSize = 4,
+            RayHitAttributeMaxSize = 8,
+        });
     }
 
     [Theory]
@@ -43,25 +57,7 @@ public sealed class RayTracingPipelineTests
         var directSet = scene.Output(tlas.Tlas);
         var indirectSet = scene.Output(tlas.Tlas);
 
-        // Groups index the shader library from 1: raygen, miss, closest hit. On Vulkan the three
-        // entry points share one SPIR-V module. On D3D12 each NriShaderDesc becomes a DXIL library
-        // subobject exporting everything in it, so each entry point is its own library (one shared
-        // library exported every name three times, and CreateStateObject faulted).
-        byte[] Library(string entry) => RayScene.Shader(device, device.GraphicsApi == GraphicsAPI.VK ? "RayPipeline.lib" : $"RayPipeline.{entry}");
-        using var pipeline = rt.CreateRayTracingPipeline(new NriRayTracingPipelineDesc
-        {
-            PipelineLayout = scene.Layout,
-            Shaders =
-            [
-                new NriShaderDesc(StageBits.RAYGEN_SHADER, Library("rayGen"), "rayGen"),
-                new NriShaderDesc(StageBits.MISS_SHADER, Library("miss"), "miss"),
-                new NriShaderDesc(StageBits.CLOSEST_HIT_SHADER, Library("closestHit"), "closestHit"),
-            ],
-            ShaderGroups = [Group(1), Group(2), Group(3)],
-            RecursionMaxDepth = 1,
-            RayPayloadMaxSize = 4,
-            RayHitAttributeMaxSize = 8,
-        });
+        using var pipeline = CreatePipeline(device, scene);
 
         // Shader binding table: one record per group, each at the table alignment.
         var identifierSize = device.Desc.shaderStage.rayTracing.shaderGroupIdentifierSize;
@@ -205,12 +201,16 @@ public sealed class RayTracingPipelineTests
     /// </summary>
     /// <remarks>
     /// On D3D12 the device runs without the D3D12 debug layer (NRI's validation stays on): NRI's
-    /// micromap prebuild query passes no input buffer and no per-OMM descs, the Agility SDK 1.619
-    /// debug layer reports that as error 1162, and NRI's break-on-error turns it into an SEH
-    /// exception out of <c>CreateMicromap</c>. Without the layer the micromap is created and built,
-    /// but the first BLAS build that links it makes <c>Close</c> fail with <c>E_INVALIDARG</c>, with
-    /// or without a micromap index buffer (measured on the RTX 4070 SUPER, driver and Agility SDK
-    /// 1.619 as staged). That one measured failure skips, quoting it; anything else fails.
+    /// micromap prebuild query passes no input buffer and no per-OMM descs, which the Agility SDK
+    /// 1.619 debug layer refuses as error 1162. Without the layer the command list fails to close
+    /// with <c>E_INVALIDARG</c>, and the cause is the barrier recorded after <c>BuildMicromaps</c>,
+    /// not the BLAS that links the micromap: for its {MICROMAP_WRITE, MICROMAP} side NRI's D3D12
+    /// backend adds SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO to
+    /// ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE, a pair the debug layer refuses as error 1331
+    /// (<see cref="RayScene.MicromapWritten"/>). Measured: a list holding the build alone closes, the
+    /// build and this barrier does not; with that side's stages ALL the same micromaps link, build
+    /// and trace on D3D12 (RayTracingMemoryTests). This test keeps the MICROMAP spelling, so that one
+    /// measured failure skips, quoting it; anything else fails.
     /// </remarks>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -274,7 +274,7 @@ public sealed class RayTracingPipelineTests
         }
         catch (NriException e) when (backend.Api == GraphicsAPI.D3D12 && e.Result == Result.INVALID_ARGUMENT && e.Call == "EndCommandBuffer")
         {
-            Assert.Skip($"D3D12: tiers.rayTracing = 3, but the command list that builds a BLAS linking a micromap fails to close: {e.Message}");
+            Assert.Skip($"D3D12: tiers.rayTracing = 3, but the command list with a {{MICROMAP_WRITE, MICROMAP}} barrier after BuildMicromaps fails to close (NRI adds SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO to that side): {e.Message}");
         }
 
         Run(device, cmd =>
@@ -296,6 +296,50 @@ public sealed class RayTracingPipelineTests
         Record($"{backend} transparent micromap:\n{RayScene.Map(maps[1])}");
         Assert.All(maps[1], v => Assert.Equal(0u, v));
         Assert.Equal(maps[0], maps[2]);
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// <c>WriteShaderGroupIdentifiers</c> writes <c>shaderGroupNum</c> records at <c>dstStride</c>,
+    /// so the destination must hold <c>shaderGroupNum * dstStride</c> bytes (NRI.h). A span one byte
+    /// short is refused with ArgumentException naming <c>dst</c> before NRI is called: the bytes are
+    /// untouched and NRI says nothing. The product is a 64-bit one: 2^28 groups at a stride of 16 need
+    /// 4 GiB, which a 32-bit product wraps to 0 and lets through to NRI (whose validation then refuses
+    /// the stride, smaller than the 32-byte identifier, as INVALID_ARGUMENT; at a stride it accepts
+    /// the backend would write 2^28 records into the span). The same call with a span of the right
+    /// size then writes three distinct identifiers.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void WriteShaderGroupIdentifiers_refuses_a_destination_shorter_than_the_groups_need(Backend backend)
+    {
+        var messages = new List<NriMessage>();
+        using var device = CreateRayTracingDevice(backend, messages);
+        var rt = device.RayTracing;
+        using var scene = new RayScene(device, outputNum: 1);
+        using var pipeline = CreatePipeline(device, scene);
+
+        var identifierSize = device.Desc.shaderStage.rayTracing.shaderGroupIdentifierSize;
+        var stride = (uint)Align(identifierSize, device.Desc.memoryAlignment.shaderBindingTable);
+        var start = messages.Count;
+
+        var shortBy1 = Enumerable.Repeat((byte)0xCD, (int)(3 * stride) - 1).ToArray();
+        var refused = Assert.Throws<ArgumentException>(() => rt.WriteShaderGroupIdentifiers(pipeline, 0, 3, stride, shortBy1));
+        Record($"{backend}: {refused.Message}");
+        Assert.Equal("dst", refused.ParamName);
+        Assert.All(shortBy1, b => Assert.Equal(0xCD, b));
+
+        var wrapping = Assert.Throws<ArgumentException>(() => rt.WriteShaderGroupIdentifiers(pipeline, 0, 1u << 28, 16, []));
+        Record($"{backend}: {wrapping.Message}");
+        Assert.Equal("dst", wrapping.ParamName);
+        Assert.Equal(start, messages.Count);
+
+        var exact = Enumerable.Repeat((byte)0xCD, (int)(3 * stride)).ToArray();
+        rt.WriteShaderGroupIdentifiers(pipeline, 0, 3, stride, exact);
+        var identifiers = Enumerable.Range(0, 3).Select(i => Convert.ToHexString(exact, i * (int)stride, (int)identifierSize)).ToArray();
+        Assert.Equal(3, identifiers.Distinct().Count());
+        // Bytes after each identifier are preserved (NRI.h).
+        for (var i = 0; i < 3; i++) Assert.All(exact.Skip(i * (int)stride + (int)identifierSize).Take((int)(stride - identifierSize)), b => Assert.Equal(0xCD, b));
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 

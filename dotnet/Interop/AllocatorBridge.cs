@@ -21,7 +21,16 @@ namespace PrismNRI;
 public interface INriAllocator
 {
     unsafe void* Allocate(nuint size, nuint alignment);
+
+    /// <summary>
+    /// Resizes <paramref name="memory"/>, keeping its contents up to the smaller size. Reached
+    /// through Vulkan's host allocation callbacks, which NRI routes here with
+    /// <c>ForwardAllocatorToThirdParty</c>, so their contract applies: a null
+    /// <paramref name="memory"/> allocates, and a <paramref name="size"/> of 0 frees
+    /// <paramref name="memory"/> and returns null.
+    /// </summary>
     unsafe void* Reallocate(void* memory, nuint size, nuint alignment);
+
     unsafe void Free(void* memory);
 }
 
@@ -36,13 +45,13 @@ public sealed unsafe class NriCountingAllocator : INriAllocator
     private long _reallocations;
     private long _frees;
 
-    /// <summary>Calls to <see cref="Allocate"/> so far.</summary>
+    /// <summary>Blocks handed out so far: <see cref="Allocate"/> calls, and <see cref="Reallocate"/> calls with no block.</summary>
     public long Allocations => Volatile.Read(ref _allocations);
 
-    /// <summary>Calls to <see cref="Reallocate"/> so far.</summary>
+    /// <summary><see cref="Reallocate"/> calls that resized a block.</summary>
     public long Reallocations => Volatile.Read(ref _reallocations);
 
-    /// <summary>Calls to <see cref="Free"/> so far.</summary>
+    /// <summary>Blocks freed so far: <see cref="Free"/> calls with a block, and <see cref="Reallocate"/> calls to size 0.</summary>
     public long Frees => Volatile.Read(ref _frees);
 
     /// <summary>Allocations that have not been freed.</summary>
@@ -54,11 +63,22 @@ public sealed unsafe class NriCountingAllocator : INriAllocator
         return NativeMemory.AlignedAlloc(size == 0 ? 1 : size, alignment == 0 ? (nuint)sizeof(void*) : alignment);
     }
 
+    /// <summary>
+    /// Resizes <paramref name="memory"/>. With no block it allocates (counted in
+    /// <see cref="Allocations"/>); to size 0 it frees the block and returns null (counted in
+    /// <see cref="Frees"/>), as Vulkan's reallocation callback contract and NRI's own Windows
+    /// default (<c>_aligned_realloc</c>) define it.
+    /// </summary>
     public void* Reallocate(void* memory, nuint size, nuint alignment)
     {
         if (memory is null) return Allocate(size, alignment);
+        if (size == 0)
+        {
+            Free(memory);
+            return null;
+        }
         Interlocked.Increment(ref _reallocations);
-        return NativeMemory.AlignedRealloc(memory, size == 0 ? 1 : size, alignment == 0 ? (nuint)sizeof(void*) : alignment);
+        return NativeMemory.AlignedRealloc(memory, size, alignment == 0 ? (nuint)sizeof(void*) : alignment);
     }
 
     public void Free(void* memory)

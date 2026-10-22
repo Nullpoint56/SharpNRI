@@ -8,6 +8,7 @@ namespace PrismNRI;
 public sealed unsafe class NriTexture : NriObject
 {
     private readonly bool _owned;
+    private NriMemory.Holders? _memory; // of the memory bound into or placed in through the binding, which refuses disposal while set
 
     internal NriTexture(NriDevice device, Texture* handle) : base(handle, "NriTexture")
     {
@@ -72,6 +73,9 @@ public sealed unsafe class NriTexture : NriObject
     /// <summary><c>ID3D12Resource*</c> on D3D12, <c>VkImage</c> on Vulkan. Last resort.</summary>
     public ulong GetNativeObject() => Device.Core.GetTextureNativeObject(Raw);
 
+    /// <summary>Bound into or placed in <paramref name="memory"/>, which then outlives this texture.</summary>
+    internal void BoundTo(NriMemory memory) => NriMemory.Track(ref _memory, memory);
+
     private protected override void Destroy(void* handle)
     {
         if (_owned) Device.Core.DestroyTexture((Texture*)handle);
@@ -79,6 +83,7 @@ public sealed unsafe class NriTexture : NriObject
 
     private protected override void OnDestroyed()
     {
+        NriMemory.Release(ref _memory);
         if (_owned) base.OnDestroyed();
     }
 }

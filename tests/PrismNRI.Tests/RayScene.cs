@@ -112,9 +112,12 @@ internal sealed class RayScene : IDisposable
         Own(Device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = Math.Max(size, 1), usage = BufferUsageBits.SCRATCH }));
 
     /// <summary>A committed TLAS over one identity instance of <paramref name="blas"/>, and its build inputs.</summary>
-    public (NriAccelerationStructure Tlas, NriBuffer Instances, NriBuffer Scratch) Tlas(NriAccelerationStructure blas)
+    public (NriAccelerationStructure Tlas, NriBuffer Instances, NriBuffer Scratch) Tlas(NriAccelerationStructure blas) =>
+        TlasInputs(Own(RayTracing.CreateCommittedAccelerationStructure(MemoryLocation.DEVICE, TlasDesc)), blas);
+
+    /// <summary>The build inputs of <paramref name="tlas"/> (created by the caller) over one identity instance of <paramref name="blas"/>.</summary>
+    public (NriAccelerationStructure Tlas, NriBuffer Instances, NriBuffer Scratch) TlasInputs(NriAccelerationStructure tlas, NriAccelerationStructure blas)
     {
-        var tlas = Own(RayTracing.CreateCommittedAccelerationStructure(MemoryLocation.DEVICE, TlasDesc));
         var instance = new TopLevelInstance { mask = 0xFF, accelerationStructureHandle = blas.GpuHandle };
         instance.transform[0] = 1; instance.transform[5] = 1; instance.transform[10] = 1;
         var instances = Own(Device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = (ulong)Unsafe.SizeOf<TopLevelInstance>(), usage = BufferUsageBits.ACCELERATION_STRUCTURE_BUILD_INPUT }));
@@ -155,11 +158,91 @@ internal sealed class RayScene : IDisposable
     public void TraceInline(NriCommandBuffer cmd, NriDescriptorSet set)
     {
         Assert.NotNull(_rayQuery);
+        TraceInline(cmd, set, _rayQuery);
+    }
+
+    /// <summary>Records a dispatch of <paramref name="rayQuery"/>, a compute pipeline on <see cref="Layout"/> with 8x8 threads per group.</summary>
+    public void TraceInline(NriCommandBuffer cmd, NriDescriptorSet set, NriPipeline rayQuery)
+    {
         cmd.SetPipelineLayout(BindPoint.COMPUTE, Layout);
         cmd.SetDescriptorSet(0, set, BindPoint.COMPUTE);
-        cmd.SetPipeline(_rayQuery);
+        cmd.SetPipeline(rayQuery);
         cmd.Dispatch(Width / 8, Width / 8);
     }
+
+    /// <summary>The ray of thread (x, y) starts at (u, v, 0): the field [-1, 1]^2 sampled at 16x16 cell centres.</summary>
+    public static (float U, float V) RayOrigin(int x, int y) => ((x + 0.5f) / Width * 2 - 1, (y + 0.5f) / Width * 2 - 1);
+
+    // ---------------------------------------------------------------- devices and micromaps
+
+    /// <summary>
+    /// A validated device with ray queries (tiers.rayTracing 2 or more), or a skip naming the tier.
+    /// </summary>
+    public static NriDevice CreateDevice(Backend backend, List<NriMessage> messages, Action<NriDeviceOptionsBuilder>? configure = null)
+    {
+        TestDevice.RequireAvailable(backend);
+        var device = TestDevice.Create(backend.Api, messages, configure);
+        if (device.Desc.tiers.rayTracing < 2)
+        {
+            var tier = device.Desc.tiers.rayTracing;
+            device.Dispose();
+            Assert.Skip(tier == 0
+                ? $"{backend} reports no ray tracing"
+                : $"{backend}: tiers.rayTracing = 1, no ray query to compare against (needs 2)");
+        }
+        return device;
+    }
+
+    /// <summary>
+    /// The two-state micromap of the micromap tests: two micro-triangles at subdivision level 0,
+    /// index 0 transparent, index 1 opaque.
+    /// </summary>
+    public static NriMicromapDesc MicromapDesc(MicromapBits flags = MicromapBits.PREFER_FAST_TRACE, ulong optimizedSize = 0) => new()
+    {
+        Usages = [new MicromapUsageDesc { triangleNum = 2, subdivisionLevel = 0, format = MicromapFormat.OPACITY_2_STATE }],
+        Flags = flags,
+        OptimizedSize = optimizedSize,
+    };
+
+    /// <summary>
+    /// The build inputs of <see cref="MicromapDesc"/>: the opacity bits (one byte per micro-triangle,
+    /// 0 transparent, 1 opaque), the two <c>MicromapTriangle</c> entries, and a micromap index buffer
+    /// holding 0 then 1, so offset 0 maps the triangle to the transparent entry and offset 4 to the opaque one.
+    /// </summary>
+    public (NriBuffer Data, NriBuffer Triangles, NriBuffer Indices) MicromapInputs()
+    {
+        var data = Own(Device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = 2, usage = BufferUsageBits.MICROMAP_BUILD_INPUT }));
+        new byte[] { 0, 1 }.CopyTo(data.Map());
+        data.Unmap();
+        MicromapTriangle[] triangles =
+        [
+            new() { dataOffset = 0, subdivisionLevel = 0, format = MicromapFormat.OPACITY_2_STATE },
+            new() { dataOffset = 1, subdivisionLevel = 0, format = MicromapFormat.OPACITY_2_STATE },
+        ];
+        var triangleBuffer = Own(Device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = (ulong)(triangles.Length * Marshal.SizeOf<MicromapTriangle>()), usage = BufferUsageBits.MICROMAP_BUILD_INPUT }));
+        MemoryMarshal.AsBytes(triangles.AsSpan()).CopyTo(triangleBuffer.Map());
+        triangleBuffer.Unmap();
+        var indices = Own(Device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = 8, usage = BufferUsageBits.ACCELERATION_STRUCTURE_BUILD_INPUT }));
+        MemoryMarshal.AsBytes<uint>([0, 1]).CopyTo(indices.Map());
+        indices.Unmap();
+        return (data, triangleBuffer, indices);
+    }
+
+    /// <summary>
+    /// The before side of a barrier after a micromap build or copy. The stages are ALL, not
+    /// MICROMAP: for a MICROMAP (or ACCELERATION_STRUCTURE) stage side NRI's D3D12 backend adds
+    /// D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO unless the access holds
+    /// ACCELERATION_STRUCTURE_WRITE (GetBarrierSyncFlags, CommandBufferD3D12.hpp:142), while it maps
+    /// MICROMAP_WRITE to D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE (:184). The
+    /// debug layer refuses that pair ("[1331] ID3D12CommandList::Barrier: SyncBefore bits
+    /// D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO are incompatible with
+    /// AccessBefore bits D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE in buffer
+    /// barrier ..."), and Close fails with E_INVALIDARG, with or without the layer (measured).
+    /// RayTracingPipelineTests.An_opacity_micromap_decides_whether_the_ray_query_hits keeps the
+    /// MICROMAP spelling and skips on that failure.
+    /// </summary>
+    public static AccessStage MicromapWritten => new() { access = AccessBits.MICROMAP_WRITE, stages = StageBits.ALL };
+    public static AccessStage MicromapRead => new() { access = AccessBits.MICROMAP_READ, stages = StageBits.MICROMAP | StageBits.ACCELERATION_STRUCTURE };
 
     /// <summary>Copies every output into <see cref="Readback"/>, in creation order.</summary>
     public void CopyOutputs(NriCommandBuffer cmd)

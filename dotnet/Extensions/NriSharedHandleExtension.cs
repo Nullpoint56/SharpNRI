@@ -15,20 +15,55 @@ namespace PrismNRI;
 /// on Windows, <c>close</c> on Linux). Importing it elsewhere usually duplicates it, so closing
 /// after a successful import is the normal sequence.
 /// </summary>
-/// <param name="Handle">NT handle on Windows; file descriptor on Linux.</param>
-/// <param name="Type">Which API and object kind the handle came from.</param>
-/// <param name="Size">Vulkan: the allocation size, for the importer's <c>VkMemoryAllocateInfo</c>. 0 on D3D12.</param>
-/// <param name="Offset">Vulkan: the texture's offset within the allocation, always 0 (dedicated).</param>
-public readonly record struct NriSharedHandle(nint Handle, SharedHandleType Type, ulong Size, ulong Offset) : IDisposable
+/// <remarks>
+/// A class, so that every reference shares one state: the first <see cref="Dispose"/> takes the
+/// value with an atomic exchange and closes it, and every later one, from any thread, finds 0 and
+/// does nothing. A second close could hit a handle the process has reused the value for. No
+/// finalizer, as nowhere in the binding: a handle never disposed stays open until the process exits.
+/// </remarks>
+public sealed class NriSharedHandle : IDisposable
 {
-    public bool IsValid => Handle != 0 && Handle != -1;
+    private nint _handle;
 
+    /// <summary>Takes ownership of <paramref name="handle"/>: <see cref="Dispose"/> closes it.</summary>
+    /// <param name="handle">NT handle on Windows; file descriptor on Linux.</param>
+    /// <param name="type">Which API and object kind the handle came from.</param>
+    /// <param name="size">Vulkan: the allocation size, for the importer's <c>VkMemoryAllocateInfo</c>. 0 on D3D12.</param>
+    /// <param name="offset">Vulkan: the texture's offset within the allocation, always 0 (dedicated).</param>
+    public NriSharedHandle(nint handle, SharedHandleType type, ulong size, ulong offset)
+    {
+        _handle = handle;
+        Type = type;
+        Size = size;
+        Offset = offset;
+    }
+
+    /// <summary>NT handle on Windows; file descriptor on Linux. 0 once disposed.</summary>
+    public nint Handle => Volatile.Read(ref _handle);
+
+    /// <summary>Which API and object kind the handle came from.</summary>
+    public SharedHandleType Type { get; }
+
+    /// <summary>Vulkan: the allocation size, for the importer's <c>VkMemoryAllocateInfo</c>. 0 on D3D12.</summary>
+    public ulong Size { get; }
+
+    /// <summary>Vulkan: the texture's offset within the allocation, always 0 (dedicated).</summary>
+    public ulong Offset { get; }
+
+    /// <summary>False for 0 and -1, and once disposed.</summary>
+    public bool IsValid => Handle is not 0 and not -1;
+
+    /// <summary>Closes the handle the first time; does nothing after that, or for an invalid handle.</summary>
     public void Dispose()
     {
-        if (!IsValid) return;
-        if (OperatingSystem.IsWindows()) CloseHandle(Handle);
-        else close((int)Handle);
+        var handle = Interlocked.Exchange(ref _handle, 0);
+        if (handle is 0 or -1) return;
+        if (OperatingSystem.IsWindows()) CloseHandle(handle);
+        else close((int)handle);
     }
+
+    public override string ToString() =>
+        $"NriSharedHandle {{ Handle = {Handle}, Type = {Type}, Size = {Size}, Offset = {Offset}, IsValid = {IsValid} }}";
 
     [DllImport("kernel32", ExactSpelling = true)]
     private static extern int CloseHandle(nint handle);
