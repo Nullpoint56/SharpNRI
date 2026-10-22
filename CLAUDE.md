@@ -1444,16 +1444,26 @@ extensions.
   - Patch 0030 treats `MICROMAP_WRITE` as that write. The pipeline test runs on D3D12 (it skipped
     there, quoting the refusal), and `RayScene.MicromapWritten` names the `MICROMAP` stage.
 - **Placed acceleration structures** (`RayTracingMemoryTests`).
-  - Sizes: on Vulkan, BLAS 2,560 B and TLAS 2,048 B at alignment 256. On D3D12 (v190) the same
-    sizes at 128 under tight alignment. On WARP, 65,536 each.
+  - Sizes: on Vulkan, BLAS 2,560 B and TLAS 2,048 B at alignment 256 (NVIDIA), 152 B and 264 B at
+    64 (lavapipe). On D3D12 (v190) the same sizes as NVIDIA's Vulkan at 128 under tight alignment.
+    On WARP, 65,536 each.
+  - On Vulkan the memory desc is the requirement of the structure's buffer, which NRI binds at the
+    placement offset (`AccelerationStructureVK::BindMemory`, the structure at offset 0 inside it).
+    `memoryAlignment.accelerationStructureOffset` is the spec's 256 there, for
+    `VkAccelerationStructureCreateInfoKHR::offset` inside the buffer (VUID-...-offset-03734), not
+    a placement alignment: lavapipe reports 64 for the desc against it (an assertion that the desc
+    is a multiple of it failed there, 2026-10-22). On D3D12 it is the address rule a placement
+    must meet.
   - D3D12's 128 was too little for an acceleration structure (N7, patch 0031). A TLAS at 2,688
     passed NRI validation, and then its descriptor was refused: "[31]
     ID3D12Device::TryCreateShaderResourceView: For D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE,
     the address (...) must be aligned to 256 bytes." Since 3371cdb the memory desc is a plain
     buffer's; before, it was `accelerationStructureOffsetAlignment`. Patch 0031 raises the
-    reported alignment to `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT` (256), and the
-    test asserts that the alignment is a multiple of `memoryAlignment.accelerationStructureOffset`
-    and places at the reported one. Micromaps keep 128, their own alignment.
+    reported alignment to `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT` (256). The test
+    places the TLAS at an odd multiple of the reported alignment, the least aligned offset the
+    desc allows, and traces: 2,816 on NVIDIA, VK and D3D12; on v190's D3D12, 2,688 and
+    `CreateAccelerationStructureDescriptor` failed with `INVALID_ARGUMENT` (measured again without
+    0031, 2026-10-22). Micromaps keep 128, their own alignment.
   - A placed pair traces the committed pair's hit map.
 - **Micromap memory paths.**
   - Created, bound, placed, and cloned or compacted micromaps all trace like a committed one. Sizes:
