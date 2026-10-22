@@ -74,17 +74,17 @@ question; the draft states the shape and offers the PR.
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
 | 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
 | 0015 Khronos message id name not forwarded | reporting | not filed: a format he changed on purpose in 59d0785 |
-| N1 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` | bug | phase 1 candidate, not filed: owner's trigger |
-| N2 Vulkan empty vertex input makes the binding stride dynamic | bug | phase 1 candidate, not filed: owner's trigger |
-| N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | phase 1 candidate, not filed: owner's trigger |
-| N4 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` | bug | phase 1 candidate, not filed: owner's trigger |
-| N5 D3D12 2D texture views ignore `layerOffset` | bug | phase 1 candidate, not filed: owner's trigger; the fix shape (refuse or document) is his |
-| N6 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` | bug | phase 1 candidate, not filed: owner's trigger |
-| N7 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 | bug | phase 1 candidate, not filed: owner's trigger |
-| N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | phase 1 candidate, not filed: owner's trigger |
-| N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | phase 2: the desc carries no frame type, so the fix is his API choice |
-| N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | phase 1 candidate, not filed: owner's trigger |
-| N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | recorded 2026-10-22, not filed: packing only, so not phase 1 by the rules; owner's judgment |
+| N1 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N2 Vulkan empty vertex input makes the binding stride dynamic | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N4 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N5 D3D12 2D texture views ignore `layerOffset` | bug | phase 1 candidate, not filed: owner's trigger; the fix shape (refuse or document) is his; reproduced on main 2f7a49f (2026-10-22) |
+| N6 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N7 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | phase 2: the desc carries no frame type, so the fix is his API choice; reproduced on main 2f7a49f (2026-10-22) |
+| N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | recorded 2026-10-22, not filed: packing only, so not phase 1 by the rules; owner's judgment; reproduced on main 2f7a49f (2026-10-22) |
 | `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it |
 | Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
@@ -555,6 +555,31 @@ disposal rule for its allocations was written, then measured. Measured on v190 w
 patches, none of which touch these lines, on the development machine's discrete GPU, and on WARP
 where it says so. Line numbers and code are NRI main's at 2f7a49f, where every line N1 to N11 cite
 is unchanged. N1 to N8, N10 and N11 are written in the filed form; N9 is a phase 2 question.
+
+**Reproduced on NRI main** (2026-10-22): `next` at 7c57f89, NRI 2f7a49f with `next`'s 13 patches,
+none of which touch these lines, on the same GPU. Each probe is the shipped test without its
+workaround (temporary, not committed); N6 and N9 also come from the suite itself, whose micromap test
+skips quoting N6's `Close` failure and whose AV1 test records N9. Every item answers as on v190,
+with the same message texts:
+- N1: Vulkan draws 2,162 of the 4,096 pixels wrong, with VUID-vkCmdBindVertexBuffers2-pStrides-06209;
+  D3D12 is exact.
+- N2: VUID-vkCmdDraw-pStrides-04913 on the draw, the image unchanged; D3D12 is clean.
+- N3: D3D12 dies inside `CmdClearAttachments` with 0xC0000005; Vulkan clears, clean.
+- N4: over a stencil of 9, a pass with the view as `depth` only and a clear value of 5: Vulkan 5,
+  D3D12 9.
+- N5: `ClearStorage` through a `STORAGE_TEXTURE` view with `layerOffset` 1: Vulkan clears layer 1,
+  D3D12 layer 0, with no message.
+- N6: [1331] and the `Close` failure after `{MICROMAP_WRITE, MICROMAP}`; the build alone and the
+  build with `{MICROMAP_WRITE, ALL}` close; [1162] at the micromap's creation, as before.
+- N7: reported alignment 128; a TLAS placed at 2,688 (its address 128 past a multiple of 256) draws
+  [31] from `TryCreateShaderResourceView`.
+- N8: the encoder requires `LOOP_RESTORATION_FILTER | AUTO_SEGMENTATION | CDEF_FILTERING`; NRI's
+  default picture flags draw [1306], and `Close` fails.
+- N9: the payload-header path answers `FAILURE` with no message; two agreeing references describe
+  the key frame as P.
+- N10: `CreateFence` dies with 0xC0000005 on Vulkan and D3D12, NRI validation on and off.
+- N11: the layouts and allocation counts measured on v190, unchanged (Vulkan 1 or 2 allocations at
+  3,056 bytes, D3D12 1 or 2 at 128 KiB, by input order).
 
 ### N1: Vulkan: vertex attributes bind to streamIndex, not the stream's bindingSlot
 
