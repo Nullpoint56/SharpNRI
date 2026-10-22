@@ -11,6 +11,10 @@
 //
 // Thunks never let a managed exception escape: unwinding through a native frame is undefined and
 // terminates the process on Linux. A handler that throws loses that one message, nothing else.
+//
+// An ERROR's text is also kept for the calling thread before the handler runs: NRI reports
+// synchronously, so it is the reason of the call in progress, and the check of that call's result
+// attaches it to the exception (NriException).
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -82,6 +86,7 @@ internal sealed unsafe class MessageBridge : IDisposable
             var bridge = FromUserArg(userArg);
             if (bridge is null) return;
             var message = new NriMessage(type, Interop.Utf8.Read(file), line, Interop.Utf8.Read(text) ?? "");
+            if (message.IsError) NriException.Reported(message.Text);
             bridge._handler(in message);
         }
         catch

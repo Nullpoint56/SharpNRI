@@ -20,8 +20,11 @@ on:
       - "docs/**"
       - ".github/workflows/release.yml"
       - ".github/workflows/regen.yml"
+      - ".github/workflows/coverage.yml"
       - "tools/consume/**"
       - "tools/generate-native.ps1"
+      - "tools/coverage.ps1"
+      - "tools/coverage/**"
   pull_request:
     branches: [master] # pull requests into "next" are verified locally (CLAUDE.md: Branches)
     paths-ignore:
@@ -29,8 +32,11 @@ on:
       - "docs/**"
       - ".github/workflows/release.yml"
       - ".github/workflows/regen.yml"
+      - ".github/workflows/coverage.yml"
       - "tools/consume/**"
       - "tools/generate-native.ps1"
+      - "tools/coverage.ps1"
+      - "tools/coverage/**"
   workflow_dispatch:
 
 concurrency:

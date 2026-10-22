@@ -1,0 +1,55 @@
+name: coverage
+
+# The figures in docs/coverage.md and docs/badges/ are measured on a development machine with a GPU
+# (tools/coverage.ps1); hosted runners have none and skip half the suite, so CI does not measure
+# them. It checks that they still describe the code: the report records the measured commit's tree
+# entries for the binding, its tests, the patches and the NRI commit, and this job fails once any
+# of them differs from the commit under test. A red run is the signal; it blocks nothing. Git only,
+# no build: seconds on one Linux runner, and only when one of those paths or the report changes.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "dotnet/**"
+      - "descs/**"
+      - "testing/**"
+      - "tests/**"
+      - "patches/**"
+      - "nri"
+      - "docs/coverage.md"
+      - "docs/badges/**"
+      - "tools/coverage.ps1"
+      - ".github/workflows/coverage.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "dotnet/**"
+      - "descs/**"
+      - "testing/**"
+      - "tests/**"
+      - "patches/**"
+      - "nri"
+      - "docs/coverage.md"
+      - "docs/badges/**"
+      - "tools/coverage.ps1"
+      - ".github/workflows/coverage.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The coverage figures describe this commit
+        shell: pwsh
+        run: ./tools/coverage.ps1 -Check

@@ -121,8 +121,10 @@ public sealed unsafe class NriQueue
     /// Synchronous host-to-texture copy. The texture must be in <c>{HOST_WRITE, GENERAL, HOST}</c>
     /// and created with <c>HOST_TRANSFER</c> usage. Returns when the data has landed.
     /// </summary>
+    /// <exception cref="ArgumentException">When <paramref name="data"/> is shorter than NRI will read.</exception>
     public void UploadHostMemoryToTexture(NriTexture texture, in TextureRegionDesc region, ReadOnlySpan<byte> data, uint rowPitch = 0, uint slicePitch = 0)
     {
+        CheckHostCopySpan(texture, region, data.Length, rowPitch, slicePitch);
         fixed (byte* p = data)
         {
             var desc = new UploadHostMemoryToTextureDesc { srcData = p, dstTexture = texture.Raw, dstRegion = region, srcRowPitch = rowPitch, srcSlicePitch = slicePitch };
@@ -134,13 +136,36 @@ public sealed unsafe class NriQueue
     /// Synchronous texture-to-host copy. The texture must be in <c>{HOST_READ, GENERAL, HOST}</c>
     /// and created with <c>HOST_TRANSFER</c> usage. The data is valid when this returns.
     /// </summary>
+    /// <exception cref="ArgumentException">When <paramref name="data"/> is shorter than NRI will write.</exception>
     public void ReadbackTextureToHostMemory(NriTexture texture, in TextureRegionDesc region, Span<byte> data, uint rowPitch = 0, uint slicePitch = 0)
     {
+        CheckHostCopySpan(texture, region, data.Length, rowPitch, slicePitch);
         fixed (byte* p = data)
         {
             var desc = new ReadbackTextureToHostMemoryDesc { srcTexture = texture.Raw, dstData = p, srcRegion = region, dstRowPitch = rowPitch, dstSlicePitch = slicePitch };
             Device.Check(Device.Core.ReadbackTextureToHostMemory(_handle, &desc, 1), "ReadbackTextureToHostMemory");
         }
+    }
+
+    // NRI touches, per slice of the region, (rows - 1) row pitches plus one row of texel blocks of host
+    // memory, whatever the span's length (CopyTextureData in DeviceVK.hpp / DeviceD3D12.hpp, or the
+    // driver's host image copy). A pitch of 0 means tightly packed, as in NRI.
+    private static void CheckHostCopySpan(NriTexture texture, in TextureRegionDesc region, int length, uint rowPitch, uint slicePitch)
+    {
+        ref readonly var desc = ref texture.Desc;
+        ref readonly var props = ref Nri.GetFormatProps(desc.format);
+        var mipOffset = region.mipOffset;
+        uint Extent(ushort size, ushort requested) => requested != NriApi.WHOLE_SIZE ? requested : Math.Max((uint)size >> mipOffset, 1u);
+        var width = Extent(desc.width, region.width);
+        var height = Extent(desc.height, region.height);
+        var depth = Extent(desc.depth, region.depth);
+        var rowSize = (ulong)((width + props.blockWidth - 1u) / props.blockWidth) * props.stride;
+        var rowNum = (ulong)((height + props.blockHeight - 1u) / props.blockHeight);
+        var rows = rowPitch != 0 ? rowPitch : rowSize;
+        var slices = slicePitch != 0 ? slicePitch : rows * rowNum;
+        var needed = (depth - 1) * slices + (rowNum - 1) * rows + rowSize;
+        if ((ulong)length < needed)
+            throw new ArgumentException($"{length} bytes for a {width}x{height}x{depth} {desc.format} region at row pitch {rows}, slice pitch {slices}; NRI touches {needed}", "data");
     }
 
     /// <summary>
@@ -230,6 +255,16 @@ public sealed unsafe class NriQueue
     {
         using var utf8 = new Interop.Utf8.Scoped(name);
         Device.Core.QueueAnnotation(_handle, utf8, bgra);
+    }
+
+    /// <summary>
+    /// Sets a debug name on the native queue (<c>ID3D12CommandQueue</c>, <c>VkQueue</c>), shown by
+    /// validation layers and GPU debuggers, as <see cref="NriObject.SetDebugName"/> does for objects.
+    /// </summary>
+    public void SetDebugName(string name)
+    {
+        using var utf8 = new Interop.Utf8.Scoped(name);
+        Device.Core.SetDebugName(_handle, utf8);
     }
 
     /// <summary>

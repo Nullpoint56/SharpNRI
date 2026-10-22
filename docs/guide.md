@@ -92,7 +92,7 @@ ref readonly DeviceDesc caps = ref device.Desc;
 |---|---|
 | `NriDeviceOptions` | mirrors `DeviceCreationDesc` field for field |
 | `QueueFamilies` | empty means one graphics queue. Request every family up front: NRI trims the device's queue counts to what was created, so `Video` is `UNSUPPORTED` unless `VIDEO_DECODE` / `VIDEO_ENCODE` were requested |
-| `MessageHandler` | receives NRI and validation-layer messages. A throwing handler loses that one message. `device.LastError` holds the last error text and is attached to the `NriException` of the call that failed. A Khronos layer message arrives as `[id] name: text` (patch 0015 adds the name, e.g. `BestPractices-vkBindImageMemory-small-dedicated-allocation`; upstream forwards the number and the text, and current layers no longer embed the name in the text) |
+| `MessageHandler` | receives NRI and validation-layer messages. A throwing handler loses that one message. An `NriException` (and `NriDeviceLostException`, `NriUnsupportedException`) carries the last error text reported on its own thread since the binding last checked a result there: the failing call's own, or that of a refused `Cmd*` before it (those return nothing, so nothing checks them); never another thread's, and none when nothing was reported; `device.LastError` holds the device's last error text, from any thread. A Khronos layer message arrives as `[id] name: text` (patch 0015 adds the name, e.g. `BestPractices-vkBindImageMemory-small-dedicated-allocation`; upstream forwards the number and the text, and current layers no longer embed the name in the text) |
 | `BreakOnError` | breaks only when a debugger is attached; otherwise errors never terminate the process. Also decides the D3D12 debug layer's own break (`SetBreakOnSeverity` for ERROR and CORRUPTION), evaluated at device creation: on only with `BreakOnError` and a debugger attached then (patch 0018). Otherwise a D3D12 debug-layer error arrives as an error message, `[id] text` |
 | `EnableD3D12GpuBasedValidation` | D3D12 GPU-based validation (patch 0019): checks descriptors and resource states while shaders run. Slow; needs `EnableGraphicsApiValidation`. Process-global and never switched off: every D3D12 device created later in the process has it |
 | `Allocator` | `INriAllocator` for NRI's own host allocations; `NriCountingAllocator` counts them. A throwing allocator returns null, which NRI reports as out of memory |
@@ -177,9 +177,15 @@ Caveats:
 - Not disposable: `NriQueue` (the device owns it), `NriDescriptorSet` (a struct, not an object:
   the handle plus its pool; the pool owns the set, and `pool.Reset()` or disposing the pool
   invalidates every set).
-- Dispose resources before the memory they are bound to: NRI's validation refuses freeing memory
-  with a resource still bound.
-- `SetDebugName(string)` on every object.
+- Dispose resources before the memory they are bound to. `NriMemory.Dispose` throws
+  `InvalidOperationException` naming the count, before NRI is called, while a buffer, texture,
+  acceleration structure or micromap bound into it (`Bind*Memory`) or placed in it
+  (`CreatePlaced*`) is alive; the memory stays usable. Freeing it first would leak it (NRI's
+  validation refuses) and, on D3D12, make every later device creation in the process fail. NRI
+  does not say which resource `AllocateAndBindMemory` put into which allocation, so each allocation
+  it returns refuses while any resource of that call is alive: dispose every resource of the call,
+  then its allocations.
+- `SetDebugName(string)` on every object, and on `NriQueue`.
 
 ```csharp
 using var device = NriDevice.Create(...);
@@ -194,17 +200,19 @@ using var vb = device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD,
     new BufferDesc { size = 1024, usage = BufferUsageBits.VERTEX });
 Span<byte> mapped = vb.Map();  vb.Unmap();
 
-// Create, measure, allocate, bind
-using var tex = device.CreateTexture(new TextureDesc
+// Create, measure, allocate, bind. `using` disposes in reverse order and the memory must go last,
+// so the texture's `using` comes after the memory's.
+var unbound = device.CreateTexture(new TextureDesc
 {
     type = TextureType.TEXTURE_2D, usage = TextureUsageBits.SHADER_RESOURCE,
     format = Format.RGBA8_UNORM, width = 256, height = 256,
 });
-var req = tex.GetMemoryDesc(MemoryLocation.DEVICE);
+var req = unbound.GetMemoryDesc(MemoryLocation.DEVICE);
 using var mem = device.AllocateMemory(new AllocateMemoryDesc { size = req.size, type = req.type });
+using var tex = unbound;
 device.BindTextureMemory(tex, mem);
 
-// Group unbound resources into few allocations
+// Group unbound resources into few allocations; dispose tex2 and buf2 before any of these
 NriMemory[] allocations = device.AllocateAndBindMemory(MemoryLocation.DEVICE, [tex2], [buf2]);
 
 // Placed
@@ -527,7 +535,7 @@ if (device.TryRayTracing is { } rt)
 
 ```csharp
 using var shared = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, in desc);
-using var handle = device.SharedHandles.GetSharedHandle(shared);   // NriSharedHandle: Handle, Type, Size, Offset; Dispose closes it
+using var handle = device.SharedHandles.GetSharedHandle(shared);   // NriSharedHandle: Handle, Type, Size, Offset; Dispose closes it once
 using var sharedFence = device.SharedHandles.CreateSharedFence();
 using var fenceHandle = device.SharedHandles.GetSharedHandle(sharedFence);
 using var binary = device.SharedHandles.CreateSharedBinaryFence();     // Vulkan only: binary semaphore
@@ -544,8 +552,10 @@ using var binaryHandle = device.SharedHandles.GetSharedHandle(binary);
 - Needs `VK_KHR_external_memory_win32`/`_fd` **and** `VK_KHR_external_semaphore_win32`/`_fd`.
   lavapipe has external memory fd but not external semaphore fd; MoltenVK has neither fd
   extension (only `VK_EXT_external_memory_metal`). On both, `TrySharedHandles` is null.
-- The handle is yours; dispose closes it. NVIDIA Vulkan returned the same NT handle value for two
-  exports of the same memory: do not assume distinct values.
+- The handle is yours; `Dispose` closes it, once: later calls do nothing, and `Handle` reads 0
+  after the first (`NriSharedHandle` is a class, so every reference sees that). No finalizer: a
+  handle never disposed stays open until the process exits. NVIDIA Vulkan returned the same NT
+  handle value for two exports of the same memory: do not assume distinct values.
 - A non-shared texture asked for a handle: `INVALID_ARGUMENT` (through the validation layer).
 - A shared fence still works as a normal fence.
 - **Binary shared fence** (`CreateSharedBinaryFence()`, i.e. `CreateSharedFence(SwapChainSemaphore)`):
@@ -865,7 +875,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | `GetQueue` bad index | `INVALID_ARGUMENT`, no message | Device creation |
 | Video without video queues requested | `Video` is `UNSUPPORTED` | Extensions: Video |
 | Disposing the device first | throws, device stays usable | Lifetime |
-| Freeing memory with a bound resource | validation error | Lifetime |
+| Disposing memory with a bound resource | `InvalidOperationException` naming the count, the memory kept, for resources bound or placed through `Bind*Memory` / `CreatePlaced*`; an `AllocateAndBindMemory` allocation refuses while any resource of its call is alive. Freed first, it would be a validation error, a leak, and on D3D12 every later `D3D12CreateDevice` in the process failing 0x887A0007 | Lifetime |
 | `HOST_READ` / `HOST_WRITE` in a buffer barrier | validation error; fence wait is the visibility | Memory |
 | `UploadData` on NV12 | VK VUID-...-07981, D3D12 error 1417 | Memory |
 | `HOST_TRANSFER` on Apple Paravirtual | segfault in `vkBindImageMemory` | Memory |
@@ -881,7 +891,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | One DXIL library for a D3D12 RT pipeline | `CreateRayTracingPipeline` faults | RayTracing |
 | Single `Proceed()` in a ray query | software traversal may disagree | RayTracing |
 | GPU work longer than 5 s behind `fence.Wait` | `TimeoutException` (NRI's `NRI_TIMEOUT_FENCE`); poll `fence.Value` | RayTracing |
-| D3D12 micromaps | debug error 1162; `Close` fails `E_INVALIDARG` | RayTracing |
+| D3D12 micromaps | debug error 1162 (the prebuild); a `{MICROMAP_WRITE, MICROMAP}` before side fails `Close` (NRI adds postbuild-info sync): use `ALL` stages there | RayTracing |
 | Index-less OMM on Vulkan | VUID-...-pInfos-10904 (likely false positive) | RayTracing |
 | `TrySharedHandles` null | lavapipe (no external semaphore fd), MoltenVK (no fd handles) | SharedHandles |
 | D3D11 opening a D3D12 shared texture | `E_INVALIDARG` (TYPELESS) | SharedHandles |
@@ -907,3 +917,23 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Khronos layer older than NRI's headers | "unknown VkStructureType" errors | Test device |
 | Vulkan loader older than the driver | crashed in `CmdSetRootConstants` on NRI v190 (fixed in NRI a4e562e) | Platform: Linux |
 | Homebrew Vulkan on macOS | not found without `DYLD_FALLBACK_LIBRARY_PATH` and `VK_DRIVER_FILES` | Platform: macOS |
+| An allocator that throws or returns null | NRI calls `Create` on the null object: access violation, not out-of-memory | Device creation |
+| Queue priority between 0 and 0.5 on D3D12, or below 0 on Vulkan | D3D12 stays Normal (High only above 0.5); Vulkan treats low as normal | Device creation |
+| `NriSharedHandle` disposed twice, or never | the second `Dispose` does nothing (`Handle` reads 0 after the first); one never disposed stays open until the process exits (no finalizer) | SharedHandles |
+| Host-memory texture copy into a short span | `ArgumentException`: the binding refuses what NRI would write past | Memory |
+| `AllocateAndBindMemory` with a `preferredMemorySize` | NRI's alignment sort leaves out the last buffer and the last texture, so the allocation count can depend on the order you pass them (one or two for the same three textures); pass each kind in ascending alignment | Memory |
+| Vertex streams declared out of slot order on Vulkan | attributes bind to the stream index: nothing drawn, VUID-...-06209 | Recording |
+| An empty `NriVertexInputDesc` on Vulkan | VUID-vkCmdDraw-pStrides-04913 on every draw; pass `VertexInput = null` | Recording |
+| `ClearAttachments` in a stencil-only pass on D3D12 | access violation in NRI; bind the view as `depth` too | Recording |
+| Depth-stencil view as `depth` only, stencil `CLEAR` | D3D12 leaves the stencil; pass the view as `stencil` too | Recording |
+| `SetDepthBias` on a pipeline without a static bias | the bias is not dynamic: VUID-vkCmdDraw-None-08608 / D3D12 1366 | Recording |
+| Draw-parameters emulation on Vulkan | indirect records misread; set the flag on D3D12 only | Recording |
+| No barrier between a compute write and an indirect read | NVIDIA reads zeros without a message; only synchronization validation reports it | Recording |
+| A `TEXTURE` / `STORAGE_TEXTURE` view of layer N > 0 of a 2D texture | D3D12 uses layer 0, silently; use the `_ARRAY` view types | Descriptors |
+| A storage view over several mips in `ClearStorage` | Vulkan clears every mip, D3D12 only the first; one mip per storage view | Descriptors |
+| D3D12 attachment resolve into layer or mip > 0 (v190) | wrong subresource or `Close` fails; fixed on NRI's main | Recording |
+| Occlusion query counts on Vulkan | NRI begins them without `PRECISE`: only non-zero is guaranteed | Queries |
+| Pipeline statistics read at `sizeof(PipelineStatisticsDesc)` | wrong on Vulkan (104 bytes a query); read at `QuerySize` | Queries |
+| Acceleration structure placed at the D3D12 memory desc's alignment | 128 under tight alignment; its descriptor is refused; use `memoryAlignment.accelerationStructureOffset` (256) | RayTracing |
+| AV1 encode on D3D12 with NRI's default picture flags | debug error 1306, `Close` fails; add `SEGMENTATION_ENABLED` when `AUTO_SEGMENTATION` is required | Video |
+| `GetVideoAV1EncodeDecodeInfo` on D3D12 with a payload header, or references for a key frame | `FAILURE` without a message, or the key frame described as inter | Video |

@@ -190,6 +190,10 @@ public sealed unsafe partial class NriDevice
             allocator?.Dispose();
             throw;
         }
+        finally
+        {
+            NriException.ClearReported(); // creation's own messages are no later call's reason
+        }
     }
 
     /// <summary>
@@ -266,6 +270,7 @@ public sealed unsafe partial class NriDevice
         finally
         {
             foreach (var pin in pins) pin.Free();
+            NriException.ClearReported(); // creation's own messages are no later call's reason
         }
     }
 }

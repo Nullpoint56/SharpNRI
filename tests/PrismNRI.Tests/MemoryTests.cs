@@ -229,4 +229,207 @@ public sealed class MemoryTests
         Assert.True(bufferMemory.IsDisposed);
         Assert.DoesNotContain(messages, m => m.IsError);
     }
+
+    /// <summary>
+    /// NriMemory refuses disposal while a resource bound into it or placed in it through the binding
+    /// is alive, before NRI is called. One allocation holds a buffer bound with BindBufferMemory and
+    /// a second placed after it with CreatePlacedBuffer; a texture is bound into a second allocation
+    /// with BindTextureMemory and another placed into a third with CreatePlacedTexture. Disposing
+    /// each allocation throws InvalidOperationException naming its count (2, 1, 1); NRI reports
+    /// nothing (its FreeMemory, validation on, would report "some resources are still bound to the
+    /// memory" and leave the allocation unfreed), the device still counts every allocation, and a
+    /// copy through both buffers still reads back. Disposing the placed buffer drops the first count
+    /// to 1; once every resource is gone each allocation disposes. Then, on D3D12, a new device works:
+    /// memory freed with a resource bound makes every later D3D12CreateDevice in the process fail
+    /// with 0x887A0007 (measured in probes only; CLAUDE.md: Lifetime).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Memory_refuses_disposal_while_resources_are_bound(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        List<NriMessage> Since(int start) { lock (messages) return messages.Skip(start).ToList(); }
+
+        using (var device = TestDevice.Create(backend.Api, messages))
+        {
+            var resources = new List<NriObject>();
+            var memories = new List<NriMemory>();
+            T Resource<T>(T resource) where T : NriObject { resources.Add(resource); return resource; }
+            NriMemory Memory(NriMemory memory) { memories.Add(memory); return memory; }
+            try
+            {
+                var boundBuffer = Resource(device.CreateBuffer(StorageBuffer));
+                var bufferRequirements = boundBuffer.GetMemoryDesc(MemoryLocation.DEVICE);
+                Assert.True(bufferRequirements.mustBeDedicated == 0, $"{backend}: the buffer needs a dedicated allocation, so a second cannot be placed beside it");
+                var stride = Align(bufferRequirements.size, Math.Max(bufferRequirements.alignment, 1u));
+                var bufferMemory = Memory(device.AllocateMemory(new AllocateMemoryDesc { size = stride * 2, type = bufferRequirements.type }));
+                device.BindBufferMemory(boundBuffer, bufferMemory);
+                var placedBuffer = Resource(device.CreatePlacedBuffer(bufferMemory, stride, StorageBuffer));
+
+                var boundTexture = Resource(device.CreateTexture(SampledTexture));
+                var textureRequirements = boundTexture.GetMemoryDesc(MemoryLocation.DEVICE);
+                var textureMemory = Memory(device.AllocateMemory(AllocationFor(textureRequirements)));
+                device.BindTextureMemory(boundTexture, textureMemory);
+                var placedTextureMemory = Memory(device.AllocateMemory(AllocationFor(textureRequirements)));
+                var placedTexture = Resource(device.CreatePlacedTexture(placedTextureMemory, 0, SampledTexture));
+
+                // The counts first: a wrong one would let Dispose free bound memory in this process.
+                Assert.Equal((2, 1, 1), (bufferMemory.BoundResources, textureMemory.BoundResources, placedTextureMemory.BoundResources));
+                int start;
+                lock (messages) start = messages.Count;
+                var live = device.LiveObjects;
+                foreach (var (memory, count) in new[] { (bufferMemory, 2), (textureMemory, 1), (placedTextureMemory, 1) })
+                {
+                    var refused = Assert.Throws<InvalidOperationException>(memory.Dispose);
+                    Record($"{backend}: {refused.Message}");
+                    Assert.Contains($"with {count} resource(s) still bound", refused.Message, StringComparison.Ordinal);
+                    Assert.False(memory.IsDisposed);
+                }
+                Assert.Equal(live, device.LiveObjects);
+                Assert.Empty(Since(start));
+
+                // The allocation still backs both buffers: a copy through them reads back.
+                using (var upload = device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = StorageBuffer.size }))
+                using (var readback = device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = StorageBuffer.size }))
+                {
+                    upload.Map().Fill(0x5C);
+                    upload.Unmap();
+                    Run(device, cmd =>
+                    {
+                        cmd.Barrier([], [new NriBufferBarrier(upload, Nothing, CopySource), new NriBufferBarrier(boundBuffer, Nothing, CopyDestination), new NriBufferBarrier(placedBuffer, Nothing, CopyDestination)], []);
+                        cmd.CopyBuffer(boundBuffer, 0, upload, 0, StorageBuffer.size);
+                        cmd.Barrier(new NriBufferBarrier(boundBuffer, CopyDestination, CopySource));
+                        cmd.CopyBuffer(placedBuffer, 0, boundBuffer, 0, StorageBuffer.size);
+                        cmd.Barrier(new NriBufferBarrier(placedBuffer, CopyDestination, CopySource));
+                        cmd.CopyBuffer(readback, 0, placedBuffer, 0, StorageBuffer.size);
+                    });
+                    var bytes = readback.Map().ToArray();
+                    readback.Unmap();
+                    Assert.True(bytes.All(b => b == 0x5C), $"readback starts {Convert.ToHexString(bytes, 0, 16)}, expected 5C throughout");
+                }
+
+                placedBuffer.Dispose();
+                var stillBound = Assert.Throws<InvalidOperationException>(bufferMemory.Dispose);
+                Assert.Contains("with 1 resource(s) still bound", stillBound.Message, StringComparison.Ordinal);
+                boundBuffer.Dispose();
+                bufferMemory.Dispose();
+                boundTexture.Dispose();
+                textureMemory.Dispose();
+                placedTexture.Dispose();
+                placedTextureMemory.Dispose();
+                Assert.All(memories, m => Assert.True(m.IsDisposed));
+                Assert.Equal(0, device.LiveObjects);
+            }
+            finally
+            {
+                for (var i = resources.Count - 1; i >= 0; i--) resources[i].Dispose();
+                foreach (var memory in memories) memory.Dispose();
+            }
+        }
+        Assert.DoesNotContain(messages, m => m.IsError);
+
+        if (backend.Api != GraphicsAPI.D3D12) return;
+        var next = new List<NriMessage>();
+        using (var device = TestDevice.Create(GraphicsAPI.D3D12, next))
+        using (var buffer = device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = StorageBuffer.size }))
+        {
+            Assert.NotEqual(0UL, buffer.GetNativeObject());
+        }
+        Assert.DoesNotContain(next, m => m.IsError);
+    }
+
+    /// <summary>
+    /// The allocations of one AllocateAndBindMemory call refuse disposal while any resource of the
+    /// call is alive, each of them, since NRI does not say which resource went into which. A
+    /// preferred size of 1 byte makes NRI's helper open an allocation per resource (FindOrCreateHeap
+    /// reuses a heap only while it stays within that size; a dedicated resource gets its own anyway),
+    /// so two buffers and a texture get three. Each refuses naming 3, before NRI is called (no
+    /// message, the device still counts it); with one buffer disposed each refuses naming 2, the one
+    /// that held it included, and the other buffer still carries a copy. Once every resource is
+    /// gone each allocation disposes, and on D3D12 a new device works.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Allocations_of_one_AllocateAndBindMemory_call_refuse_disposal_until_all_its_resources_are_gone(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        List<NriMessage> Since(int start) { lock (messages) return messages.Skip(start).ToList(); }
+
+        using (var device = TestDevice.Create(backend.Api, messages))
+        {
+            var first = device.CreateBuffer(StorageBuffer);
+            var second = device.CreateBuffer(StorageBuffer);
+            var texture = device.CreateTexture(SampledTexture);
+            NriMemory[] allocations = [];
+            try
+            {
+                allocations = device.AllocateAndBindMemory(MemoryLocation.DEVICE, [texture], [first, second], preferredMemorySize: 1);
+                Record($"{backend}: AllocateAndBindMemory(2 buffers + 1 texture, preferred size 1) returned {allocations.Length} allocations");
+                Assert.Equal(3, allocations.Length);
+                Assert.All(allocations, a => Assert.Equal(3, a.BoundResources));
+
+                int start;
+                lock (messages) start = messages.Count;
+                var live = device.LiveObjects;
+                void AllRefuse(int count)
+                {
+                    foreach (var allocation in allocations)
+                    {
+                        var refused = Assert.Throws<InvalidOperationException>(allocation.Dispose);
+                        Assert.Contains($"with {count} resource(s) of its AllocateAndBindMemory call still alive", refused.Message, StringComparison.Ordinal);
+                        Assert.False(allocation.IsDisposed);
+                    }
+                }
+                AllRefuse(3);
+                Assert.Equal(live, device.LiveObjects);
+                first.Dispose();
+                AllRefuse(2);
+                Assert.Equal(live - 1, device.LiveObjects);
+                Assert.Empty(Since(start));
+
+                // The allocations still back the rest: a copy through the second buffer reads back.
+                using (var upload = device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = StorageBuffer.size }))
+                using (var readback = device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = StorageBuffer.size }))
+                {
+                    upload.Map().Fill(0xA7);
+                    upload.Unmap();
+                    Run(device, cmd =>
+                    {
+                        cmd.Barrier([], [new NriBufferBarrier(upload, Nothing, CopySource), new NriBufferBarrier(second, Nothing, CopyDestination)], []);
+                        cmd.CopyBuffer(second, 0, upload, 0, StorageBuffer.size);
+                        cmd.Barrier(new NriBufferBarrier(second, CopyDestination, CopySource));
+                        cmd.CopyBuffer(readback, 0, second, 0, StorageBuffer.size);
+                    });
+                    var bytes = readback.Map().ToArray();
+                    readback.Unmap();
+                    Assert.True(bytes.All(b => b == 0xA7), $"readback starts {Convert.ToHexString(bytes, 0, 16)}, expected A7 throughout");
+                }
+
+                second.Dispose();
+                texture.Dispose();
+                foreach (var allocation in allocations) allocation.Dispose();
+                Assert.All(allocations, a => Assert.True(a.IsDisposed));
+                Assert.Equal(0, device.LiveObjects);
+            }
+            finally
+            {
+                texture.Dispose();
+                second.Dispose();
+                first.Dispose();
+                foreach (var allocation in allocations) allocation.Dispose();
+            }
+        }
+        Assert.DoesNotContain(messages, m => m.IsError);
+
+        if (backend.Api != GraphicsAPI.D3D12) return;
+        var next = new List<NriMessage>();
+        using (var device = TestDevice.Create(GraphicsAPI.D3D12, next))
+        using (var buffer = device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = StorageBuffer.size }))
+        {
+            Assert.NotEqual(0UL, buffer.GetNativeObject());
+        }
+        Assert.DoesNotContain(next, m => m.IsError);
+    }
 }

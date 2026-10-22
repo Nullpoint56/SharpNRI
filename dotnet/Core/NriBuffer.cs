@@ -9,6 +9,7 @@ namespace PrismNRI;
 public sealed unsafe class NriBuffer : NriObject
 {
     private readonly bool _owned;
+    private NriMemory.Holders? _memory; // of the memory bound into or placed in through the binding, which refuses disposal while set
 
     internal NriBuffer(NriDevice device, Buffer* handle, bool owned = true) : base(handle, "NriBuffer")
     {
@@ -48,10 +49,14 @@ public sealed unsafe class NriBuffer : NriObject
     /// Maps a host-visible range. Persistent on D3D12 and Vulkan; <see cref="Unmap"/> flushes
     /// where the memory is not host-coherent. Not valid on <c>DEVICE</c> memory.
     /// </summary>
+    /// <exception cref="NriException">
+    /// With <see cref="Result.FAILURE"/> when NRI maps nothing (it returns null), carrying the error
+    /// text NRI reported for this call, if it reported one (NONE maps nothing and says nothing).
+    /// </exception>
     public Span<byte> Map(ulong offset, ulong size)
     {
         var p = Device.Core.MapBuffer(Raw, offset, size);
-        if (p is null) throw new NriException(Result.FAILURE, "MapBuffer", Device.LastError);
+        Device.Check(p is null ? Result.FAILURE : Result.SUCCESS, "MapBuffer");
         var length = size == NriApi.WHOLE_SIZE ? Desc.size - offset : size;
         return new Span<byte>(p, checked((int)length));
     }
@@ -82,6 +87,9 @@ public sealed unsafe class NriBuffer : NriObject
     /// <summary><c>ID3D12Resource*</c> on D3D12, <c>VkBuffer</c> on Vulkan. Last resort.</summary>
     public ulong GetNativeObject() => Device.Core.GetBufferNativeObject(Raw);
 
+    /// <summary>Bound into or placed in <paramref name="memory"/>, which then outlives this buffer.</summary>
+    internal void BoundTo(NriMemory memory) => NriMemory.Track(ref _memory, memory);
+
     private protected override void Destroy(void* handle)
     {
         if (_owned) Device.Core.DestroyBuffer((Buffer*)handle);
@@ -89,6 +97,7 @@ public sealed unsafe class NriBuffer : NriObject
 
     private protected override void OnDestroyed()
     {
+        NriMemory.Release(ref _memory);
         if (_owned) base.OnDestroyed();
     }
 }
