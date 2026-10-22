@@ -364,10 +364,10 @@ configured per machine: the adapter named is whichever one the suite picked on t
   hits is bound, but no test calls it. The numbers are the machine's (2026-10-21): at f17a5d8
   Windows on the RTX 4070 SUPER ran 287 tests and skipped 5, lines 83.2%, 207 of 253 call sites
   run; at a5e1364 (the same inputs) lavapipe in WSL ran 137 and skipped 155, lines 71.2%, 176 of
-  253. After the coverage tests (c2a0294): Windows 481 tests, 12 skipped, lines 97.3%, branches
-  80.0%, 251 of 253 (the two left need the Upscalers payload or a feedback resolve no backend here
-  asks for); lavapipe 480, 266 skipped, with the clipping-primitive counter a recorded lavapipe
-  bug (Multisampling, copies and queries). The committed report is measured where its header says; CI does not run it.
+  253. After the coverage tests and the binding fixes they led to (acf8f05): Windows 494 tests, 12
+  skipped, lines 98.0%, branches 81.3%, 251 of 253 (the two left need the Upscalers payload or a
+  feedback resolve no backend here asks for); lavapipe 493, 273 skipped, 0 failed, the
+  clipping-primitive counter asserted as its known bug (Multisampling, copies and queries). The committed report is measured where its header says; CI does not run it.
 
 ---
 
