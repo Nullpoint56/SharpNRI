@@ -912,6 +912,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Queue priority between 0 and 0.5 on D3D12, or below 0 on Vulkan | D3D12 stays Normal (High only above 0.5); Vulkan treats low as normal | Device creation |
 | `NriSharedHandle` disposed twice, or never | the second `Dispose` does nothing (`Handle` reads 0 after the first); one never disposed stays open until the process exits (no finalizer) | SharedHandles |
 | Host-memory texture copy into a short span | `ArgumentException`: the binding refuses what NRI would write past | Memory |
+| `AllocateAndBindMemory` with a `preferredMemorySize` | NRI's alignment sort leaves out the last buffer and the last texture, so the allocation count can depend on the order you pass them (one or two for the same three textures); pass each kind in ascending alignment | Memory |
 | Vertex streams declared out of slot order on Vulkan | attributes bind to the stream index: nothing drawn, VUID-...-06209 | Recording |
 | An empty `NriVertexInputDesc` on Vulkan | VUID-vkCmdDraw-pStrides-04913 on every draw; pass `VertexInput = null` | Recording |
 | `ClearAttachments` in a stencil-only pass on D3D12 | access violation in NRI; bind the view as `depth` too | Recording |

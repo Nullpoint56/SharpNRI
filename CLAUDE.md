@@ -715,6 +715,25 @@ configured per machine: the adapter named is whichever one the suite picked on t
   backends (`FixTextureDesc`); `BufferDesc` comes back as given.
 - 1000-byte buffer requirement: VK 1,008 at 16; D3D12 inbox 65,536 at 65,536; Agility 1,024 at 128.
   Upload row/slice alignment: VK 1/16, D3D12 1/1.
+- **Alignment by usage** (NVIDIA, Agility, all in one memory type per backend): Vulkan buffers 16
+  for vertex, index, shader-resource, storage and argument use, 64 for constant, 128 for scratch,
+  256 for acceleration-structure storage; Vulkan textures 1,024. D3D12 buffers 128 for every usage;
+  textures 4 KiB up to a 64x64 RGBA8 shader resource, 64 KiB when larger or an attachment, 4 MiB
+  with 4 samples.
+- **`AllocateAndBindMemory` packs the last buffer and the last texture unsorted (N11, not patched).**
+  - NRI's helper sorts each kind by memory type, then ascending alignment, before packing, but ends
+    the range at `&buffers[bufferNum - 1]` and `&textures[textureNum - 1]`, which `std::sort`
+    excludes (`HelperInterface.hpp:559`, `:571` at v190, `:558`, `:570` on main; since b5e2b07,
+    v176). The last of each kind is packed where it was passed, and two of a kind are never
+    sorted.
+  - Measured: Vulkan buffers passed as scratch, constant, vertex land at +1024, +0, +2032. With
+    `preferredMemorySize` 3056, vertex, scratch, constant need two allocations, where vertex,
+    constant, scratch fit one. D3D12 textures with 128 KiB: one allocation with the 64 KiB-aligned
+    attachment passed last, two with a 4 KiB-aligned texture last.
+  - Packing only: every layout is valid. Passing each kind in ascending alignment gives the order
+    NRI intends. The sorted order is not always the tightest (as passed, scratch, constant, vertex
+    fit 3,040 bytes; sorted, 3,056). Recorded in `next`'s `docs/upstream.md`; filing is the
+    owner's judgment.
 - D3D12 descriptor-set heap offsets for three sets: (0,0), (3,1), (6,2); (0,0) after `Reset`. VK
   (0,0) always.
 - **EXCLUSIVE images get no queue family indices (patch 0013).** `DeviceVK::FillCreateInfo` set
