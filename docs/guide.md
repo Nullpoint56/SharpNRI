@@ -95,7 +95,7 @@ ref readonly DeviceDesc caps = ref device.Desc;
 | `MessageHandler` | receives NRI and validation-layer messages. A throwing handler loses that one message. An `NriException` (and `NriDeviceLostException`, `NriUnsupportedException`) carries the last error text reported on its own thread since the binding last checked a result there: the failing call's own, or that of a refused `Cmd*` before it (those return nothing, so nothing checks them); never another thread's, and none when nothing was reported; `device.LastError` holds the device's last error text, from any thread. A Khronos layer message arrives as `[id] name: text` (patch 0015 adds the name, e.g. `BestPractices-vkBindImageMemory-small-dedicated-allocation`; upstream forwards the number and the text, and current layers no longer embed the name in the text) |
 | `BreakOnError` | breaks only when a debugger is attached; otherwise errors never terminate the process. Also decides the D3D12 debug layer's own break (`SetBreakOnSeverity` for ERROR and CORRUPTION), evaluated at device creation: on only with `BreakOnError` and a debugger attached then (patch 0018). Otherwise a D3D12 debug-layer error arrives as an error message, `[id] text` |
 | `EnableD3D12GpuBasedValidation` | D3D12 GPU-based validation (patch 0019): checks descriptors and resource states while shaders run. Slow; needs `EnableGraphicsApiValidation`. Process-global and never switched off: every D3D12 device created later in the process has it |
-| `Allocator` | `INriAllocator` for NRI's own host allocations; `NriCountingAllocator` counts them. A throwing allocator returns null, which NRI reports as out of memory |
+| `Allocator` | `INriAllocator` for NRI's own host allocations; `NriCountingAllocator` counts them. It must not fail: a null (a throwing allocator returns one) fails an NRI object's creation with `OUT_OF_MEMORY` (patch 0034), but NRI's containers allocate through it too and crash on one, device creation's first allocation among them |
 | `ForwardAllocatorToThirdParty` | also routes VMA / D3D12MA host allocations; off by default (chatty) |
 | `D3D12AgilitySdkPath` | null: the `AgilitySDK` directory beside the assembly when present (`NriDevice.DefaultAgilitySdkPath`), else inbox. `""`: force inbox |
 | `VkBindingOffsets` | see [Descriptors and layouts](#descriptors-and-layouts) |
@@ -615,6 +615,13 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   sets, VUI, scaling lists and tiles. The header does not say.
 - `GetVideoAV1EncodeDecodeInfo` returns pointers into the result struct itself: keep the struct
   alive and unmoved while using them.
+- **Describing an AV1 key frame**: set `NriVideoAV1EncodeDecodeInfoDesc.KeyFrame` (patch 0033).
+  D3D12 describes the frame from the encoder's metadata, which carries no frame type, so without
+  it the references you pass make the frame inter. `EncodedPayloadHeader` is required on Vulkan
+  and not read on D3D12, whose payload is tile data with no OBUs; pass the same desc to both.
+- **AV1 encode, D3D12**: NRI's default picture flags encode (patch 0032 turns on the automatic
+  segmentation the encoder may require); one tile only, no explicit segmentation. Under CQP the
+  picture desc's base q index is ignored: set it through the rate control.
 
 ### Streamer
 
@@ -882,7 +889,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | One DXIL library for a D3D12 RT pipeline | `CreateRayTracingPipeline` faults | RayTracing |
 | Single `Proceed()` in a ray query | software traversal may disagree | RayTracing |
 | GPU work longer than 5 s behind `fence.Wait` | `TimeoutException` (NRI's `NRI_TIMEOUT_FENCE`); poll `fence.Value` | RayTracing |
-| D3D12 micromaps | debug error 1162 (the prebuild); a `{MICROMAP_WRITE, MICROMAP}` before side fails `Close` (NRI adds postbuild-info sync): use `ALL` stages there | RayTracing |
+| D3D12 micromaps | debug error 1162 (the prebuild). A `{MICROMAP_WRITE, MICROMAP}` before side closes (patch 0030); before the patch NRI added postbuild-info sync and `Close` failed | RayTracing |
 | Index-less OMM on Vulkan | VUID-...-pInfos-10904 (likely false positive) | RayTracing |
 | `TrySharedHandles` null | lavapipe (no external semaphore fd), MoltenVK (no fd handles) | SharedHandles |
 | D3D11 opening a D3D12 shared texture | `E_INVALIDARG` (TYPELESS) | SharedHandles |
@@ -908,23 +915,23 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Khronos layer older than NRI's headers | "unknown VkStructureType" errors | Test device |
 | Vulkan loader older than the driver | crash in `CmdSetRootConstants` (fixed by patch 0004) | Platform: Linux |
 | Homebrew Vulkan on macOS | not found without `DYLD_FALLBACK_LIBRARY_PATH` and `VK_DRIVER_FILES` | Platform: macOS |
-| An allocator that throws or returns null | NRI calls `Create` on the null object: access violation, not out-of-memory | Device creation |
+| An allocator that throws or returns null | an NRI object's creation fails with `OUT_OF_MEMORY` (patch 0034); inside NRI's containers, device creation's first allocation among them, still an access violation. An allocator must not fail | Device creation |
 | Queue priority between 0 and 0.5 on D3D12, or below 0 on Vulkan | D3D12 stays Normal (High only above 0.5); Vulkan treats low as normal | Device creation |
 | `NriSharedHandle` disposed twice, or never | the second `Dispose` does nothing (`Handle` reads 0 after the first); one never disposed stays open until the process exits (no finalizer) | SharedHandles |
 | Host-memory texture copy into a short span | `ArgumentException`: the binding refuses what NRI would write past | Memory |
-| `AllocateAndBindMemory` with a `preferredMemorySize` | NRI's alignment sort leaves out the last buffer and the last texture, so the allocation count can depend on the order you pass them (one or two for the same three textures); pass each kind in ascending alignment | Memory |
-| Vertex streams declared out of slot order on Vulkan | attributes bind to the stream index: nothing drawn, VUID-...-06209 | Recording |
-| An empty `NriVertexInputDesc` on Vulkan | VUID-vkCmdDraw-pStrides-04913 on every draw; pass `VertexInput = null` | Recording |
-| `ClearAttachments` in a stencil-only pass on D3D12 | access violation in NRI; bind the view as `depth` too | Recording |
-| Depth-stencil view as `depth` only, stencil `CLEAR` | D3D12 leaves the stencil; pass the view as `stencil` too | Recording |
+| `AllocateAndBindMemory` with a `preferredMemorySize` | packs alike in every order (patch 0035); before the patch NRI's alignment sort left out the last buffer and the last texture, so the count could be one or two for the same three textures | Memory |
+| Vertex streams declared out of slot order on Vulkan | each attribute reads its stream's slot (patch 0025); before the patch the stream index: nothing drawn, VUID-...-06209 | Recording |
+| An empty `NriVertexInputDesc` on Vulkan | draws as `VertexInput = null` (patch 0026); before the patch VUID-vkCmdDraw-pStrides-04913 on every draw | Recording |
+| `ClearAttachments` in a stencil-only pass on D3D12 | clears (patch 0027); before the patch an access violation in NRI | Recording |
+| Depth-stencil view as `depth` only, `LoadOp.CLEAR` | clears the stencil too, with the `depth` clear value, as on Vulkan (patch 0028); before the patch D3D12 left it | Recording |
 | `SetDepthBias` on a pipeline without a static bias | the bias is not dynamic: VUID-vkCmdDraw-None-08608 / D3D12 1366 | Recording |
 | Draw-parameters emulation on Vulkan | indirect records misread; set the flag on D3D12 only | Recording |
 | No barrier between a compute write and an indirect read | NVIDIA reads zeros without a message; only synchronization validation reports it | Recording |
-| A `TEXTURE` / `STORAGE_TEXTURE` view of layer N > 0 of a 2D texture | D3D12 uses layer 0, silently; use the `_ARRAY` view types | Descriptors |
+| A `TEXTURE` / `STORAGE_TEXTURE` / `TEXTURE_CUBE` view of a layer other than the first | refused with `INVALID_ARGUMENT` (patch 0029: D3D12 cannot express it; before the patch D3D12 used the first layer, silently); use the `_ARRAY` view types | Descriptors |
 | A storage view over several mips in `ClearStorage` | Vulkan clears every mip, D3D12 only the first; one mip per storage view | Descriptors |
-| D3D12 attachment resolve into layer or mip > 0 (v190) | wrong subresource or `Close` fails; fixed on NRI's main | Recording |
+| D3D12 attachment resolve into layer or mip > 0, or of a layered view | right with patch 0036 (NRI main's fix, backported to v190); without it a wrong subresource, `Close` failing, or the first layer only | Recording |
 | Occlusion query counts on Vulkan | NRI begins them without `PRECISE`: only non-zero is guaranteed | Queries |
 | Pipeline statistics read at `sizeof(PipelineStatisticsDesc)` | wrong on Vulkan (104 bytes a query); read at `QuerySize` | Queries |
-| Acceleration structure placed at the D3D12 memory desc's alignment | 128 under tight alignment; its descriptor is refused; use `memoryAlignment.accelerationStructureOffset` (256) | RayTracing |
-| AV1 encode on D3D12 with NRI's default picture flags | debug error 1306, `Close` fails; add `SEGMENTATION_ENABLED` when `AUTO_SEGMENTATION` is required | Video |
-| `GetVideoAV1EncodeDecodeInfo` on D3D12 with a payload header, or references for a key frame | `FAILURE` without a message, or the key frame described as inter | Video |
+| Acceleration structure placed at the D3D12 memory desc's alignment | 256 (patch 0031); before the patch 128 under tight alignment, and the descriptor was refused | RayTracing |
+| AV1 encode on D3D12 with NRI's default picture flags | encodes (patch 0032); before the patch debug error 1306 and `Close` failed when the encoder requires automatic segmentation | Video |
+| `GetVideoAV1EncodeDecodeInfo` on D3D12 with references for a key frame | the key frame is described as inter unless `KeyFrame` is set (patch 0033, which also stops D3D12 parsing a payload header and answering `FAILURE`) | Video |
