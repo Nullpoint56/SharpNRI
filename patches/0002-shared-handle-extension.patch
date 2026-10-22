@@ -17,7 +17,8 @@ This patch adds one NRI-shaped extension, NRISharedHandle.h:
 The Vulkan backend enables VK_KHR_external_memory_win32/fd and VK_KHR_external_semaphore_win32/fd
 when the device has them (skipping any the app already requested through vkExtensions) and reports
 the extension UNSUPPORTED when it does not. The NONE backend returns dummy objects and a zero
-handle. The validation layer wraps the four calls. Applies on top of NRI v190 and patch 0001.
+handle. The validation layer wraps the four calls; when its wrapper allocation fails it destroys
+the backend object and answers OUT_OF_MEMORY. Applies on top of NRI v190 and patch 0001.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
 index 1d48b9f..576f86e 100644
@@ -782,10 +783,10 @@ index 07c3e31..77958e8 100644
      m_IsExtSupported.video = deviceBaseImpl.FillFunctionTable(m_iVideoImpl) == Result::SUCCESS;
      m_IsExtSupported.swapChain = deviceBaseImpl.FillFunctionTable(m_iSwapChainImpl) == Result::SUCCESS;
 diff --git a/Source/Validation/ImplVal.cpp b/Source/Validation/ImplVal.cpp
-index 62ce094..936dfc1 100644
+index 62ce094..32fcf02 100644
 --- a/Source/Validation/ImplVal.cpp
 +++ b/Source/Validation/ImplVal.cpp
-@@ -2628,3 +2628,60 @@ Result DeviceVal::FillFunctionTable(WrapperVKInterface& table) const {
+@@ -2628,3 +2628,70 @@ Result DeviceVal::FillFunctionTable(WrapperVKInterface& table) const {
  }
  
  #pragma endregion
@@ -804,8 +805,13 @@ index 62ce094..936dfc1 100644
 +    Result result = deviceVal.GetSharedHandleInterfaceImpl().CreateSharedTexture(deviceVal.GetImpl(), memoryLocation, priority, textureDesc, textureImpl);
 +
 +    texture = nullptr;
-+    if (result == Result::SUCCESS)
++    if (result == Result::SUCCESS) {
 +        texture = (Texture*)Allocate<TextureVal>(deviceVal.GetAllocationCallbacks(), deviceVal, textureImpl, true);
++        if (!texture) {
++            deviceVal.GetCoreInterfaceImpl().DestroyTexture(textureImpl);
++            result = Result::OUT_OF_MEMORY;
++        }
++    }
 +
 +    return result;
 +}
@@ -817,8 +823,13 @@ index 62ce094..936dfc1 100644
 +    Result result = deviceVal.GetSharedHandleInterfaceImpl().CreateSharedFence(deviceVal.GetImpl(), initialValue, fenceImpl);
 +
 +    fence = nullptr;
-+    if (result == Result::SUCCESS)
++    if (result == Result::SUCCESS) {
 +        fence = (Fence*)Allocate<FenceVal>(deviceVal.GetAllocationCallbacks(), deviceVal, fenceImpl, initialValue == SWAPCHAIN_SEMAPHORE);
++        if (!fence) {
++            deviceVal.GetCoreInterfaceImpl().DestroyFence(fenceImpl);
++            result = Result::OUT_OF_MEMORY;
++        }
++    }
 +
 +    return result;
 +}

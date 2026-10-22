@@ -14,11 +14,11 @@ namespace PrismNRI.Tests;
 public sealed class RayTracingMemoryTests
 {
     /// <summary>
-    /// A BLAS at offset 0 and a TLAS at the next offset aligned for it, both in one allocation sized
-    /// from NRI's own prediction (<c>GetAccelerationStructureMemoryDesc2</c>), through
-    /// <c>CreatePlacedAccelerationStructure</c>. The placed pair answers every ray as a committed
-    /// pair does. NRI's validation checks each placement against the same prediction (alignment
-    /// and range), so a wrong offset is an error message and fails the test.
+    /// A BLAS at offset 0 and a TLAS at an odd multiple of its predicted alignment, both in one
+    /// allocation sized from NRI's own prediction (<c>GetAccelerationStructureMemoryDesc2</c>),
+    /// through <c>CreatePlacedAccelerationStructure</c>. The placed pair answers every ray as a
+    /// committed pair does. NRI's validation checks each placement against the same prediction
+    /// (alignment and range), so a wrong offset is an error message and fails the test.
     /// </summary>
     /// <remarks>
     /// A null memory is also legal in NRI (<c>NriOptional</c>): validation then reads the offset as a
@@ -45,14 +45,20 @@ public sealed class RayTracingMemoryTests
         Assert.Equal(blasMemory.type, tlasMemory.type);
         Assert.True(blasMemory.mustBeDedicated == 0 && tlasMemory.mustBeDedicated == 0, $"{backend}: an acceleration structure needs a dedicated allocation, so two cannot share one");
 
-        // The TLAS goes after the BLAS, at the first offset both its memory desc and the device's
-        // memoryAlignment.accelerationStructureOffset allow: never 0. Both, because D3D12 reports the
-        // tight-placement alignment of the buffer (128, measured) while its acceleration structure
-        // addresses must be 256-aligned: a TLAS placed at 2688 passed NRI's validation and its
-        // descriptor was refused ("[31] ID3D12Device::TryCreateShaderResourceView: For
+        // The TLAS goes after the BLAS at an odd multiple of the alignment its memory desc reports,
+        // the least aligned offset that desc allows: an alignment too small for an acceleration
+        // structure then shows. Before patch 0031 NRI's D3D12 backend reported the tight-placement
+        // alignment of a plain buffer (128, measured) while acceleration structure addresses must be
+        // 256-aligned (N7): the TLAS placed at 2688 passed NRI's validation and its descriptor was
+        // refused ("[31] ID3D12Device::TryCreateShaderResourceView: For
         // D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE, the address (...) must be aligned to 256 bytes.").
-        var alignment = Math.Max(Math.Max(1u, tlasMemory.alignment), device.Desc.memoryAlignment.accelerationStructureOffset);
-        var tlasOffset = Align(blasMemory.size, alignment);
+        // On Vulkan the desc is the requirement of the structure's buffer (256 on NVIDIA, 64 on
+        // lavapipe, measured), which NRI binds at the offset; the spec's 256 bytes, the device's
+        // memoryAlignment.accelerationStructureOffset there, is for the structure's offset inside
+        // that buffer, which NRI keeps 0.
+        var tlasAlignment = Math.Max(1u, tlasMemory.alignment);
+        var tlasOffset = Align(blasMemory.size, tlasAlignment);
+        if (tlasOffset / tlasAlignment % 2 == 0) tlasOffset += tlasAlignment;
         var memory = scene.OwnBeneath(device.AllocateMemory(new AllocateMemoryDesc { size = tlasOffset + tlasMemory.size, type = blasMemory.type }));
         var placedBlas = scene.Own(rt.CreatePlacedAccelerationStructure(memory, 0, blasDesc));
         var placedTlas = scene.Own(rt.CreatePlacedAccelerationStructure(memory, tlasOffset, RayScene.TlasDesc));
@@ -179,8 +185,7 @@ public sealed class RayTracingMemoryTests
         {
             var requirement = bound.GetMemoryDesc(MemoryLocation.DEVICE);
             Assert.True(requirement.mustBeDedicated == 0, $"{backend}: an acceleration structure needs a dedicated allocation, so two cannot share one");
-            var alignment = Math.Max(Math.Max(1u, requirement.alignment), device.Desc.memoryAlignment.accelerationStructureOffset);
-            var offset = Align(requirement.size, alignment);
+            var offset = Align(requirement.size, Math.Max(1u, requirement.alignment));
             memory = device.AllocateMemory(new AllocateMemoryDesc { size = offset + requirement.size, type = requirement.type });
             rt.BindAccelerationStructureMemory(bound, memory);
             placed = rt.CreatePlacedAccelerationStructure(memory, offset, desc);

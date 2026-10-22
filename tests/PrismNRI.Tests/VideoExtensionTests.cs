@@ -619,31 +619,32 @@ public sealed class VideoExtensionTests
     }
 
     /// <summary>
-    /// AV1 key frames encoded on the video encode queue through an explicit
-    /// <see cref="NriVideoAV1EncodePictureDesc"/> (NRI's default flags, a single-tile layout,
-    /// quantization, loop filter, CDEF, order hints) at constant q index 40 and 160, and through NRI's
-    /// defaults where the encoder does not require automatic segmentation. For each, the feedback
-    /// reports written bytes without errors, and GetVideoAV1EncodeDecodeInfo (from the resolved
-    /// metadata) describes what a decoder needs: a key frame refreshing every slot, one tile spanning
-    /// the payload range it reports inside the written bytes, the session's sequence and render
-    /// size, and the base q index the encoder used (40, 160); NRI points the picture's pointers into
-    /// the info itself. NRI's D3D12 backend reads the picture desc's tile layout and segmentation and
-    /// refuses a 2x1 layout ("D3D12 AV1 encode supports only a single tile") and explicit segmentation
-    /// ("... does not support explicit segmentation"). NRI's validation refuses a reference snapshot
-    /// whose two entries of one slot disagree on their saved order hints ("'references' contain
-    /// inconsistent AV1 identities"), and not the same pair agreeing.
+    /// AV1 key frames encoded on the video encode queue through NRI's defaults (a null picture desc)
+    /// at constant q index 40, and through an explicit <see cref="NriVideoAV1EncodePictureDesc"/>
+    /// (NRI's default key-frame flags, a single-tile layout, quantization, loop filter, CDEF, order
+    /// hints) at 40 and 160. For each, the feedback reports written bytes without errors, and
+    /// GetVideoAV1EncodeDecodeInfo (from the resolved metadata) describes what a decoder needs: a key
+    /// frame refreshing every slot, one tile spanning the payload range it reports inside the written
+    /// bytes, the session's sequence and render size, and the base q index the encoder used (40,
+    /// 160); NRI points the picture's pointers into the info itself. The same call with the payload's
+    /// first bytes passed as the header describes the frame the same way, and with a reference
+    /// snapshot and KeyFrame set it describes a key frame. NRI's D3D12 backend reads the picture
+    /// desc's tile layout and segmentation and refuses a 2x1 layout ("D3D12 AV1 encode supports only
+    /// a single tile") and explicit segmentation ("... does not support explicit segmentation"). NRI's
+    /// validation refuses a reference snapshot whose two entries of one slot disagree on their saved
+    /// order hints ("'references' contain inconsistent AV1 identities"), and not the same pair
+    /// agreeing.
     /// </summary>
     /// <remarks>
-    /// Measured on D3D12: the encoder requires LOOP_RESTORATION_FILTER, AUTO_SEGMENTATION and
-    /// CDEF_FILTERING, and NRI enables automatic segmentation only for picture flags holding
-    /// SEGMENTATION_ENABLED, which its default flags do not; with the defaults the debug layer refuses
+    /// Measured on D3D12 before patch 0032: the encoder requires LOOP_RESTORATION_FILTER,
+    /// AUTO_SEGMENTATION and CDEF_FILTERING, and NRI enabled automatic segmentation only for picture
+    /// flags holding SEGMENTATION_ENABLED, which its default flags do not (N8); the debug layer refused
     /// the encode ("[1306] CVideoEncodeCommandList::EncodeFrame: ... ENABLE_FRAME_SEGMENTATION_AUTO is
-    /// required in RequiredFeatureFlags but not set.") and Close fails, so the flags here add it where
-    /// it is required. The picture desc's base q index is not what the encoder uses under CQP (the
-    /// rate control's is), so the q index is set through the rate control. Also measured and recorded,
-    /// not asserted: the same call with the payload's first bytes (the header path) answers FAILURE
-    /// (the D3D12 payload is tile data, no OBUs), and with a reference snapshot NRI describes the key
-    /// frame as a P frame.
+    /// required in RequiredFeatureFlags but not set.") and Close failed. Before patch 0033 (N9) the
+    /// header path answered FAILURE (the D3D12 payload is tile data, no OBUs), and a reference snapshot
+    /// made NRI describe the key frame as a P frame, which it still does without KeyFrame (recorded).
+    /// The picture desc's base q index is not what the encoder uses under CQP (the rate control's
+    /// is), so the q index is set through the rate control.
     /// Vulkan resolves encode feedback through CmdResolveVideoEncodeFeedback, the same
     /// codec-independent feedback query and copy for every codec (CommandBufferVK.hpp, EncodeVideo
     /// and ResolveVideoEncodeFeedback). Measured for H.264, the query never becomes available and the
@@ -668,13 +669,11 @@ public sealed class VideoExtensionTests
 
         using var encoder = new Av1Encoder(device, video, desc, caps);
         var av1Caps = video.GetVideoAV1Capabilities(desc);
-        var autoSegmentationRequired = (av1Caps.av1EncodeRequiredFeatureFlags & VideoAV1EncodeFeatureBits.AUTO_SEGMENTATION) != 0;
-        // NRI's default key-frame flags (ERROR_RESILIENT_MODE, DISABLE_CDF_UPDATE, ALLOW_SCREEN_CONTENT_TOOLS,
-        // FORCE_INTEGER_MV, SHOW_FRAME, SHOWABLE_FRAME), plus SEGMENTATION_ENABLED where the encoder requires
-        // automatic segmentation: NRI's D3D12 backend asks for it only when the picture flags hold that bit.
+        GpuWork.Record($"{backend}: the AV1 encoder requires {av1Caps.av1EncodeRequiredFeatureFlags}");
+        // NRI's default key-frame flags: ERROR_RESILIENT_MODE, DISABLE_CDF_UPDATE, ALLOW_SCREEN_CONTENT_TOOLS,
+        // FORCE_INTEGER_MV, SHOW_FRAME, SHOWABLE_FRAME.
         var flags = VideoAV1PictureBits.ERROR_RESILIENT_MODE | VideoAV1PictureBits.DISABLE_CDF_UPDATE | VideoAV1PictureBits.ALLOW_SCREEN_CONTENT_TOOLS
-            | VideoAV1PictureBits.FORCE_INTEGER_MV | VideoAV1PictureBits.SHOW_FRAME | VideoAV1PictureBits.SHOWABLE_FRAME
-            | (autoSegmentationRequired ? VideoAV1PictureBits.SEGMENTATION_ENABLED : VideoAV1PictureBits.NONE);
+            | VideoAV1PictureBits.FORCE_INTEGER_MV | VideoAV1PictureBits.SHOW_FRAME | VideoAV1PictureBits.SHOWABLE_FRAME;
         var explicitDesc = new NriVideoAV1EncodePictureDesc
         {
             RefreshFrameFlags = 0xFF,
@@ -691,11 +690,10 @@ public sealed class VideoExtensionTests
 
         var cases = new List<(string What, NriVideoAV1EncodePictureDesc? Picture, byte QIndex)>
         {
+            ("NRI's defaults, q index 40", null, 40),
             ("picture desc, q index 40", explicitDesc, 40),
             ("picture desc, q index 160", explicitDesc, 160),
         };
-        if (!autoSegmentationRequired) cases.Insert(0, ("NRI's defaults, q index 40", null, 40));
-        else GpuWork.Record($"{backend}: the AV1 encoder requires {av1Caps.av1EncodeRequiredFeatureFlags}; NRI's default picture flags do not enable segmentation, so the default key frame is not encoded here");
 
         // The picture desc's parts that NRI's D3D12 backend reads and refuses (it encodes one tile and
         // chooses segmentation itself): the refusal shows each reached it. Nothing is encoded then.
@@ -744,14 +742,14 @@ public sealed class VideoExtensionTests
                 && info.picture.cdef == &p->cdef && info.picture.references == &p->references.e0 && info.tileLayout.miColumnStarts == &p->miColumnStarts.e0, "the picture's pointers do not point into the info");
             sizes.Add(feedback.encodedBitstreamWrittenBytes);
 
-            // The header path: NRI parses the payload's first bytes as OBUs instead of reading the metadata.
+            // With the payload's first bytes passed as the header, the frame is described as from the
+            // metadata: a D3D12 payload is tile data, with no OBUs to parse.
             {
-                var headerStart = messages.Count;
-                var headerPath = Xunit.Record.Exception(() => { var parsed = new VideoAV1EncodeDecodeInfo(); video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, new NriVideoAV1EncodeDecodeInfoDesc { Feedback = feedback, Sequence = Av1Sequence(), EncodedPayloadHeader = payload }, ref parsed); });
-                List<NriMessage> headerMessages;
-                lock (messages) headerMessages = messages.Skip(headerStart).ToList();
-                GpuWork.Record($"{backend}: info from the payload header ({payload.Length} B): {(headerPath is null ? "described" : headerPath.Message)}; {string.Join(" | ", headerMessages)}");
-                lock (messages) messages.RemoveRange(headerStart, messages.Count - headerStart);
+                var parsed = new VideoAV1EncodeDecodeInfo();
+                video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, new NriVideoAV1EncodeDecodeInfoDesc { Feedback = feedback, Sequence = Av1Sequence(), EncodedPayloadHeader = payload }, ref parsed);
+                GpuWork.Record($"{backend}: info with the payload header ({payload.Length} B) passed: payload {parsed.bitstreamSize} B at {parsed.bitstreamOffset}, frame {parsed.picture.frameType}, base q index {parsed.picture.baseQIndex}");
+                Assert.Equal((info.bitstreamOffset, info.bitstreamSize, info.picture.frameType, info.picture.baseQIndex, info.picture.refreshFrameFlags),
+                    (parsed.bitstreamOffset, parsed.bitstreamSize, parsed.picture.frameType, parsed.picture.baseQIndex, parsed.picture.refreshFrameFlags));
             }
 
             // Reference keys: two entries for slot 0 must agree on everything, saved order hints included.
@@ -759,7 +757,7 @@ public sealed class VideoExtensionTests
             for (var i = 0; i < 8; i++) savedHints[i] = (byte)(i + 1);
             var otherHints = savedHints;
             otherHints[7] = 0;
-            Exception? Describe(NriVideoAV1OrderHints first, NriVideoAV1OrderHints second, out VideoFrameType frameType)
+            Exception? Describe(NriVideoAV1OrderHints first, NriVideoAV1OrderHints second, out VideoFrameType frameType, bool keyFrame = false)
             {
                 var scratch = new VideoAV1EncodeDecodeInfo();
                 frameType = VideoFrameType.MAX_NUM;
@@ -770,6 +768,7 @@ public sealed class VideoExtensionTests
                         Feedback = feedback,
                         Sequence = Av1Sequence(),
                         References = new[] { new NriVideoAV1ReferenceDesc { RefFrameIndex = 0, SavedOrderHints = first }, new NriVideoAV1ReferenceDesc { RefFrameIndex = 0, SavedOrderHints = second } },
+                        KeyFrame = keyFrame,
                     }, ref scratch);
                     frameType = scratch.picture.frameType;
                     return null;
@@ -790,6 +789,11 @@ public sealed class VideoExtensionTests
             GpuWork.Record($"{backend}: two agreeing references with the key frame's feedback: {(agreeing is null ? $"described as {describedAs}" : agreeing.Message)}; {string.Join(" | ", provoked)}");
             Assert.DoesNotContain(provoked, m => m.Text.Contains("inconsistent AV1 identities", StringComparison.Ordinal));
             lock (messages) messages.RemoveRange(start, messages.Count - start);
+
+            // The same references with KeyFrame: the key frame is described as one (patch 0033); without
+            // it NRI infers inter from the references, as recorded above.
+            Assert.Null(Describe(savedHints, savedHints, out var describedAsKeyFrame, keyFrame: true));
+            Assert.Equal(VideoFrameType.IDR, describedAsKeyFrame);
         }
         Assert.True(sizes[^1] <= sizes[^2], $"q index 160 wrote {sizes[^1]} B, more than {sizes[^2]} B at 40");
         Assert.DoesNotContain(messages, m => m.IsError);

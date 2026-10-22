@@ -7,7 +7,8 @@ than a reconstruction. Status is updated as they are filed and answered.
 **This is master's copy: the v190 document.** It holds the report text for the patches master
 carries, with the status it had when the branches split on 2026-10-21. Filing status since then,
 the maintainer's replies, the patches upstream has fixed and the drafts of later rounds are in the
-copy on the `next` branch (CLAUDE.md: Branches).
+copy on the `next` branch (CLAUDE.md: Branches). Patches 0025 to 0036 came to master
+on 2026-10-22, after the split; their status here is as of that day.
 
 | Patch | Kind | Status |
 |---|---|---|
@@ -21,6 +22,15 @@ copy on the `next` branch (CLAUDE.md: Branches).
 | 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | phase 1 candidate, not filed: owner's trigger |
 | 0022 D3D12 copy layouts refused in copy command lists | bug | phase 1 candidate, not filed: owner's trigger |
 | 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | phase 1 candidate, not filed: owner's trigger |
+| 0025 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` (N1) | bug | phase 1 candidate, not filed: owner's trigger |
+| 0026 Vulkan empty vertex input makes the binding stride dynamic (N2) | bug | phase 1 candidate, not filed: owner's trigger |
+| 0027 D3D12 `CmdClearAttachments` crashes in a stencil-only pass (N3) | bug (crash) | phase 1 candidate, not filed: owner's trigger |
+| 0028 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` (N4) | bug | phase 1 candidate, not filed: owner's trigger |
+| 0029 D3D12 non-array texture views ignore `layerOffset` (N5) | bug | phase 1 candidate, not filed: owner's trigger; refusing the view (the patch) or documenting it is his call |
+| 0030 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` (N6) | bug | phase 1 candidate, not filed: owner's trigger |
+| 0031 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 (N7) | bug | phase 1 candidate, not filed: owner's trigger |
+| 0032 D3D12 AV1 encode with the default picture flags fails `Close` (N8) | bug | phase 1 candidate, not filed: owner's trigger |
+| 0034 An allocator that returns null crashes NRI instead of failing the creation (N10) | bug (crash) | phase 1 candidate, not filed: owner's trigger |
 | 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2: after the maintainer engages; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
@@ -29,11 +39,14 @@ copy on the `next` branch (CLAUDE.md: Branches).
 | 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2: after the maintainer engages |
 | 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2: enhancement issue; per-frame vs total semantics is his call |
 | 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | phase 2: after the maintainer engages |
+| 0033 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred; `VideoAV1EncodeDecodeInfoDesc::keyFrame` (N9) | bug, fix shape open | phase 2: the desc carries no frame type, so the fix is his API choice; the patch is our proposal |
 | 0001 Agility SDK from a path | proposal | phase 2: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
 | 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
 | 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
 | 0015 Khronos message id name not forwarded | reporting | not filed: a format he changed on purpose in 59d0785 |
+| 0035 The memory helper's alignment sort leaves out the last buffer and the last texture (N11) | bug (packing) | not filed: packing only, so not phase 1 by the rules; owner's judgment |
+| 0036 D3D12 attachment resolve into a non-zero mip or layer, and of a layered view | backport | nothing to file: fixed on NRI main in 48d4a33; dropped with the tag that carries it |
 
 The texts as filed, and the audit that preceded them (every claim re-verified against the unpatched
 tree by reviewers given the patches but not these conclusions), are the sections below; the filed
@@ -489,3 +502,279 @@ D3D devices keep the full enumeration, because for an adapter both passes list t
 pass's (queue counts 16, 8, 2 on NVIDIA where the D3D pass says 4, 4, 4) and a D3D-only
 enumeration would change it. Patch attached
 (`patches/0024-enumerate-adapters-by-graphics-api.patch`), twenty-one lines.
+
+---
+
+## 0025 to 0036 — the coverage tests' findings (N1 to N11) and a backport
+
+Found on 2026-10-21 and 2026-10-22 by the tests that close the coverage report's blind spots, and
+patched on master the same week (owner, 2026-10-22: master stays correct until upstream fixes them;
+the filing proposes these patches and asks his opinion). Each test asserts the right answer and was
+run red on v190 with master's earlier patches, then green with the patch. Line numbers are v190's;
+`next`'s copy has the same reports against NRI main, where they also reproduce, with their filing
+status. Measured on the development machine's discrete GPU (NVIDIA), and on WARP where it says so.
+
+## 0025 — Vulkan: vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` (N1)
+
+**Title:** Vulkan: vertex attributes bind to streamIndex, not the stream's bindingSlot
+
+**Observed.** Two vertex streams declared out of slot order (`streams[0]` in slot 1 with stride 4,
+`streams[1]` in slot 0 with stride 8), each attribute naming its stream by index: D3D12 draws the
+quad exactly; Vulkan draws nothing (2,162 of 4,096 pixels wrong), with
+VUID-vkCmdBindVertexBuffers2-pStrides-06209 "(attribute binding 1, attribute location 0) The
+pStrides value (4) ... is less than the extent of the binding for the attribute (8)". Streams
+declared in slot order hide it, because index and slot then agree.
+
+**Cause.** `Source/VK/PipelineVK.hpp:167` sets `vertexAttributeDesc.binding = attribute.streamIndex`,
+while `:177` gives the binding `stream.bindingSlot`. D3D12 goes through the stream
+(`PipelineD3D12.hpp:281`, `InputSlot = stream.bindingSlot`). Since 42ddcff.
+
+**Fix.** Patch attached (`patches/0025-vulkan-vertex-attribute-binding-slot.patch`), one line, plus a
+validation check that `attributes[i].streamIndex < streamNum` (nothing checked it; D3D12 read
+`streams[]` past the array, and so would Vulkan with the fix):
+
+```cpp
+vertexAttributeDesc.binding = vi->streams[attribute.streamIndex].bindingSlot;
+```
+
+With it both backends draw the quad byte for byte as from one interleaved stream.
+
+## 0026 — Vulkan: an empty vertex input makes the binding stride dynamic (N2)
+
+**Title:** Vulkan: an empty vertex input makes the binding stride dynamic
+
+**Observed.** A graphics pipeline whose `vertexInput` has no attributes and no streams, drawn with
+`CmdDraw` and nothing bound: "[2005986124] VUID-vkCmdDraw-pStrides-04913: vkCmdDraw():
+VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE state is dynamic, but the command buffer never called
+vkCmdBindVertexBuffers2." The image equals the one with `vertexInput = nullptr`; D3D12 is clean.
+
+**Cause.** `Source/VK/PipelineVK.hpp:378-379` add the dynamic stride for any non-null `vertexInput`
+(with `extendedDynamicState`); with no streams there is nothing to bind. Since e7d4c4f, which made
+the state depend on a non-null `vertexInput`.
+
+**Fix.** Patch attached (`patches/0026-vulkan-empty-vertex-input-no-dynamic-stride.patch`), one
+line:
+
+```cpp
+if (vi && vi->streamNum && m_Device.GetDesc().features.extendedDynamicState)
+```
+
+## 0027 — D3D12: `CmdClearAttachments` crashes in a stencil-only pass (N3)
+
+**Title:** D3D12: CmdClearAttachments crashes in a stencil-only pass
+
+**Observed.** `CmdBeginRendering` with a `D32_SFLOAT_S8_UINT` view as `stencil` and no `depth`, then
+`CmdClearAttachments` with `planes = STENCIL`: an access violation inside NRI (0xC0000005). Vulkan
+clears.
+
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1758` takes the view from `m_Depth.attachment`,
+which `CmdBeginRendering` sets only from `RenderingDesc::depth` (`:1795`); a stencil-only pass has
+`m_Stencil.attachment` (`:1807`). Since 110a667.
+
+**Fix.** Patch attached (`patches/0027-d3d12-clear-attachments-stencil-only-pass.patch`), two lines:
+
+```cpp
+const DescriptorD3D12* depthStencil = m_Depth.attachment ? m_Depth.attachment : m_Stencil.attachment; // a stencil-only pass has no depth attachment
+D3D12_CPU_DESCRIPTOR_HANDLE handle = {depthStencil->GetDescriptorHandleCPU()};
+```
+
+With it, a stencil cleared to 5 by `CmdBeginRendering` and to 7 by `CmdClearAttachments` in one
+quadrant makes a later EQUAL 7 draw cover exactly that quadrant, on both backends.
+
+## 0028 — D3D12: the stencil of a depth-stencil view passed as `depth` is not cleared (N4)
+
+**Title:** D3D12: the stencil of a depth-stencil view passed as depth is not cleared
+
+**Observed.** `RenderingDesc::depth` set to a `D32_SFLOAT_S8_UINT` view with `loadOp = CLEAR` and a
+stencil clear value of 5, `stencil` left empty, over a stencil of 9: Vulkan reads back 5, D3D12 9
+(NVIDIA and WARP). `NRIDescs.h:1693` says `depth` "may be treated as depth-stencil", and Vulkan
+treats it so: it points `pStencilAttachment` at the depth attachment when the format has stencil
+(`CommandBufferVK.hpp:1634-1636`). D3D12 does too for the attachment (`m_Stencil = m_Depth`,
+`CommandBufferD3D12.hpp:1802-1803`).
+
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1828-1832` take the stencil clear flag and value
+from `renderingDesc.stencil` only. Since 110a667.
+
+**Fix.** Patch attached (`patches/0028-d3d12-depth-attachment-clears-stencil.patch`), four lines
+added, two changed: the stencil clear comes from the attachment that provides the stencil.
+
+```cpp
+const AttachmentDesc& stencil = renderingDesc.stencil.descriptor ? renderingDesc.stencil : renderingDesc.depth; // "depth" may be treated as depth-stencil
+...
+if (m_Stencil.attachment && stencil.loadOp == LoadOp::CLEAR)
+    clearFlags |= D3D12_CLEAR_FLAG_STENCIL;
+... ClearDepthStencilView(depthStencil, clearFlags, renderingDesc.depth.clearValue.depthStencil.depth, stencil.clearValue.depthStencil.stencil, 0, nullptr);
+```
+
+## 0029 — D3D12: non-array texture views ignore `layerOffset` (N5)
+
+**Title:** D3D12: non-array texture views ignore layerOffset
+
+**Observed.** A two-layer texture, a `STORAGE_TEXTURE` view with `layerOffset = 1`,
+`CmdClearStorage`: Vulkan clears layer 1, D3D12 clears layer 0. Neither NRI validation nor either
+backend's layer says anything.
+
+**Cause.** `Source/D3D12/DescriptorD3D12.hpp:215` creates a `D3D12_UAV_DIMENSION_TEXTURE2D` view,
+which has no array slice, so `layerOffset` is dropped; `:164-167` (the `TEXTURE` SRV), `:194` (the
+cube SRV) and the 1D views do the same. Vulkan honours it (`baseArrayLayer`, `DescriptorVK.hpp:299`).
+Since the initial commit (0c5f574).
+
+**Fix.** D3D12 has no non-array view of layer N, and an array view would not match the shader's
+non-array declaration, so NRI cannot honour the request there. Patch attached
+(`patches/0029-non-array-texture-view-layer-offset.patch`), eleven lines: `DescriptorD3D12::Create`
+reports it and returns `INVALID_ARGUMENT` for a `TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` or
+`TEXTURE_CUBE` view of a 1D or 2D texture with `layerOffset != 0`, and validation refuses the same
+on every backend, pointing to the `_ARRAY` view types. Documenting it in `TextureViewDesc` instead
+is his call.
+
+## 0030 — D3D12: micromap barriers with `MICROMAP_WRITE` fail `Close` (N6)
+
+**Title:** D3D12: micromap barriers with MICROMAP_WRITE fail Close
+
+**Observed.** After `CmdBuildMicromaps`, a buffer barrier whose before side is
+`{MICROMAP_WRITE, MICROMAP}` gives "[1331] ID3D12CommandList::Barrier: SyncBefore bits
+D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO are incompatible with
+AccessBefore bits D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE in buffer barrier at
+group [0], index [0]." `Close` then fails with `E_INVALIDARG`, with or without the debug layer. With
+`ALL` stages on that side the micromap links and traces.
+
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:142` adds
+`EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO` to the `ACCELERATION_STRUCTURE | MICROMAP`
+stages unless the access holds `ACCELERATION_STRUCTURE_WRITE`, while `:184-185` map
+`MICROMAP_WRITE` to the same D3D12 write access. Since 022f7e6.
+
+**Fix.** Patch attached (`patches/0030-d3d12-micromap-write-barrier-sync.patch`), one line and the
+comment:
+
+```cpp
+if (!(accessBits & (AccessBits::ACCELERATION_STRUCTURE_WRITE | AccessBits::MICROMAP_WRITE)))
+```
+
+## 0031 — D3D12: acceleration-structure memory is reported 128-byte aligned; placements need 256 (N7)
+
+**Title:** D3D12: acceleration-structure memory is reported 128-byte aligned; placements need 256
+
+**Observed.** On a device with tight alignment (Agility 1.619), `GetAccelerationStructureMemoryDesc2`
+and `GetAccelerationStructureMemoryDesc` report an alignment of 128. A TLAS placed at offset 2,688, a
+multiple of 128 but not of 256, passes NRI validation's placement check; its descriptor is then
+refused: "[31] ID3D12Device::TryCreateShaderResourceView: For
+D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE, the address (...) must be aligned to 256
+bytes." Vulkan reports 256.
+
+**Cause.** `Source/D3D12/ImplD3D12.cpp:1017-1023` and `AccelerationStructureD3D12.hpp:46-52` size the
+structure as a plain buffer, and `DeviceD3D12.hpp:1479` gives every buffer
+`D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT`. The result drops below
+`D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT`, which
+`memoryAlignment.accelerationStructureOffset` already reports (`:997`). Since 3371cdb; before it
+the desc used `accelerationStructureOffsetAlignment`.
+
+**Fix.** Patch attached (`patches/0031-d3d12-acceleration-structure-alignment.patch`), one line in
+each:
+
+```cpp
+memoryDesc.alignment = std::max(memoryDesc.alignment, (uint32_t)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
+```
+
+Micromaps keep 128, which is `D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_BYTE_ALIGNMENT`.
+
+## 0032 — D3D12: AV1 encode with the default picture flags fails `Close` (N8)
+
+**Title:** D3D12: AV1 encode with the default picture flags fails Close
+
+**Observed.** An AV1 key frame encoded with NRI's default picture flags, on an encoder whose required
+feature flags are `LOOP_RESTORATION_FILTER | AUTO_SEGMENTATION | CDEF_FILTERING`, gives "[1306]
+CVideoEncodeCommandList::EncodeFrame: D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAGS -
+D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAG_ENABLE_FRAME_SEGMENTATION_AUTO is required in
+RequiredFeatureFlags but not set." `Close` then fails with `E_INVALIDARG`.
+
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1442-1443` set `ENABLE_FRAME_SEGMENTATION_AUTO` only
+when the picture flags hold `SEGMENTATION_ENABLED`, which `GetDefaultPictureFlags`
+(`Source/Shared/SharedVideo.h:571`) leaves out. The session merges the required and the supported
+feature flags (`VideoSessionD3D12.hpp:411-413`), so the required set is gone by the time the picture
+is built. Since 2741780, which added the picture-flag condition.
+
+**Fix.** Patch attached (`patches/0032-d3d12-av1-required-auto-segmentation.patch`), nine lines: the
+session keeps `RequiredFeatureFlags`, and the picture gets automatic segmentation when it is
+required, as well as when the picture asks for segmentation. With it the default flags encode (22
+bytes at q index 40).
+
+## 0033 — `GetVideoAV1EncodeDecodeInfo`: D3D12 fails silently on a payload header and infers the frame type (N9, phase 2)
+
+**Title:** D3D12: GetVideoAV1EncodeDecodeInfo fails silently on a payload header and infers the frame type
+
+**Observed.**
+- With `encodedPayloadHeader` set to the first bytes of a D3D12 AV1 payload, the call answers
+  `FAILURE` with no message. The D3D12 encoder writes bare tile data, with no OBUs; Vulkan requires
+  the header.
+- With two agreeing references passed for a key frame, the info describes the frame as P.
+
+**Cause.** `Source/D3D12/VideoSessionD3D12.hpp:128-129` parse a given header as OBUs. `:193` decides
+inter from `desc.referenceNum`, and `VideoAV1EncodeDecodeInfoDesc` carries no frame type. Since
+39ce136.
+
+**Fix.** His choice; ours is attached (`patches/0033-video-av1-key-frame-and-d3d12-metadata.patch`,
+four lines): D3D12 does not read the header and describes the frame from the metadata (so one desc
+works on both backends), and `VideoAV1EncodeDecodeInfoDesc::keyFrame` (`NriOptional bool`) says the
+references are not used. The alternative is a note in `NRIVideo.h` that `references` stays empty
+for key frames.
+
+## 0034 — An allocator that returns null crashes NRI instead of failing the creation (N10)
+
+**Title:** An allocator that returns null crashes NRI instead of failing the creation
+
+**Observed.** An `AllocationCallbacks::Allocate` that returns null for the allocation of a fence:
+`CreateFence` dies with an access violation (0xC0000005), on Vulkan and D3D12, with NRI validation
+on and off.
+
+**Cause.** `Allocate` returns null safely (`Source/Shared/SharedExternal.h:457-463`), but
+`CreateImplementation` calls `Create` on the result without a check (`Source/VK/DeviceVK.h:204-205`,
+`Source/D3D12/DeviceD3D12.h:87-88`; since 2104586), and so do device creation (`ImplVK.cpp:64-65`,
+`ImplD3D12.cpp:63-64`), the command allocators, swap chains, Imgui, Streamer and Upscaler. The
+validation layer returns `SUCCESS` with a null object when its wrapper allocation fails, leaking
+the backend object. The WebGPU backend's `CreateImplementation` checks (`DeviceWGPU.h:65-68`), as do
+the transfer contexts, descriptor heaps and video objects.
+
+**Fix.** Patch attached (`patches/0034-allocation-failure-out-of-memory.patch`, fourteen files): every
+such `Allocate` is checked the WebGPU way, answering `OUT_OF_MEMORY` and destroying what the call
+made before it:
+
+```cpp
+Implementation* impl = Allocate<Implementation>(GetAllocationCallbacks(), *this);
+if (!impl) {
+    entity = nullptr;
+    return Result::OUT_OF_MEMORY;
+}
+```
+
+With it, failing each allocation of `CreateFence`, `CreateBuffer`, `CreateTexture`,
+`AllocateMemory`, `CreateCommandAllocator`, `CreateCommandBuffer`, `CreateQueryPool` and
+`CreateSampler` in turn answers `OUT_OF_MEMORY`, leaks nothing, and leaves the device working, on
+both backends with validation on and off. NRI's containers (`StdAllocator::allocate` is `noexcept`)
+still cannot report a null, device creation's first allocation among them; the patch does not
+change that.
+
+## 0035 — The memory helper's alignment sort leaves out the last buffer and the last texture (N11)
+
+**Title:** AllocateAndBindMemory: the alignment sort leaves out the last buffer and the last texture
+
+**Observed.** `AllocateAndBindMemory` packs the last buffer and the last texture of a group where they
+were passed, after the sorted rest, so the same resources in another order get another layout and,
+with `preferredMemorySize`, another allocation count. Vulkan buffers aligned to 128, 64 and 16
+passed as scratch, constant, vertex land at +1024, +0, +2032; three buffers of 1,008 B at 16,
+1,024 B at 64 and 1,008 B at 128 with `preferredMemorySize` 3,056 need two allocations in 2 of the 6
+orders. D3D12 textures of 16 KiB and 4 KiB at 4 KiB and 64 KiB at 64 KiB with 128 KiB need two in
+the 4 orders that put a 4 KiB one last. Two buffers, or two textures, are never sorted.
+
+**Cause.** `Source/Shared/HelperInterface.hpp:559` and `:571` end the sorted range at
+`&buffers[bufferNum - 1]` and `&textures[textureNum - 1]`, and `std::sort` excludes its end. Since
+b5e2b07 ("improved resource packing", first in v176).
+
+**Fix.** Patch attached (`patches/0035-helper-sort-every-resource.patch`), two lines: sort
+`[0, bufferNum)` and `[0, textureNum)`. With it every order packs into one allocation.
+
+## 0036 — D3D12 attachment resolve into a non-zero mip or layer, and of a layered view (backport)
+
+Nothing to file: NRI main fixed both in 48d4a33 ("array layers and destination mip indexing"),
+together with new resolve accesses and stages that change the API. Patch 0036 backports only the
+index (`CommandBufferD3D12.hpp:1959` used the array size as the mip count) and the per-layer resolve
+(`:1961` resolved the first layer only) to v190, and is dropped with the tag that carries 48d4a33.
