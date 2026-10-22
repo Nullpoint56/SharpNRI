@@ -1,0 +1,67 @@
+D3D12: AV1 encode enables automatic segmentation when the encoder requires it.
+
+EncodeVideo sets D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAG_ENABLE_FRAME_SEGMENTATION_AUTO only
+when the picture flags hold SEGMENTATION_ENABLED, which NRI's default key-frame flags leave out, and
+the session keeps the encoder's required and supported feature flags as one set, so which ones are
+required is not known when the picture is built. An encoder that requires automatic segmentation
+refuses every picture without it. Since 2741780, which added the picture-flag condition.
+
+This keeps the required feature flags in the session and enables automatic segmentation when the
+encoder requires it, as well as when the picture asks for segmentation.
+Measured on v190, NVIDIA, Agility 1.619 (required: LOOP_RESTORATION_FILTER, AUTO_SEGMENTATION,
+CDEF_FILTERING): an AV1 key frame with NRI's default picture flags gave "[1306]
+CVideoEncodeCommandList::EncodeFrame: D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAGS -
+D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAG_ENABLE_FRAME_SEGMENTATION_AUTO is required in
+RequiredFeatureFlags but not set." and Close failed with E_INVALIDARG. With the change it encodes
+(22 bytes at q index 40) and GetVideoAV1EncodeDecodeInfo describes it.
+
+diff --git a/Source/D3D12/CommandBufferD3D12.hpp b/Source/D3D12/CommandBufferD3D12.hpp
+index ca36a03..0bcb9af 100644
+--- a/Source/D3D12/CommandBufferD3D12.hpp
++++ b/Source/D3D12/CommandBufferD3D12.hpp
+@@ -1447,7 +1447,9 @@ NRI_INLINE void CommandBufferD3D12::EncodeVideo(const VideoEncodeDesc& videoEnco
+             NRI_REPORT_ERROR(&m_Device, "D3D12 AV1 encode does not support explicit segmentation");
+             return;
+         }
+-        if ((session.GetAV1FeatureFlags() & D3D12_VIDEO_ENCODER_AV1_FEATURE_FLAG_AUTO_SEGMENTATION) && (pictureFlags & VideoAV1PictureBits::SEGMENTATION_ENABLED))
++        // Automatic segmentation: when the picture asks for segmentation, and always when the encoder requires it
++        const bool autoSegmentationRequired = session.GetAV1RequiredFeatureFlags() & D3D12_VIDEO_ENCODER_AV1_FEATURE_FLAG_AUTO_SEGMENTATION;
++        if ((session.GetAV1FeatureFlags() & D3D12_VIDEO_ENCODER_AV1_FEATURE_FLAG_AUTO_SEGMENTATION) && (autoSegmentationRequired || (pictureFlags & VideoAV1PictureBits::SEGMENTATION_ENABLED)))
+             av1Picture.Flags |= D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAG_ENABLE_FRAME_SEGMENTATION_AUTO;
+         av1Picture.FrameType = frameType;
+         av1Picture.CompoundPredictionType = D3D12_VIDEO_ENCODER_AV1_COMP_PREDICTION_TYPE_SINGLE_REFERENCE;
+diff --git a/Source/D3D12/VideoSessionD3D12.h b/Source/D3D12/VideoSessionD3D12.h
+index 43fea59..e4443ca 100644
+--- a/Source/D3D12/VideoSessionD3D12.h
++++ b/Source/D3D12/VideoSessionD3D12.h
+@@ -31,6 +31,10 @@ struct VideoSessionD3D12 final : public DebugNameBase {
+         return m_AV1FeatureFlags;
+     }
+ 
++    inline uint32_t GetAV1RequiredFeatureFlags() const {
++        return m_AV1RequiredFeatureFlags;
++    }
++
+     inline uint32_t GetRateControlModes() const {
+         return m_RateControlModes;
+     }
+@@ -86,6 +90,7 @@ private:
+     ComPtr<ID3D12Pageable> m_Heap;
+     VideoSessionDesc m_Desc = {};
+     uint32_t m_AV1FeatureFlags = 0;
++    uint32_t m_AV1RequiredFeatureFlags = 0;
+     uint32_t m_RateControlModes = 0;
+     bool m_BFrameSupported = false;
+ };
+diff --git a/Source/D3D12/VideoSessionD3D12.hpp b/Source/D3D12/VideoSessionD3D12.hpp
+index d6afc79..da1a1f3 100644
+--- a/Source/D3D12/VideoSessionD3D12.hpp
++++ b/Source/D3D12/VideoSessionD3D12.hpp
+@@ -411,6 +411,7 @@ Result VideoSessionD3D12::Create(const VideoSessionDesc& videoSessionDesc) {
+             const uint32_t supportedFeatureFlags = (av1Caps.RequiredFeatureFlags | av1Caps.SupportedFeatureFlags) & (uint32_t)GetSupportedVideoEncodeAV1FeatureFlags();
+             av1Config.FeatureFlags = (D3D12_VIDEO_ENCODER_AV1_FEATURE_FLAGS)(av1Caps.RequiredFeatureFlags | supportedFeatureFlags);
+             m_AV1FeatureFlags = av1Config.FeatureFlags;
++            m_AV1RequiredFeatureFlags = av1Caps.RequiredFeatureFlags;
+         }
+ 
+         D3D12_VIDEO_ENCODER_CODEC_CONFIGURATION codecConfig = {};

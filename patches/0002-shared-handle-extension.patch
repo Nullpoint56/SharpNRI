@@ -22,7 +22,7 @@ when the device has them (skipping any the app already requested through vkExten
 the extension UNSUPPORTED when it does not. CreateSharedTexture records the image's sharing mode as
 TextureVK::Create does, so barriers on a CONCURRENT shared texture carry no queue family indices.
 The NONE backend returns dummy objects and a zero handle. The validation layer wraps the four
-calls.
+calls; when its wrapper allocation fails it destroys the backend object and answers OUT_OF_MEMORY.
 
 Applies on top of NRI main 2f7a49f and patch 0001. Re-cut on 2026-10-21 over 2603edc (#284) and
 732f737 (#283), which left three of its spots stale: the barrier's queue family lines, the
@@ -807,10 +807,10 @@ index e63df57..686eef9 100644
      m_IsExtSupported.video = deviceBaseImpl.FillFunctionTable(m_iVideoImpl) == Result::SUCCESS;
      m_IsExtSupported.swapChain = deviceBaseImpl.FillFunctionTable(m_iSwapChainImpl) == Result::SUCCESS;
 diff --git a/Source/Validation/ImplVal.cpp b/Source/Validation/ImplVal.cpp
-index 62ce094..936dfc1 100644
+index 62ce094..32fcf02 100644
 --- a/Source/Validation/ImplVal.cpp
 +++ b/Source/Validation/ImplVal.cpp
-@@ -2628,3 +2628,60 @@ Result DeviceVal::FillFunctionTable(WrapperVKInterface& table) const {
+@@ -2628,3 +2628,70 @@ Result DeviceVal::FillFunctionTable(WrapperVKInterface& table) const {
  }
  
  #pragma endregion
@@ -829,8 +829,13 @@ index 62ce094..936dfc1 100644
 +    Result result = deviceVal.GetSharedHandleInterfaceImpl().CreateSharedTexture(deviceVal.GetImpl(), memoryLocation, priority, textureDesc, textureImpl);
 +
 +    texture = nullptr;
-+    if (result == Result::SUCCESS)
++    if (result == Result::SUCCESS) {
 +        texture = (Texture*)Allocate<TextureVal>(deviceVal.GetAllocationCallbacks(), deviceVal, textureImpl, true);
++        if (!texture) {
++            deviceVal.GetCoreInterfaceImpl().DestroyTexture(textureImpl);
++            result = Result::OUT_OF_MEMORY;
++        }
++    }
 +
 +    return result;
 +}
@@ -842,8 +847,13 @@ index 62ce094..936dfc1 100644
 +    Result result = deviceVal.GetSharedHandleInterfaceImpl().CreateSharedFence(deviceVal.GetImpl(), initialValue, fenceImpl);
 +
 +    fence = nullptr;
-+    if (result == Result::SUCCESS)
++    if (result == Result::SUCCESS) {
 +        fence = (Fence*)Allocate<FenceVal>(deviceVal.GetAllocationCallbacks(), deviceVal, fenceImpl, initialValue == SWAPCHAIN_SEMAPHORE);
++        if (!fence) {
++            deviceVal.GetCoreInterfaceImpl().DestroyFence(fenceImpl);
++            result = Result::OUT_OF_MEMORY;
++        }
++    }
 +
 +    return result;
 +}

@@ -416,4 +416,11 @@ public readonly record struct NriVideoAV1EncodeDecodeInfoDesc
     public ReadOnlyMemory<byte> EncodedPayloadHeader { get; init; }
 
     public ReadOnlyMemory<NriVideoAV1ReferenceDesc> References { get; init; }
+
+    /// <summary>
+    /// The frame was encoded as a key frame: <see cref="References"/> are not used. D3D12 describes the
+    /// frame from the encoder's metadata, which does not say it (patch 0033); Vulkan reads it from the
+    /// payload's OBUs.
+    /// </summary>
+    public bool KeyFrame { get; init; }
 }

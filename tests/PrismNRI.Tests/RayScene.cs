@@ -229,19 +229,17 @@ internal sealed class RayScene : IDisposable
     }
 
     /// <summary>
-    /// The before side of a barrier after a micromap build or copy. The stages are ALL, not
-    /// MICROMAP: for a MICROMAP (or ACCELERATION_STRUCTURE) stage side NRI's D3D12 backend adds
-    /// D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO unless the access holds
-    /// ACCELERATION_STRUCTURE_WRITE (GetBarrierSyncFlags, CommandBufferD3D12.hpp:142), while it maps
-    /// MICROMAP_WRITE to D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE (:184). The
-    /// debug layer refuses that pair ("[1331] ID3D12CommandList::Barrier: SyncBefore bits
+    /// The before side of a barrier after a micromap build or copy: the micromap's own stage. Before
+    /// patch 0030 NRI's D3D12 backend added
+    /// D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO to a MICROMAP stage
+    /// side unless the access held ACCELERATION_STRUCTURE_WRITE, while it mapped MICROMAP_WRITE to
+    /// D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE; the debug layer refused that pair
+    /// ("[1331] ID3D12CommandList::Barrier: SyncBefore bits
     /// D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO are incompatible with
     /// AccessBefore bits D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE in buffer
-    /// barrier ..."), and Close fails with E_INVALIDARG, with or without the layer (measured).
-    /// RayTracingPipelineTests.An_opacity_micromap_decides_whether_the_ray_query_hits keeps the
-    /// MICROMAP spelling and skips on that failure.
+    /// barrier ...") and Close failed with E_INVALIDARG, with or without the layer (N6).
     /// </summary>
-    public static AccessStage MicromapWritten => new() { access = AccessBits.MICROMAP_WRITE, stages = StageBits.ALL };
+    public static AccessStage MicromapWritten => new() { access = AccessBits.MICROMAP_WRITE, stages = StageBits.MICROMAP };
     public static AccessStage MicromapRead => new() { access = AccessBits.MICROMAP_READ, stages = StageBits.MICROMAP | StageBits.ACCELERATION_STRUCTURE };
 
     /// <summary>Copies every output into <see cref="Readback"/>, in creation order.</summary>

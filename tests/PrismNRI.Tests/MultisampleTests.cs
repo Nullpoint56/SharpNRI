@@ -143,6 +143,108 @@ public sealed class MultisampleTests
     }
 
     /// <summary>
+    /// An attachment resolve into a view of one mip and layer of an array texture lands in that
+    /// subresource and nowhere else: the destination has two mips and three layers, the view names
+    /// mip 1 (the source's size) of layer 1, and every other subresource keeps its background. Before
+    /// patch 0036 NRI's D3D12 backend computed the destination subresource with the layer count
+    /// where the mip count belongs (EndRendering, fixed on NRI's main by 48d4a33): the resolve landed
+    /// in subresource 4, mip 0 of layer 2, with "[1334] ... ResolveSubresourceRegion: ...
+    /// subresource = [4], does not support the required access", and into a one-mip destination's
+    /// layer 1 it was "[877] ... subresource index is out of bounds" and Close failed.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void An_attachment_resolve_lands_in_the_mip_and_layer_of_its_view(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        RequireMultisampleColor(device, Format.RGBA8_UNORM);
+        RequireResolveOp(device, device.Desc.resolve.attachment.color, ResolveOp.AVERAGE, "resolve.attachment.color");
+
+        using var scene = new TriangleScene(device, Format.RGBA8_UNORM);
+        using var msaa = CreateTexture(device, Format.RGBA8_UNORM, TextureUsageBits.COLOR_ATTACHMENT, samples: Samples);
+        using var msaaView = msaa.CreateView(TextureView.COLOR_ATTACHMENT, Format.RGBA8_UNORM);
+        using var array = CreateTexture(device, Format.RGBA8_UNORM, TextureUsageBits.COLOR_ATTACHMENT, mips: 2, layers: 3, size: 2 * Size);
+        using var mip1Layer1 = array.CreateView(new TextureViewDesc { type = TextureView.COLOR_ATTACHMENT, format = Format.RGBA8_UNORM, mipOffset = 1, mipNum = 1, layerOffset = 1, layerNum = 1, planes = PlaneBits.ALL });
+        (ushort Mip, ushort Layer)[] all = [(0, 0), (1, 0), (0, 1), (1, 1), (0, 2), (1, 2)];
+        using var background = new TextureUpload(device, array, 4, 0xEE, all);
+        using var readback = new TextureReadback(device, array, 4, all);
+
+        Run(device, cmd =>
+        {
+            cmd.Barrier([], [], [new NriTextureBarrier(msaa, Undefined, ColorAttachment), new NriTextureBarrier(array, Undefined, TextureCopyDestination)]);
+            background.Record(cmd);
+            cmd.Barrier(new NriTextureBarrier(array, TextureCopyDestination, ColorAttachment));
+            scene.Draw(cmd, msaaView, Clear(ClearBytes), resolveDst: mip1Layer1);
+            cmd.Barrier(new NriTextureBarrier(array, ColorAttachment, TextureCopySource));
+            readback.Record(cmd);
+        });
+
+        var images = readback.Read();
+        for (var s = 0; s < all.Length; s++)
+        {
+            if (all[s] == (1, 1))
+            {
+                var counts = CoveredSampleCounts(images[s], Samples, out var misfits);
+                Assert.True(misfits.Count == 0, $"mip 1 layer 1, the view: {misfits.Count} pixels are no resolve of the triangle, first {string.Join("; ", misfits.Take(4))}");
+                Assert.Contains(counts, k => k is > 0 and < Samples);
+            }
+            else
+                Assert.True(images[s].All(b => b == 0xEE), $"mip {all[s].Mip} layer {all[s].Layer}, outside the view: {images[s].Count(b => b != 0xEE)} bytes changed");
+        }
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// An attachment resolve of a two-layer view resolves both layers: a two-layer 4x attachment
+    /// cleared to one colour at BeginRendering, resolved at EndRendering into a two-layer texture
+    /// whose layers held a background, reads back that colour in both layers. Before patch 0036
+    /// NRI's D3D12 backend resolved only the view's first layer (EndRendering, fixed on NRI's main by
+    /// 48d4a33 with the destination mip): layer 1 kept its background.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void An_attachment_resolve_of_a_layered_view_resolves_every_layer(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        RequireMultisampleColor(device, Format.RGBA8_UNORM);
+        RequireResolveOp(device, device.Desc.resolve.attachment.color, ResolveOp.AVERAGE, "resolve.attachment.color");
+
+        using var msaa = CreateTexture(device, Format.RGBA8_UNORM, TextureUsageBits.COLOR_ATTACHMENT, layers: 2, samples: Samples);
+        using var msaaView = msaa.CreateView(new TextureViewDesc { type = TextureView.COLOR_ATTACHMENT, format = Format.RGBA8_UNORM, mipNum = 1, layerNum = 2, planes = PlaneBits.ALL });
+        using var layered = CreateTexture(device, Format.RGBA8_UNORM, TextureUsageBits.COLOR_ATTACHMENT, layers: 2);
+        using var layeredView = layered.CreateView(new TextureViewDesc { type = TextureView.COLOR_ATTACHMENT, format = Format.RGBA8_UNORM, mipNum = 1, layerNum = 2, planes = PlaneBits.ALL });
+        (ushort Mip, ushort Layer)[] both = [(0, 0), (0, 1)];
+        using var background = new TextureUpload(device, layered, 4, 0xEE, both);
+        using var readback = new TextureReadback(device, layered, 4, both);
+
+        var red = new ClearValue();
+        red.color.f = new Color32f { x = 1, w = 1 };
+        Run(device, cmd =>
+        {
+            cmd.Barrier([], [], [new NriTextureBarrier(msaa, Undefined, ColorAttachment), new NriTextureBarrier(layered, Undefined, TextureCopyDestination)]);
+            background.Record(cmd);
+            cmd.Barrier(new NriTextureBarrier(layered, TextureCopyDestination, ColorAttachment));
+            cmd.BeginRendering([new NriAttachment(msaaView, red, LoadOp.CLEAR, StoreOp.STORE, ResolveOp.AVERAGE, layeredView)]);
+            cmd.EndRendering();
+            cmd.Barrier(new NriTextureBarrier(layered, ColorAttachment, TextureCopySource));
+            readback.Record(cmd);
+        });
+
+        var images = readback.Read();
+        for (var layer = 0; layer < 2; layer++)
+        {
+            var pixels = images[layer];
+            var wrong = Enumerable.Range(0, pixels.Length / 4).Count(p => pixels[4 * p] != 255 || pixels[4 * p + 1] != 0 || pixels[4 * p + 2] != 0 || pixels[4 * p + 3] != 255);
+            Assert.True(wrong == 0, $"layer {layer}: {wrong} of {pixels.Length / 4} pixels are not the resolved clear colour, the first ({pixels[0]},{pixels[1]},{pixels[2]},{pixels[3]})");
+        }
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
     /// CmdResolveTexture with a source and a destination region (features.regionResolve): a 6x4
     /// region at (5, 7) of layer 1 of a two-layer 4x texture lands at (3, 2) in mip 1, layer 1 of a
     /// two-mip, two-layer texture, and nothing else of the destination changes. Source layer 1 holds

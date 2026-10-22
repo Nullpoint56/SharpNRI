@@ -1,0 +1,27 @@
+VK: a vertex input with no streams does not make the binding stride dynamic.
+
+PipelineVK::Create adds VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE for any non-null vertexInput
+(when extendedDynamicState is on). A vertex input with no streams has nothing to bind, so every draw
+with such a pipeline reports that the stride was never set. Since e7d4c4f, which made the state
+depend on a non-null vertexInput.
+
+This adds the dynamic stride only when the vertex input has streams.
+Measured on v190, NVIDIA, Khronos layer on: a pipeline whose vertexInput has no attributes and no
+streams, drawn with CmdDraw and nothing bound, drew the image of a pipeline with a null vertexInput
+and reported "[2005986124] VUID-vkCmdDraw-pStrides-04913: vkCmdDraw():
+VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE state is dynamic, but the command buffer never called
+vkCmdBindVertexBuffers2." With the change it is clean; D3D12 was clean before and after.
+
+diff --git a/Source/VK/PipelineVK.hpp b/Source/VK/PipelineVK.hpp
+index d283392..49de6c2 100644
+--- a/Source/VK/PipelineVK.hpp
++++ b/Source/VK/PipelineVK.hpp
+@@ -375,7 +375,7 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+         dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_SCISSOR;
+     }
+ 
+-    if (vi && m_Device.GetDesc().features.extendedDynamicState)
++    if (vi && vi->streamNum && m_Device.GetDesc().features.extendedDynamicState)
+         dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;
+     if (rasterizationState.depthBiasEnable)
+         dynamicStates[dynamicStateNum++] = VK_DYNAMIC_STATE_DEPTH_BIAS;

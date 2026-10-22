@@ -183,6 +183,58 @@ public sealed class MemoryTests
     }
 
     /// <summary>
+    /// AllocateAndBindMemory packs a group in the order of its memory types and alignments whatever
+    /// the order it is given: three resources of one memory type and different alignments, with a
+    /// preferredMemorySize that holds them exactly in ascending alignment, get one allocation in each
+    /// of the six orders. The resources are buffers where their alignment follows their usage
+    /// (measured on Vulkan: vertex 16, constant 64, scratch 128) and textures where it does not
+    /// (D3D12, 128 for every buffer: 4 KiB shader resources, a 64 KiB colour attachment). Before
+    /// patch 0035 NRI's helper sorted all but the last buffer and the last texture (std::sort's end
+    /// was the last element, N11), so a small-aligned resource passed last landed after the others
+    /// and needed a second allocation.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void AllocateAndBindMemory_packs_a_group_alike_in_every_order(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+
+        BufferDesc[] bufferDescs = [new() { size = 1000, usage = BufferUsageBits.VERTEX }, new() { size = 1000, usage = BufferUsageBits.CONSTANT }, new() { size = 1000, usage = BufferUsageBits.SCRATCH }];
+        TextureDesc[] textureDescs = [SampledTexture, SampledTexture with { width = 16, height = 16 }, SampledTexture with { usage = TextureUsageBits.COLOR_ATTACHMENT }];
+        MemoryDesc[] Measure(bool textures)
+        {
+            if (textures) return [.. textureDescs.Select(d => { using var t = device.CreateTexture(d); return t.GetMemoryDesc(MemoryLocation.DEVICE); })];
+            return [.. bufferDescs.Select(d => { using var b = device.CreateBuffer(d); return b.GetMemoryDesc(MemoryLocation.DEVICE); })];
+        }
+        bool Usable(MemoryDesc[] m) => m.All(d => d.type == m[0].type && d.mustBeDedicated == 0) && m.Select(d => d.alignment).Distinct().Count() > 1;
+        var useTextures = !Usable(Measure(textures: false));
+        var memory = Measure(useTextures);
+        Assert.SkipUnless(Usable(memory), $"{backend}: neither the vertex, constant and scratch buffers nor the 4x4 and 16x16 sampled and 64x64 colour-attachment textures have different alignments in one memory type without a dedicated allocation");
+
+        // The size NRI's packing gives them in ascending alignment: each at the next offset its alignment allows.
+        ulong packed = 0;
+        foreach (var m in memory.OrderBy(m => m.alignment)) packed = Align(packed, m.alignment) + m.size;
+        Record($"{backend}: {(useTextures ? "textures" : "buffers")} of {string.Join(", ", memory.Select(m => $"{m.size} B at {m.alignment}"))}; {packed} B in ascending alignment");
+
+        int[][] orders = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+        var counts = new List<string>();
+        foreach (var order in orders)
+        {
+            var textures = useTextures ? order.Select(i => device.CreateTexture(textureDescs[i])).ToArray() : [];
+            var buffers = useTextures ? [] : order.Select(i => device.CreateBuffer(bufferDescs[i])).ToArray();
+            var allocations = device.AllocateAndBindMemory(MemoryLocation.DEVICE, textures, buffers, preferredMemorySize: packed);
+            counts.Add($"[{string.Join(", ", order)}]: {allocations.Length}");
+            foreach (var resource in textures.Cast<NriObject>().Concat(buffers)) resource.Dispose();
+            foreach (var allocation in allocations) allocation.Dispose();
+        }
+        Record($"{backend}: allocations per order: {string.Join("; ", counts)}");
+        Assert.All(counts, c => Assert.EndsWith(": 1", c, StringComparison.Ordinal));
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
     /// Records NONE's dummy behaviour, not a feature: NONE's CalculateAllocationNumber answers 0, so
     /// AllocateAndBindMemory returns no allocations for any group (ImplNONE.cpp; CLAUDE.md: Device
     /// creation and callbacks). NONE has no validation layer, so there are no messages to check.

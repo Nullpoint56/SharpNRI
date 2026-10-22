@@ -202,15 +202,11 @@ public sealed class RayTracingPipelineTests
     /// <remarks>
     /// On D3D12 the device runs without the D3D12 debug layer (NRI's validation stays on): NRI's
     /// micromap prebuild query passes no input buffer and no per-OMM descs, which the Agility SDK
-    /// 1.619 debug layer refuses as error 1162. Without the layer the command list fails to close
-    /// with <c>E_INVALIDARG</c>, and the cause is the barrier recorded after <c>BuildMicromaps</c>,
-    /// not the BLAS that links the micromap: for its {MICROMAP_WRITE, MICROMAP} side NRI's D3D12
-    /// backend adds SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO to
-    /// ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE, a pair the debug layer refuses as error 1331
-    /// (<see cref="RayScene.MicromapWritten"/>). Measured: a list holding the build alone closes, the
-    /// build and this barrier does not; with that side's stages ALL the same micromaps link, build
-    /// and trace on D3D12 (RayTracingMemoryTests). This test keeps the MICROMAP spelling, so that one
-    /// measured failure skips, quoting it; anything else fails.
+    /// 1.619 debug layer refuses as error 1162. The barrier after <c>BuildMicromaps</c> names the
+    /// micromap's own stage, {MICROMAP_WRITE, MICROMAP}: before patch 0030 NRI's D3D12 backend added
+    /// SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO to that side, a pair the debug
+    /// layer refuses as error 1331 next to ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE, and the
+    /// command list failed to close with <c>E_INVALIDARG</c>, with or without the layer (N6).
     /// </remarks>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -260,22 +256,6 @@ public sealed class RayTracingPipelineTests
         var scratches = new[] { plain, transparent, opaque }.Select(b => scene.Scratch(b.BuildScratchBufferSize)).ToArray();
         var tlases = new[] { scene.Tlas(plain), scene.Tlas(transparent), scene.Tlas(opaque) };
         var sets = tlases.Select(t => scene.Output(t.Tlas)).ToArray();
-
-        try
-        {
-            Run(device, cmd =>
-            {
-                rt.BuildMicromaps(cmd, [new NriBuildMicromap(micromap, data, 0, triangleBuffer, 0, micromapScratch)]);
-                cmd.Barrier(new NriBufferBarrier(micromap.Buffer,
-                    new AccessStage { access = AccessBits.MICROMAP_WRITE, stages = StageBits.MICROMAP },
-                    new AccessStage { access = AccessBits.MICROMAP_READ, stages = StageBits.ACCELERATION_STRUCTURE }));
-                scene.BuildBlas(cmd, transparent, scratches[1], scene.Geometry(BottomLevelGeometryBits.NONE, transparentMap));
-            });
-        }
-        catch (NriException e) when (backend.Api == GraphicsAPI.D3D12 && e.Result == Result.INVALID_ARGUMENT && e.Call == "EndCommandBuffer")
-        {
-            Assert.Skip($"D3D12: tiers.rayTracing = 3, but the command list with a {{MICROMAP_WRITE, MICROMAP}} barrier after BuildMicromaps fails to close (NRI adds SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO to that side): {e.Message}");
-        }
 
         Run(device, cmd =>
         {

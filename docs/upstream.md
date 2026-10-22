@@ -74,19 +74,19 @@ question; the draft states the shape and offers the PR.
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
 | 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
 | 0015 Khronos message id name not forwarded | reporting | not filed: a format he changed on purpose in 59d0785 |
-| N1 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N2 Vulkan empty vertex input makes the binding stride dynamic | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N4 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N5 D3D12 2D texture views ignore `layerOffset` | bug | phase 1 candidate, not filed: owner's trigger; the fix shape (refuse or document) is his; reproduced on main 2f7a49f (2026-10-22) |
-| N6 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N7 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | phase 2: the desc carries no frame type, so the fix is his API choice; reproduced on main 2f7a49f (2026-10-22) |
-| N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | recorded 2026-10-22, not filed: packing only, so not phase 1 by the rules; owner's judgment; reproduced on main 2f7a49f (2026-10-22) |
+| N1 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` | bug | patched on master as 0025 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N2 Vulkan empty vertex input makes the binding stride dynamic | bug | patched on master as 0026 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | patched on master as 0027 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N4 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` | bug | patched on master as 0028 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N5 D3D12 2D texture views ignore `layerOffset` | bug | patched on master as 0029 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; the patch refuses the view (D3D12 backend and validation), documenting instead is his call; reproduced on main 2f7a49f (2026-10-22) |
+| N6 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` | bug | patched on master as 0030 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N7 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 | bug | patched on master as 0031 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | patched on master as 0032 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | patched on master as 0033 (2026-10-22, PR #26), carried on next; phase 2: the desc carries no frame type, so the fix is his API choice; the patch proposes `VideoAV1EncodeDecodeInfoDesc::keyFrame` and D3D12 describing from the metadata whether a header is given or not; reproduced on main 2f7a49f (2026-10-22) |
+| N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | patched on master as 0034 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | patched on master as 0035 (2026-10-22, PR #26), carried on next; recorded 2026-10-22, not filed: packing only, so not phase 1 by the rules; owner's judgment; reproduced on main 2f7a49f (2026-10-22) |
 | `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
-| D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it |
+| D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
 | Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
 | Draw-parameters emulation on Vulkan | design question | phase 2: validation demands `DrawBaseDesc` strides on every backend, while Vulkan reads plain records at `offset` |
 
@@ -547,7 +547,7 @@ enumeration would change it. Patch attached
 
 ---
 
-## Found by the coverage tests (no patch)
+## Found by the coverage tests (patched on master as 0025-0035, PR #26)
 
 Found on 2026-10-21 by the tests that close the coverage report's blind spots (branch
 `coverage-tests`, on master); N11 on 2026-10-22, reading the memory helper while the binding's
@@ -598,6 +598,11 @@ while `:177` gives the binding `stream.bindingSlot`. D3D12 goes through the stre
 vertexAttributeDesc.binding = vi->streams[attribute.streamIndex].bindingSlot;
 ```
 
+Validation never checked `attributes[i].streamIndex < streamNum`; D3D12 read `streams[]` past the
+array, and the fix makes Vulkan do the same. Patch 0025 adds the check to `DeviceVal::CreatePipeline`
+(`INVALID_ARGUMENT`, naming `streamIndex`); an attribute with streamIndex 1 of one stream created a
+pipeline on both backends before it.
+
 ### N2: Vulkan: an empty vertex input makes the binding stride dynamic
 
 **Observed.** A graphics pipeline whose `vertexInput` has no attributes and no streams, drawn with
@@ -605,7 +610,7 @@ vertexAttributeDesc.binding = vi->streams[attribute.streamIndex].bindingSlot;
 The image equals the one with `vertexInput = nullptr`; D3D12 is clean.
 
 **Cause.** `Source/VK/PipelineVK.hpp:378-379` add the dynamic stride for any non-null `vertexInput`;
-with no streams there is nothing to bind. Since 254424c.
+with no streams there is nothing to bind. Since e7d4c4f, which made the state depend on a non-null `vertexInput` (254424c only added the `extendedDynamicState` condition).
 
 **Fix.**
 
@@ -661,9 +666,11 @@ view, which has no array slice, so `layerOffset` is dropped. `:164-167` do the s
 (an SRV; not measured). Vulkan honours it (`baseArrayLayer`, `DescriptorVK.hpp:286`). Since the
 initial commit.
 
-**Fix.** D3D12 has no non-array 2D view of layer N, and an array view would not match a `Texture2D`
-declaration. So refuse `layerOffset != 0` for `TEXTURE` / `STORAGE_TEXTURE` views of a 2D texture
-in validation, pointing to the `_ARRAY` types, or document it in `TextureViewDesc`.
+**Fix.** D3D12 has no non-array view of layer N (1D, 2D, 2DMS and cube), and an array view would not
+match the shader's non-array declaration. Patch 0029 (master, 2026-10-22) refuses `layerOffset != 0`
+for `TEXTURE` / `SUBPASS_INPUT` / `STORAGE_TEXTURE` / `TEXTURE_CUBE` views of a 1D or 2D texture: the
+D3D12 backend reports it and returns `INVALID_ARGUMENT`, and validation refuses it on every backend,
+pointing to the `_ARRAY` types. Documenting it in `TextureViewDesc` instead is his call.
 
 ### N6: D3D12: micromap barriers with MICROMAP_WRITE fail Close
 
@@ -714,7 +721,7 @@ feature flags include automatic segmentation, gives
 when the picture flags hold `SEGMENTATION_ENABLED`, which `GetDefaultPictureFlags`
 (`Source/Shared/SharedVideo.h:571-573`) leaves out. The session merges the required and the supported
 feature flags (`VideoSessionD3D12.hpp:411-412`), so by the time the picture is built the encoder's
-required set is gone. Since 3b9fe2d.
+required set is gone. Since 2741780, which added the picture-flag condition (3b9fe2d only moved the feature flags behind an accessor).
 
 **Fix.** Keep `RequiredFeatureFlags` in the session, and set the picture flag when
 `AUTO_SEGMENTATION` is required, as well as when the picture asks for segmentation.
@@ -730,8 +737,10 @@ required set is gone. Since 3b9fe2d.
 inter from `desc.referenceNum` (since 39ce136), and `VideoAV1EncodeDecodeInfoDesc` carries no frame
 type.
 
-**Fix.** His choice. Either ignore the header on D3D12 or report why it fails. Then either say in
-`NRIVideo.h` that `references` stays empty for key frames, or add the frame type to the desc.
+**Fix.** His choice; ours is patch 0033 (master, 2026-10-22): D3D12 does not read the header and
+describes the frame from the metadata, so one desc works on both backends, and
+`VideoAV1EncodeDecodeInfoDesc::keyFrame` (`NriOptional bool`) says the references are not used. The
+alternative is a note in `NRIVideo.h` that `references` stays empty for key frames.
 
 ### N10: an allocator that returns null crashes NRI instead of failing the creation
 
@@ -748,8 +757,10 @@ and off.
 
 ```cpp
 Implementation* impl = Allocate<Implementation>(GetAllocationCallbacks(), *this);
-if (!impl)
+if (!impl) {
+    entity = nullptr;
     return Result::OUT_OF_MEMORY;
+}
 ```
 
 ### N11: the memory helper's alignment sort leaves out the last buffer and the last texture

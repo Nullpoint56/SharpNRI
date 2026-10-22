@@ -12,8 +12,8 @@ both in this repository.
 
 ## Status
 
-This is the `next` branch: NRI main at 2f7a49f plus thirteen patches ([patches/](patches/README.md)), on .NET 11, for testing
-against current NRI. Releases come from master, which pins NRI `v190` with twenty-three patches.
+This is the `next` branch: NRI main at 2f7a49f plus twenty-four patches ([patches/](patches/README.md)), on .NET 11, for testing
+against current NRI. Releases come from master, which pins NRI `v190` with thirty-five patches.
 Windows x64, Linux x64, macOS arm64. On macOS the binding is Vulkan through MoltenVK; NRI's Metal
 backend is not built, only the Base package exists, the application provides the Vulkan loader and
 MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
@@ -34,7 +34,7 @@ code.
 | Package | Contents | Take it when |
 |---|---|---|
 | `PrismNRI` | the binding, plus `NRI.dll` / `libNRI.so` / `libNRI.dylib` with **no upscaler SDK**, AMD AGS (Windows), licences. MIT throughout, about 2 MB | always |
-| `PrismNRI.Descs` | every enum, desc struct and table layout, plus the managed desc forms; no native code | building layouts without a device; referenced by `PrismNRI` |
+| `PrismNRI.Descs` | every enum, desc struct and table layout, plus the managed desc forms; no native code | building layouts and descs without a device, in code that must not load the native library; `PrismNRI` references it, and so can any package of your own |
 | `PrismNRI.Testing` | a validated headless device per backend for tests; no test framework dependency | your own GPU tests |
 | `PrismNRI.Native.Upscalers` | `NRI.dll` / `libNRI.so` with NIS, FSR and XeSS compiled in, AMD AGS, licences | you want NRI's upscaler extension |
 | `PrismNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll`, Microsoft's licence | D3D12 on the Agility SDK instead of the inbox runtime (Windows) |

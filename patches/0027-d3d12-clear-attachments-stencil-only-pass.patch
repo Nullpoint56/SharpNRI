@@ -1,0 +1,27 @@
+D3D12: CmdClearAttachments works in a stencil-only pass.
+
+CommandBufferD3D12::ClearAttachments takes the depth-stencil view from m_Depth.attachment, which
+BeginRendering sets only from RenderingDesc::depth; a pass given only RenderingDesc::stencil has
+m_Stencil.attachment and a null m_Depth.attachment, so the call dereferences null. Since 110a667.
+
+This takes the view from the depth attachment, or else from the stencil one.
+Measured on v190, NVIDIA: BeginRendering with a D32_SFLOAT_S8_UINT view as stencil only, then
+CmdClearAttachments with planes = STENCIL, ended the process with an access violation (0xC0000005)
+inside the call; Vulkan cleared. With the change, a stencil cleared to 5 by BeginRendering and to 7
+by ClearAttachments in one quadrant makes a later EQUAL 7 draw cover exactly that quadrant, on both
+backends, layers clean.
+
+diff --git a/Source/D3D12/CommandBufferD3D12.hpp b/Source/D3D12/CommandBufferD3D12.hpp
+index d635c0a..7a09498 100644
+--- a/Source/D3D12/CommandBufferD3D12.hpp
++++ b/Source/D3D12/CommandBufferD3D12.hpp
+@@ -1763,7 +1763,8 @@ NRI_INLINE void CommandBufferD3D12::ClearAttachments(const ClearAttachmentDesc*
+             if (clearAttachmentDesc.planes & PlaneBits::STENCIL)
+                 clearFlags |= D3D12_CLEAR_FLAG_STENCIL;
+ 
+-            D3D12_CPU_DESCRIPTOR_HANDLE handle = {m_Depth.attachment->GetDescriptorHandleCPU()};
++            const DescriptorD3D12* depthStencil = m_Depth.attachment ? m_Depth.attachment : m_Stencil.attachment; // a stencil-only pass has no depth attachment
++            D3D12_CPU_DESCRIPTOR_HANDLE handle = {depthStencil->GetDescriptorHandleCPU()};
+             GetGraphicsCommandList()->ClearDepthStencilView(handle, clearFlags, clearAttachmentDesc.value.depthStencil.depth, clearAttachmentDesc.value.depthStencil.stencil, rectNum, d3dRects);
+         }
+     }
