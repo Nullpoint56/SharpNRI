@@ -28,9 +28,22 @@ additional restrictions on surrounding accesses and barriers. Using `COMMON` acc
 synchronization, at the cost of potentially extra cache work"). Main also took a community PR
 (#285) that turns the swap-chain extent check into a clamp and answers `NOT_READY` for a zero
 extent, and 48d4a33, which makes attachment resolves explicit in barriers and renumbers
-`StageBits` / `AccessBits`. `next` pins 2f7a49f with thirteen patches, 0002 re-cut. Measured:
+`StageBits` / `AccessBits`. `next` pinned 2f7a49f with thirteen patches, 0002 re-cut. Measured:
 Windows 297 tests, 0 failed (NVIDIA; the COMMON-access shapes draw no message at all, not even a
 warning); Linux lavapipe 297, 0 failed.
+
+**2026-10-23.** Main moved 46 commits to 72f5f46 ("Quality of life improvements and API
+simplifications": `DescriptorSetBits` removed, texture views inherit the texture format, Streamer
+pitches optional). In the range: #286 (962615b) gives `nriEnumerateAdapters` the backends to
+probe, master 0024's idea in his shape (the two `nriCreateDevice` lines stay as `next`'s 0024);
+#292 (0fade6e, 16f56f7) rolls back a failed committed or placed creation (0034 re-cut over it);
+#264 and #265 (merged 2026-10-22) fix the AV1 encode defects behind N8 and N9: af45e72 enables
+automatic segmentation from the required feature flags (0032 dropped), 57d92ff and af45e72 add
+`pictureDesc`, `av1PictureDesc` and `savedFrameStates` to `VideoAV1EncodeDecodeInfoDesc`, the
+frame type from the picture desc and a key frame without references (0033 dropped, the binding
+follows), 9131c1b answers `UNSUPPORTED` for a payload header on D3D12, and 9011264 works around
+the NVIDIA encode feedback query hang the suite skips H.264 encode for on Vulkan. 0029 re-cut
+over the renamed `textureViewDescFixed`. `next` pins 72f5f46 with twenty-two patches.
 
 On #49 he answered: "A PR would be very welcome! Regarding the API shape, I would prefer extending
 the existing `buffer`, `texture` and `fence` descs if the additions fit naturally and keep the API
@@ -68,7 +81,7 @@ question; the draft states the shape and offers the PR.
 | 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | phase 2, drafted 2026-10-19, not filed; the default (break) is his and stays |
 | 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2, drafted 2026-10-19, not filed |
 | 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2, drafted 2026-10-19, not filed; per-frame vs total semantics is his call |
-| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | phase 2, drafted 2026-10-19, not filed |
+| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | phase 2, drafted 2026-10-19, not filed; main took the idea in its own shape on 2026-10-22 (962615b, #286: `nriEnumerateAdapters` takes the backends to probe); `next` keeps two lines, `nriCreateDevice` with no adapter probing VK only for a VK device, a phase 2 note when #286 is discussed |
 | 0001 Agility SDK from a path | proposal | phase 2, drafted 2026-10-19, not filed: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
 | 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
@@ -78,12 +91,12 @@ question; the draft states the shape and offers the PR.
 | N2 Vulkan empty vertex input makes the binding stride dynamic | bug | patched on master as 0026 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
 | N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | patched on master as 0027 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
 | N4 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` | bug | patched on master as 0028 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N5 D3D12 2D texture views ignore `layerOffset` | bug | patched on master as 0029 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; the patch refuses the view (D3D12 backend and validation), documenting instead is his call; reproduced on main 2f7a49f (2026-10-22) |
+| N5 D3D12 2D texture views ignore `layerOffset` | bug | patched on master as 0029 (2026-10-22, PR #26), re-cut on next for 72f5f46 (2026-10-23); phase 1 candidate, not filed: owner's trigger; the patch refuses the view (D3D12 backend and validation), documenting instead is his call; reproduced on main 2f7a49f (2026-10-22) |
 | N6 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` | bug | patched on master as 0030 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
 | N7 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 | bug | patched on master as 0031 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | patched on master as 0032 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
-| N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | patched on master as 0033 (2026-10-22, PR #26), carried on next; phase 2: the desc carries no frame type, so the fix is his API choice; the patch proposes `VideoAV1EncodeDecodeInfoDesc::keyFrame` and D3D12 describing from the metadata whether a header is given or not; reproduced on main 2f7a49f (2026-10-22) |
-| N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | patched on master as 0034 (2026-10-22, PR #26), carried on next; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | patched on master as 0032 (2026-10-22, PR #26); fixed on main by af45e72 (merged 2026-10-22, #264), the same rule, so dropped on next (2026-10-23); nothing to file; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | patched on master as 0033 (2026-10-22, PR #26); main chose another shape (57d92ff, af45e72, 9131c1b: the submitted picture descs in the desc, a key frame without references, `UNSUPPORTED` for a header on D3D12), so dropped on next (2026-10-23) and the binding follows; nothing to file; phase 2: the desc carries no frame type, so the fix is his API choice; the patch proposes `VideoAV1EncodeDecodeInfoDesc::keyFrame` and D3D12 describing from the metadata whether a header is given or not; reproduced on main 2f7a49f (2026-10-22) |
+| N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | patched on master as 0034 (2026-10-22, PR #26), re-cut on next for 72f5f46's creation rollback (#292, 2026-10-23); phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
 | N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | patched on master as 0035 (2026-10-22, PR #26), carried on next; recorded 2026-10-22, not filed: packing only, so not phase 1 by the rules; owner's judgment; reproduced on main 2f7a49f (2026-10-22) |
 | `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
@@ -527,6 +540,12 @@ upstream form drops the `EXTERNAL_QUEUE` term, which is patch 0002's (keep
 `VK_QUEUE_FAMILY_EXTERNAL` sides if upstream ever has one).
 
 ## 0024 — Adapter enumeration filtered by graphics API (proposal, phase 2)
+
+Status 2026-10-23: main's 962615b (#286) gives `nriEnumerateAdapters` a `desiredGraphicsAPIs`
+mask, which is this proposal's first half in the maintainer's shape; the draft below is kept for
+the record. What `next` still patches (two lines) is the second half: `nriCreateDevice` with a
+null `adapterDesc` probes VK only for a VK device. If raised, it is a comment on #286, not an
+issue.
 
 **Title:** `nriEnumerateAdapters2`: enumerate only the asked graphics APIs' adapters
 

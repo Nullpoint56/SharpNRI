@@ -1,95 +1,32 @@
-Creation: nriEnumerateAdapters2, adapter enumeration filtered by graphics API.
+Creation: nriCreateDevice with no adapter desc probes only the Vulkan backend for a Vulkan device.
 
-nriEnumerateAdapters runs every enabled backend's pass unconditionally: UpdateAdaptersVK creates and
-destroys a VkInstance (API 1.2, no layers asked for, so the loader loads and unloads every implicit
-layer), and UpdateAdaptersD3D creates a DXGI factory and, per adapter, a null-device
-D3D12CreateDevice probe, an ID3D12Device for the architecture (when D3D11 is off) and another for
-the video-queue query, on the inbox runtime. nriCreateDevice with a null "adapterDesc" calls it
-too, so creating a VK device loads d3d12.dll / D3D12Core.dll and creates D3D12 devices in the
-process (an overlay then labels the process D3D12 until a VK swap chain appears). There is no way
-to ask for one API's adapters only.
+nriEnumerateAdapters takes the backends to probe since 962615b (#286), but nriCreateDevice with a
+null "adapterDesc" still calls it with every backend: creating a VK device creates a DXGI factory
+and D3D12 devices and leaves D3D12Core.dll loaded for the process's life (an overlay then labels
+the process D3D12 until a VK swap chain appears). The D3D pass only adds D3D bits to an adapter the
+VK pass listed, so a VK-only probe lists the same VK adapters with the same descs, in the same
+order; a device of any other API keeps the full probe, because when both passes list an adapter
+its desc (queue counts, memory sizes) is the VK pass's, and a D3D-only probe would change it.
 
-nriEnumerateAdapters2 takes a GraphicsAPI mask and runs only the passes of those APIs (the D3D pass
-for D3D11 or D3D12); nriEnumerateAdapters is the same call with every bit set. An adapter already
-listed by the VK pass is only given D3D bits by the D3D pass (UpdateAdaptersD3D "continue"s before
-writing any other field), so a VK-only enumeration lists the same VK adapters with the same descs
-apart from those bits, in the same order (SortAdapters reads memory sizes and architecture only).
-nriCreateDevice with a null "adapterDesc" and GraphicsAPI::VK enumerates VK only; every other API
-keeps the full enumeration, because for an adapter both passes list the D3D desc is the VK pass's
-(queue counts, memory sizes) and a D3D-only enumeration would change it.
+This passes GraphicsAPI::VK for a VK device and GraphicsAPI::ALL otherwise, two lines. The same
+rule as master's 0024 (nriEnumerateAdapters2 on v190), which #286 made unnecessary on main.
+Measured on v190 with master's 0024, NVIDIA RTX 4070 SUPER: a VK-only enumeration took 67.0 ms the
+first call and 5.3 ms the second and left D3D12Core.dll unloaded, as did creating a Vulkan device
+with no adapter afterwards (104.5 ms); an unfiltered enumeration took 125.1 ms and 69.1 ms and
+loaded D3D12Core.dll.
 
-diff --git a/Include/Extensions/NRIDeviceCreation.h b/Include/Extensions/NRIDeviceCreation.h
-index dea6fc0..b0f5bdc 100644
---- a/Include/Extensions/NRIDeviceCreation.h
-+++ b/Include/Extensions/NRIDeviceCreation.h
-@@ -102,6 +102,10 @@ NriStruct(DeviceCreationDesc) {
- // else "adapterDescNum" must be set to number of elements in "adapterDescs"
- NRI_API Nri(Result) NRI_CALL nriEnumerateAdapters(NriPtr(AdapterDesc) adapterDescs, NonNriRef(uint32_t) adapterDescNum);
- 
-+// Same as "nriEnumerateAdapters", but runs only the enumeration passes of the graphics APIs in "graphicsAPIs" (a mask).
-+// An adapter desc from a filtered enumeration carries only those APIs' bits in "supportedGraphicsAPIs" (plus "NONE")
-+NRI_API Nri(Result) NRI_CALL nriEnumerateAdapters2(Nri(GraphicsAPI) graphicsAPIs, NriPtr(AdapterDesc) adapterDescs, NonNriRef(uint32_t) adapterDescNum);
-+
- NRI_API Nri(Result) NRI_CALL nriCreateDevice(const NriRef(DeviceCreationDesc) deviceCreationDesc, NriOut NriRef(Device*) device);
- NRI_API void NRI_CALL nriDestroyDevice(NriPtr(Device) device);
- 
 diff --git a/Source/Creation/Creation.cpp b/Source/Creation/Creation.cpp
-index 0116b55..d733f18 100644
+index e6e71b63..20187fbc 100644
 --- a/Source/Creation/Creation.cpp
 +++ b/Source/Creation/Creation.cpp
-@@ -162,6 +162,8 @@ static void CheckAndSetDefaultCallbacks(DeviceCreationDesc& deviceCreationDesc)
-     }
- }
- 
-+constexpr GraphicsAPI ALL_GRAPHICS_APIS = GraphicsAPI::NONE | GraphicsAPI::D3D11 | GraphicsAPI::D3D12 | GraphicsAPI::VK | GraphicsAPI::WGPU | GraphicsAPI::METAL;
-+
- static int SortAdapters(const void* pa, const void* pb) {
-     constexpr uint64_t SHIFT = 60ull;
-     static_assert((uint64_t)Architecture::MAX_NUM <= 1ull << (64ull - SHIFT), "Adjust SHIFT");
-@@ -884,7 +886,9 @@ NRI_API Result NRI_CALL nriCreateDevice(const DeviceCreationDesc& deviceCreation
+@@ -915,7 +915,9 @@ NRI_API Result NRI_CALL nriCreateDevice(const DeviceCreationDesc& deviceCreation
      std::array<AdapterDesc, ADAPTER_MAX_NUM> adapterDescs = {};
      AdapterDesc adapterDesc = {};
      if (!modifiedDeviceCreationDesc.adapterDesc) {
 -        nriEnumerateAdapters(adapterDescs.data(), adapterDescNum);
-+        // VK: the other passes don't change a VK adapter's desc, but create a DXGI factory and D3D12 devices
-+        GraphicsAPI graphicsAPIs = modifiedDeviceCreationDesc.graphicsAPI == GraphicsAPI::VK ? GraphicsAPI::VK : ALL_GRAPHICS_APIS;
-+        nriEnumerateAdapters2(graphicsAPIs, adapterDescs.data(), adapterDescNum);
++        // A VK device needs the VK pass only; the D3D pass would create D3D12 devices and keep "D3D12Core.dll" loaded. A D3D12 adapter desc depends on the VK pass (queue counts), so other APIs probe everything
++        GraphicsAPI desiredGraphicsAPIs = modifiedDeviceCreationDesc.graphicsAPI == GraphicsAPI::VK ? GraphicsAPI::VK : GraphicsAPI::ALL;
++        nriEnumerateAdapters(adapterDescs.data(), adapterDescNum, desiredGraphicsAPIs);
          for (uint32_t i = 0; i < adapterDescNum; i++) {
              if (adapterDescs[i].supportedGraphicsAPIs & modifiedDeviceCreationDesc.graphicsAPI) {
                  adapterDesc = adapterDescs[i];
-@@ -1250,23 +1254,31 @@ NRI_API const char* NRI_CALL nriGetGraphicsAPIString(GraphicsAPI graphicsAPI) {
- }
- 
- NRI_API Result NRI_CALL nriEnumerateAdapters(AdapterDesc* outAdapterDescs, uint32_t& outAdapterDescNum) {
-+    return nriEnumerateAdapters2(ALL_GRAPHICS_APIS, outAdapterDescs, outAdapterDescNum);
-+}
-+
-+NRI_API Result NRI_CALL nriEnumerateAdapters2(GraphicsAPI graphicsAPIs, AdapterDesc* outAdapterDescs, uint32_t& outAdapterDescNum) {
-     std::array<AdapterDesc, ADAPTER_MAX_NUM> adapterDescs = {};
-     uint32_t adapterDescNum = 0;
- 
- #if NRI_ENABLE_VK_SUPPORT
--    UpdateAdaptersVK(adapterDescs.data(), adapterDescNum, nullptr);
-+    if (graphicsAPIs & GraphicsAPI::VK)
-+        UpdateAdaptersVK(adapterDescs.data(), adapterDescNum, nullptr);
- #endif
- 
- #if (NRI_ENABLE_D3D11_SUPPORT || NRI_ENABLE_D3D12_SUPPORT)
--    UpdateAdaptersD3D(adapterDescs.data(), adapterDescNum, nullptr);
-+    if (graphicsAPIs & (GraphicsAPI::D3D11 | GraphicsAPI::D3D12))
-+        UpdateAdaptersD3D(adapterDescs.data(), adapterDescNum, nullptr);
- #endif
- 
- #if NRI_ENABLE_WGPU_SUPPORT
--    UpdateAdaptersWGPU(adapterDescs.data(), adapterDescNum);
-+    if (graphicsAPIs & GraphicsAPI::WGPU)
-+        UpdateAdaptersWGPU(adapterDescs.data(), adapterDescNum);
- #endif
- 
- #if NRI_ENABLE_METAL_SUPPORT
--    UpdateAdaptersMetal(adapterDescs.data(), adapterDescNum, ADAPTER_MAX_NUM);
-+    if (graphicsAPIs & GraphicsAPI::METAL)
-+        UpdateAdaptersMetal(adapterDescs.data(), adapterDescNum, ADAPTER_MAX_NUM);
- #endif
- 
- #if NRI_ENABLE_NONE_SUPPORT

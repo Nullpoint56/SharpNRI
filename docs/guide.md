@@ -136,8 +136,8 @@ Caveats:
   `NriAdapter.Enumerate()` creates and destroys a Vulkan instance (API 1.2, every implicit layer
   loaded and unloaded), creates a DXGI factory, runs a null-device `D3D12CreateDevice` probe per
   adapter and creates real inbox D3D12 devices for adapters Vulkan did not list, which loads
-  `D3D12Core.dll` for the rest of the process. `NriAdapter.Enumerate(GraphicsAPI.VK)` (patch 0024,
-  `nriEnumerateAdapters2`) runs only the Vulkan pass: measured on NVIDIA 5 ms against 69 ms warm,
+  `D3D12Core.dll` for the rest of the process. `NriAdapter.Enumerate(GraphicsAPI.VK)` (NRI main's
+  `nriEnumerateAdapters` with a backend mask, 962615b; patch 0024 on master) runs only the Vulkan pass: measured on NVIDIA 5 ms against 69 ms warm,
   and no D3D12 runtime in the process. A filtered adapter carries only the asked API's bits in
   `SupportedGraphicsApis` (plus `NONE`), so pass it only to that API's device. Each call is one
   native call with a 32-entry buffer. `NriDevice.Create` with `Adapter` null lets NRI enumerate
@@ -623,12 +623,14 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   sets, VUI, scaling lists and tiles. The header does not say.
 - `GetVideoAV1EncodeDecodeInfo` returns pointers into the result struct itself: keep the struct
   alive and unmoved while using them.
-- **Describing an AV1 key frame**: set `NriVideoAV1EncodeDecodeInfoDesc.KeyFrame` (patch 0033).
-  D3D12 describes the frame from the encoder's metadata, which carries no frame type, so without
-  it the references you pass make the frame inter. `EncodedPayloadHeader` is required on Vulkan
-  and not read on D3D12, whose payload is tile data with no OBUs; pass the same desc to both.
-- **AV1 encode, D3D12**: NRI's default picture flags encode (patch 0032 turns on the automatic
-  segmentation the encoder may require); one tile only, no explicit segmentation. Under CQP the
+- **Describing an AV1 frame**: pass the submitted `PictureDesc` and `Av1PictureDesc` in
+  `NriVideoAV1EncodeDecodeInfoDesc` (required without a payload header); the frame type is the
+  picture desc's, and a frame without `References` is a key frame. `EncodedPayloadHeader` is for
+  Vulkan; D3D12's payload is tile data with no OBUs and answers `UNSUPPORTED` for one (NRI main
+  9131c1b). `SavedFrameStates` (8, by slot) serve headers that inherit state.
+- **AV1 encode, D3D12**: NRI's default picture flags encode (automatic segmentation follows the
+  encoder's required feature flags since NRI main af45e72; patch 0032 on master); one tile only, no
+  explicit segmentation. Under CQP the
   picture desc's base q index is ignored: set it through the rate control.
 
 ### Streamer
@@ -942,5 +944,5 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Occlusion query counts on Vulkan | NRI begins them without `PRECISE`: only non-zero is guaranteed | Queries |
 | Pipeline statistics read at `sizeof(PipelineStatisticsDesc)` | wrong on Vulkan (104 bytes a query); read at `QuerySize` | Queries |
 | Acceleration structure placed at the D3D12 memory desc's alignment | 256 (patch 0031); before the patch 128 under tight alignment, and the descriptor was refused | RayTracing |
-| AV1 encode on D3D12 with NRI's default picture flags | encodes (patch 0032); before the patch debug error 1306 and `Close` failed when the encoder requires automatic segmentation | Video |
-| `GetVideoAV1EncodeDecodeInfo` on D3D12 with references for a key frame | the key frame is described as inter unless `KeyFrame` is set (patch 0033, which also stops D3D12 parsing a payload header and answering `FAILURE`) | Video |
+| AV1 encode on D3D12 with NRI's default picture flags | encodes (NRI main af45e72; patch 0032 on master); at v190 debug error 1306 and `Close` failed when the encoder requires automatic segmentation | Video |
+| `GetVideoAV1EncodeDecodeInfo` on D3D12 with references for a key frame | described as the submitted `PictureDesc` says (NRI main 57d92ff; a payload header answers `UNSUPPORTED`, 9131c1b); at v190 inter, and a header a silent `FAILURE` (patch 0033 on master) | Video |

@@ -19,4 +19,5 @@ public enum VideoH264SequenceParameterSetBits : ushort
     SEPARATE_COLOUR_PLANE = (1 << 10),
     GAPS_IN_FRAME_NUM_ALLOWED = (1 << 11),
     QPPRIME_Y_ZERO_TRANSFORM_BYPASS = (1 << 12),
+    FRAME_CROPPING = (1 << 13),
 }

@@ -5,6 +5,7 @@ namespace PrismNRI.Native;
 [Flags]
 public enum GraphicsAPI : byte
 {
+    ALL = 0,
     NONE = (1 << 0),
     D3D11 = (1 << 1),
     D3D12 = (1 << 2),

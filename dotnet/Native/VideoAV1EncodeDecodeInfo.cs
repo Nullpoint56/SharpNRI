@@ -34,7 +34,7 @@ public partial struct VideoAV1EncodeDecodeInfo
     [NativeTypeName("uint16_t[64]")]
     public _heightInSuperblocksMinus1_e__FixedBuffer heightInSuperblocksMinus1;
 
-    [NativeTypeName("VideoAV1ReferenceDesc[8]")]
+    [NativeTypeName("VideoAV1ReferenceDesc[15]")]
     public _references_e__FixedBuffer references;
 
     [NativeTypeName("nri::VideoAV1QuantizationDesc")]
@@ -54,6 +54,12 @@ public partial struct VideoAV1EncodeDecodeInfo
 
     [NativeTypeName("nri::VideoAV1GlobalMotionDesc")]
     public VideoAV1GlobalMotionDesc globalMotion;
+
+    [NativeTypeName("nri::VideoAV1FilmGrainDesc")]
+    public VideoAV1FilmGrainDesc filmGrain;
+
+    [NativeTypeName("nri::VideoAV1SavedFrameState")]
+    public VideoAV1SavedFrameState savedFrameState;
 
     [InlineArray(64)]
     public partial struct _tiles_e__FixedBuffer
@@ -85,7 +91,7 @@ public partial struct VideoAV1EncodeDecodeInfo
         public ushort e0;
     }
 
-    [InlineArray(8)]
+    [InlineArray(15)]
     public partial struct _references_e__FixedBuffer
     {
         public VideoAV1ReferenceDesc e0;

@@ -12,7 +12,7 @@ both in this repository.
 
 ## Status
 
-This is the `next` branch: NRI main at 2f7a49f plus twenty-four patches ([patches/](patches/README.md)), on .NET 11, for testing
+This is the `next` branch: NRI main at 72f5f46 plus twenty-two patches ([patches/](patches/README.md)), on .NET 11, for testing
 against current NRI. Releases come from master, which pins NRI `v190` with thirty-five patches.
 Windows x64, Linux x64, macOS arm64. On macOS the binding is Vulkan through MoltenVK; NRI's Metal
 backend is not built, only the Base package exists, the application provides the Vulkan loader and

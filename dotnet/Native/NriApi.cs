@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using static PrismNRI.Native.Format;
 using static PrismNRI.Native.FormatSupportBits;
+using static PrismNRI.Native.GraphicsAPI;
 
 namespace PrismNRI.Native;
 
@@ -36,11 +37,7 @@ public static unsafe partial class NriApi
 
     [DllImport("NRI", CallingConvention = CallingConvention.StdCall, ExactSpelling = true)]
     [return: NativeTypeName("nri::Result")]
-    public static extern Result nriEnumerateAdapters([NativeTypeName("nri::AdapterDesc *")] AdapterDesc* adapterDescs, [NativeTypeName("uint32_t &")] uint* adapterDescNum);
-
-    [DllImport("NRI", CallingConvention = CallingConvention.StdCall, ExactSpelling = true)]
-    [return: NativeTypeName("nri::Result")]
-    public static extern Result nriEnumerateAdapters2([NativeTypeName("nri::GraphicsAPI")] GraphicsAPI graphicsAPIs, [NativeTypeName("nri::AdapterDesc *")] AdapterDesc* adapterDescs, [NativeTypeName("uint32_t &")] uint* adapterDescNum);
+    public static extern Result nriEnumerateAdapters([NativeTypeName("nri::AdapterDesc *")] AdapterDesc* adapterDescs, [NativeTypeName("uint32_t &")] uint* adapterDescNum, [NativeTypeName("nri::GraphicsAPI")] GraphicsAPI desiredGraphicsAPIs = ALL);
 
     [DllImport("NRI", CallingConvention = CallingConvention.StdCall, ExactSpelling = true)]
     [return: NativeTypeName("nri::Result")]

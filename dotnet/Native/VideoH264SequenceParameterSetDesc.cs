@@ -46,4 +46,16 @@ public partial struct VideoH264SequenceParameterSetDesc
 
     [NativeTypeName("uint16_t")]
     public ushort pictureHeightInMapUnitsMinus1;
+
+    [NativeTypeName("uint16_t")]
+    public ushort frameCropLeftOffset;
+
+    [NativeTypeName("uint16_t")]
+    public ushort frameCropRightOffset;
+
+    [NativeTypeName("uint16_t")]
+    public ushort frameCropTopOffset;
+
+    [NativeTypeName("uint16_t")]
+    public ushort frameCropBottomOffset;
 }

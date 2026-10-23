@@ -43,7 +43,6 @@ public sealed unsafe class NriPipelineLayout : NriObject
                     registerSpace = sets[i].RegisterSpace,
                     ranges = ranges.Length == 0 ? null : (DescriptorRangeDesc*)pins[i].AddrOfPinnedObject(),
                     rangeNum = (uint)ranges.Length,
-                    flags = sets[i].Flags,
                 };
             }
 

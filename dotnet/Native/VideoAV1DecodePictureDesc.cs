@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace PrismNRI.Native;
 
 public unsafe partial struct VideoAV1DecodePictureDesc
@@ -83,6 +85,9 @@ public unsafe partial struct VideoAV1DecodePictureDesc
     [NativeTypeName("const uint8_t *")]
     public byte* orderHints;
 
+    [NativeTypeName("VideoAV1ReferenceName[2]")]
+    public _skipModeFrames_e__FixedBuffer skipModeFrames;
+
     [NativeTypeName("const VideoAV1DecodeTileDesc *")]
     public VideoAV1DecodeTileDesc* tiles;
 
@@ -94,4 +99,10 @@ public unsafe partial struct VideoAV1DecodePictureDesc
 
     [NativeTypeName("uint32_t")]
     public uint referenceNum;
+
+    [InlineArray(2)]
+    public partial struct _skipModeFrames_e__FixedBuffer
+    {
+        public VideoAV1ReferenceName e0;
+    }
 }

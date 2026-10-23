@@ -19,4 +19,7 @@ public partial struct VideoSessionDesc
 
     [NativeTypeName("uint32_t")]
     public uint maxReferenceNum;
+
+    [NativeTypeName("bool")]
+    public byte av1FilmGrain;
 }

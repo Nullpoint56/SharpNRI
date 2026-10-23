@@ -45,8 +45,9 @@ read; nothing is pushed to it from here until an upstream PR is planned.
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, held by the submodule pointer and moved on purpose | the patches still needed on that commit | integration: testing against current NRI, upstream reports and PRs written against what the maintainer reads |
 
-- **Now.** `next` pins NRI main 2f7a49f (2026-10-21, "Polishing of #285", still `NRI_VERSION
-  190`) and carries twenty-four patches; master pins v190 with thirty-five.
+- **Now.** `next` pins NRI main 72f5f46 (2026-10-23, "Quality of life improvements and API
+  simplifications", still `NRI_VERSION 190`) and carries twenty-two patches; master pins v190
+  with thirty-five.
 - **Direction.** Binding work that does not depend on the NRI version lands on master and is
   merged forward into `next` often (`git merge master` on `next`). After a forward merge,
   regenerate L0 on `next` instead of resolving conflicts in `dotnet/Native` by hand. NRI-side work
@@ -118,7 +119,8 @@ structs filled by `nriGetInterface(device, "Name", sizeof(Name), &table)`; no re
 (excluding D3D11/Metal/WebGPU wrappers): 13 interface tables with 229 functions, plus the two
 structs the caller fills (`CallbackInterface`, `AllocationCallbacks`: 5), so 234 function pointers;
 with patch 0002's `SharedHandleInterface` 14 tables, 233 functions, 238 function pointers (the ABI
-oracle's count). 19 flat exports (20 with patch 0024's `nriEnumerateAdapters2`), 246 named structs
+oracle's count). 19 flat exports (20 on master with patch 0024's `nriEnumerateAdapters2`; main's `nriEnumerateAdapters`
+takes the backends to probe since 962615b), 246 named structs
 + 33 nested anonymous + 2 unions, 95 enums (57 `NriEnum` + 38 `NriBits`), 4 bitfields (all in
 `TopLevelInstance`).
 
@@ -398,7 +400,7 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | 0017 swapchain-latest-ready-bit | `SwapChainBits::LATEST_READY` + `DeviceDesc::features.latestReadySwapChain` (VK: swap chain + `fifoLatestReady`); with `VSYNC` the capped list is FIFO_LATEST_READY, FIFO_RELAXED/FIFO, FIFO; the bit is cleared from `m_Flags` unless that mode was chosen; D3D11/D3D12 clear it | upstream reaches FIFO_LATEST_READY only without `VSYNC` and after MAILBOX, which NVIDIA always offers, so it is never chosen there; NRI never reports the chosen mode |
 | 0018 d3d12-break-on-error-switch | `DeviceCreationDesc::disableD3D12BreakOnError` ("enabled by default" switches) wraps the two `SetBreakOnSeverity` calls in `DeviceD3D12::Create` (7 lines); the binding passes it unless `BreakOnError` and a debugger is attached | upstream sets the info-queue break on ERROR and CORRUPTION for every debug-layer device: without a debugger the first D3D12 error is an `SEHException` out of the NRI call, or a dead headless process, although the message callback already reports it |
 | 0019 d3d12-gpu-based-validation-switch | `DeviceCreationDesc::enableD3D12GpuBasedValidation` ("disabled by default", beside `enableD3D12RayTracingValidation`): `ID3D12Debug1::SetEnableGPUBasedValidation(true)` after `EnableDebugLayer` (9 lines) | upstream never enables GPU-based validation, which must be enabled before the device is created; the alternative is a D3D12 COM sequence in the binding |
-| 0024 enumerate-adapters-by-graphics-api | `nriEnumerateAdapters2(GraphicsAPI graphicsAPIs, AdapterDesc*, uint32_t&)` in `NRIDeviceCreation.h`: the body of `nriEnumerateAdapters` with each backend pass guarded by its bit (D3D pass for D3D11 or D3D12); `nriEnumerateAdapters` calls it with every bit; `nriCreateDevice` with a null `adapterDesc` enumerates `VK` only for a VK device and everything for the others (21 lines added, 5 removed) | every enumeration ran every pass, so creating a Vulkan device created a DXGI factory and D3D12 devices and loaded `D3D12Core.dll` for the process's life; a D3D-only enumeration would change a D3D12 device's desc (queue counts), so D3D keeps the full one (Device creation and callbacks) |
+| 0024 enumerate-adapters-by-graphics-api | on `next`: `nriCreateDevice` with a null `adapterDesc` calls `nriEnumerateAdapters` with `GraphicsAPI::VK` for a VK device and `ALL` otherwise (`Creation.cpp`, 2 lines); main's 962615b (#286) gave `nriEnumerateAdapters` the backends to probe, which master's 0024 did as `nriEnumerateAdapters2` | creating a Vulkan device with no adapter still probed every backend: a DXGI factory, D3D12 devices and `D3D12Core.dll` loaded for the process's life; a D3D-only probe would change a D3D12 device's desc (queue counts), so D3D keeps the full one (Device creation and callbacks) |
 | 0025 vulkan-vertex-attribute-binding-slot | `PipelineVK::Create` binds each attribute to `vi->streams[attribute.streamIndex].bindingSlot` (`PipelineVK.hpp:167`, 1 line); `DeviceVal::CreatePipeline` refuses an attribute whose `streamIndex` is not below `streamNum` (2 lines) | upstream wrote the stream's index as the binding, while D3D12 goes through the stream: streams declared out of slot order drew nothing on Vulkan, VUID-vkCmdBindVertexBuffers2-pStrides-06209; nothing checked `streamIndex`, and both backends read `streams[]` past the array (N1, Draws, render state and attachments) |
 | 0026 vulkan-empty-vertex-input-no-dynamic-stride | `VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE` only when the vertex input has streams (`PipelineVK.hpp:378`, 1 line) | upstream made the stride dynamic for any non-null vertex input, so every draw with an empty one reported VUID-vkCmdDraw-pStrides-04913 (N2, Draws, render state and attachments) |
 | 0027 d3d12-clear-attachments-stencil-only-pass | `ClearAttachments` takes the depth-stencil view from `m_Depth`, else `m_Stencil` (`CommandBufferD3D12.hpp:1758`, 2 lines) | upstream dereferenced the null depth attachment of a stencil-only pass: an access violation (N3, Draws, render state and attachments) |
@@ -406,23 +408,27 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | 0029 non-array-texture-view-layer-offset | `DescriptorD3D12::Create(TextureViewDesc)` refuses `TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` and `TEXTURE_CUBE` views of a non-3D texture with `layerOffset` != 0 (`INVALID_ARGUMENT`, error naming the `_ARRAY` types); `DeviceVal::CreateDescriptor` refuses the same on every backend (11 lines added) | D3D12's non-array 1D, 2D and cube views have no array slice, and upstream dropped `layerOffset` silently: the view addressed the first layer on D3D12 and the asked one on Vulkan (N5, Multisampling, copies and queries) |
 | 0030 d3d12-micromap-write-barrier-sync | `GetBarrierSyncFlags` adds no `EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO` when the access holds `ACCELERATION_STRUCTURE_WRITE` or `MICROMAP_WRITE` (`CommandBufferD3D12.hpp:142`, 2 lines) | `MICROMAP_WRITE` maps to the same D3D12 write access, and the debug layer refuses the pair (1331): `Close` failed after every micromap build whose barrier named the `MICROMAP` stage (N6, Ray tracing) |
 | 0031 d3d12-acceleration-structure-alignment | `GetAccelerationStructureMemoryDesc2` and `AccelerationStructureD3D12::GetMemoryDesc` raise the alignment to `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT` (`ImplD3D12.cpp:1023`, `AccelerationStructureD3D12.hpp:52`, 2 lines added); micromaps keep their 128 | since 3371cdb the desc is a plain buffer's, 128 under tight alignment, which NRI validation accepts for a placement and the acceleration-structure SRV refuses (31) (N7, Ray tracing) |
-| 0032 d3d12-av1-required-auto-segmentation | `VideoSessionD3D12` keeps the AV1 encoder's `RequiredFeatureFlags` (`GetAV1RequiredFeatureFlags`); `EncodeVideo` enables automatic segmentation when they hold `AUTO_SEGMENTATION`, as well as for pictures with `SEGMENTATION_ENABLED` (`CommandBufferD3D12.hpp:1442`, 9 lines added, 1 removed) | upstream enabled it for the picture flag only, and the session merged the required flags into the supported ones; NVIDIA's encoder requires it, so NRI's default picture flags failed `Close` (1306) (N8, Extensions) |
-| 0033 video-av1-key-frame-and-d3d12-metadata | `VideoAV1EncodeDecodeInfoDesc::keyFrame` (`NriOptional bool`, `NRIVideo.h:885`): the references are not used; D3D12's `GetVideoAV1EncodeDecodeInfo` no longer parses `encodedPayloadHeader` and describes the frame from the metadata (`VideoSessionD3D12.hpp:128`, `:193`; 4 lines added, 4 removed) | the D3D12 payload is tile data with no OBUs, so the header path answered `FAILURE` without a message where Vulkan requires the header, and a key frame described with references came back as P (N9, Extensions) |
 | 0034 allocation-failure-out-of-memory | every unchecked `Allocate` in the VK, D3D12, validation and shared paths answers `OUT_OF_MEMORY` and destroys what the call made: `CreateImplementation`, device creation, command allocators, swap chains (D3D12's texture is also destroyed when its `Create` fails), Imgui, Streamer, Upscaler and its parts, the validation wrappers (14 files, 413 lines added, 53 removed; the two shared-handle wrappers are in 0002) | upstream used the null as the object: an access violation in the call (N10, Device creation and callbacks). NRI's containers (`StdAllocator`, `noexcept`) are unchanged and still cannot report a null |
 | 0035 helper-sort-every-resource | `GroupByMemoryType` sorts `[0, bufferNum)` and `[0, textureNum)` (`HelperInterface.hpp:559`, `:571`, 2 lines) | upstream ended the range at the last element, which `std::sort` excludes, so the last resource of each kind was packed unsorted and the packing depended on the order passed (N11, Memory and resources) |
 
-- **On `next` (NRI main 2f7a49f, 2026-10-21) ten of master's patches are gone, fixed upstream**:
+- **On `next` (NRI main 72f5f46, 2026-10-23) thirteen of master's patches are gone, fixed upstream**:
   0003 (7915eca, which also refuses `HAS_BUFFER` at build time), 0004 (a4e562e, another shape:
   `m_InstanceVersion`; ours still applied on top, so it was removed by hand), 0005 (9b45d77), 0008
   (5ed8bb6, our table), 0010 (bc3ebe7), 0014 (81245bd, then replaced by PR #285's clamp,
   Extensions), 0020 (48a14c3, another shape: `COMMON` access, Barriers), 0021 (1163658), 0022
   (732f737, without the sentinel guard, which 0002 now carries), 0023 (2603edc, the sharing mode
-  recorded at creation). Their rows and the history are on master. The thirteen left apply in
-  order onto 2f7a49f, each also alone, and each passes the scripts' `-C0` reverse check (measured).
-  Master's 0025-0035 (2026-10-22, PR #26) apply onto that in order and alone, with line offsets,
-  so `next` carries twenty-four; 0036 (the D3D12 resolve backport) is dropped here, main has
-  48d4a33. 0002 was re-cut again for the null-wrapper checks 0034 cannot add; being cut over 0001
-  it is the one patch that does not apply alone.
+  recorded at creation); and since 2f7a49f: 0032 (af45e72, merged 2026-10-22 in #264, the same
+  rule: automatic segmentation follows the required feature flags), 0033 (57d92ff and af45e72 in
+  the same merge, another shape: `VideoAV1EncodeDecodeInfoDesc::pictureDesc` / `av1PictureDesc`
+  carry the frame type and are required without a header, a key frame also without references;
+  9131c1b answers `UNSUPPORTED` for a payload header on D3D12), and master 0024's
+  `nriEnumerateAdapters2` (962615b, #286: `nriEnumerateAdapters` takes the backends to probe).
+  `next`'s 0024 is the two lines main did not take (`nriCreateDevice` with no adapter probes VK
+  only for a VK device). 0029 and 0034 are re-cut over main's `textureViewDescFixed` (72f5f46)
+  and the creation rollback of #292 (0fade6e, 16f56f7). Their rows and the history are on master.
+  The twenty-two apply in order onto 72f5f46, each also alone, and each passes the scripts' `-C0`
+  reverse check (measured 2026-10-23). 0036 (the D3D12 resolve backport) is dropped here, main
+  has 48d4a33. 0002 carries the null-wrapper checks 0034 cannot add.
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
   because a later patch may change a line inside an earlier patch's context, and with full
@@ -431,13 +437,16 @@ configured per machine: the adapter named is whichever one the suite picked on t
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); on master 0003-0021 and 0024-0036 each also apply alone onto the bare tag (0022 and 0023 do not: their context is 0020's and 0002's lines); on `next` all but 0002 do. 0002 was re-cut once more on `next` (a scratch clone at 2f7a49f with 0001 committed, the old 0002 applied with `--3way`, the conflict and two stale spots fixed, `git diff --cached HEAD`), and again on 2026-10-22 for the null-wrapper checks that 0034 cannot add: a later patch must not change lines an earlier patch adds (the earlier one's `-C0` reverse check then fails and the scripts refuse the tree). Patches to a
+  `git diff --cached HEAD`); on master 0003-0021 and 0024-0036 each also apply alone onto the bare tag (0022 and 0023 do not: their context is 0020's and 0002's lines); on `next` all twenty-two do (72f5f46, 2026-10-23). 0002 was re-cut once more on `next` (a scratch clone at 2f7a49f with 0001 committed, the old 0002 applied with `--3way`, the conflict and two stale spots fixed, `git diff --cached HEAD`), and again on 2026-10-22 for the null-wrapper checks that 0034 cannot add: a later patch must not change lines an earlier patch adds (the earlier one's `-C0` reverse check then fails and the scripts refuse the tree). Patches to a
   file an earlier patch touches (0012-0035 all are, or are cut the same way) are cut from a scratch clone at the tag with
-  the earlier patches committed, `git diff` against that commit; 0025-0035 are master's cuts over v190 + 0001-0024, which apply onto 2f7a49f with line offsets (measured 2026-10-22). There is no 0011: it corrected
-- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 273 structs, 1,845 offsets on `next`
-  (1,844 on master at v190: `TextureViewDesc::layout` is main's; 1,840 before patches 0017-0019
-  and 0033 added a field each), 55 fixed buffers, 96 enums, 4 bitfields (exact bytes written),
-  238 function-pointer fields, 20 `DllImport`s (19 before patch 0024); zero mismatches on x64
+  the earlier patches committed, `git diff` against that commit; 0025-0035 are master's cuts over v190 + 0001-0024, which applied onto 2f7a49f with line offsets (2026-10-22); on 72f5f46 0029 and 0034 are re-cut (2026-10-23). There is no 0011: it corrected
+- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,872 offsets, 56 fixed
+  buffers and 95 enums on `next` at 72f5f46 (main's video descs; `DescriptorSetBits` gone;
+  2026-10-23); 273 structs, 1,844 offsets, 55 fixed buffers and 96 enums on master at v190
+  (1,840 offsets before patches 0017-0019 and 0033 added a field each); 4 bitfields (exact bytes
+  written),
+  238 function-pointer fields, 19 `DllImport`s on `next` (20 on master, with patch 0024's
+  `nriEnumerateAdapters2`); zero mismatches on x64
   (win-x64, 2026-10-22) and arm64 (the macOS CI job, last run before patch 0017). Blind to calling convention, `const`, reference vs pointer,
   `bool` vs `uint8_t`. The anonymous union in `BottomLevelGeometryDesc` is checked as outer offsets.
 - **`nriGetInterface` checks the table size itself**: mismatch = `INVALID_ARGUMENT` after both sizes
@@ -479,10 +488,11 @@ configured per machine: the adapter named is whichever one the suite picked on t
   desc from the physical device. A consumer measured on an RTX 4070 SUPER (their numbers): 53-57
   ms for the D3D probe, about 60 ms per Vulkan device creation, `D3D12Core.dll` resident for the
   process's life after a windowless Vulkan run, and RivaTuner labelling the process D3D12 until the
-  Vulkan swap chain appears. Patch 0024: `nriEnumerateAdapters2(graphicsAPIs, ...)` runs only the
-  passes of the asked APIs; `nriEnumerateAdapters` is it with every bit; `nriCreateDevice` with a
-  null desc enumerates VK only for a VK device and everything otherwise (a D3D-only enumeration
-  would change the D3D12 desc above). Measured here (`AdapterEnumerationTests`, NVIDIA RTX 4070
+  Vulkan swap chain appears. Master's patch 0024 added `nriEnumerateAdapters2(graphicsAPIs, ...)`,
+  which runs only the passes of the asked APIs; NRI main's 962615b (#286) gives
+  `nriEnumerateAdapters` itself the backends to probe (`GraphicsAPI::ALL` by default), and
+  `next`'s 0024 is the two lines left: `nriCreateDevice` with a null desc probes VK only for a VK
+  device and everything otherwise (a D3D-only enumeration would change the D3D12 desc above). Measured here (`AdapterEnumerationTests`, NVIDIA RTX 4070
   SUPER, Windows, children of the test executable): `d3d12.dll` and `dxgi.dll` are loaded as soon
   as NRI.dll is (load-time imports, before any enumeration); a VK-only enumeration (1 adapter)
   took 67.0 ms the first call and 5.3 ms the second, and left `D3D12Core.dll` unloaded, as did
@@ -1647,7 +1657,8 @@ extensions.
   - D3D12's AV1 and H.265 encode need no feedback resolve, so `ResolveVideoEncodeFeedback` runs
     nowhere here; Vulkan encode is skipped.
   - H.265 and AV1 decodes record and close, and NRI validation names each broken field.
-- **D3D12 AV1 encode with NRI's default picture flags failed (N8, patch 0032).**
+- **D3D12 AV1 encode with NRI's default picture flags failed (N8; patch 0032 on master, fixed on
+  main by af45e72, merged 2026-10-22 in #264, with the same rule, so `next` has no 0032).**
   - The encoder requires `AUTO_SEGMENTATION`, `LOOP_RESTORATION_FILTER` and `CDEF_FILTERING`. NRI
     enabled automatic segmentation only for pictures holding `SEGMENTATION_ENABLED`
     (`CommandBufferD3D12.hpp:1442` at v190, since 2741780), and the session merged the required
@@ -1659,13 +1670,21 @@ extensions.
   - Under CQP the picture desc's base q index is ignored, so set it through the rate control. Key
     frames at q 40 and 160 come out as 22 and 21 bytes of bare tile data; NRI's defaults at q 40,
     22 bytes.
-- **`GetVideoAV1EncodeDecodeInfo` on D3D12 (N9, patch 0033).** The payload-header path answered
+- **`GetVideoAV1EncodeDecodeInfo` on D3D12 (N9; patch 0033 on master, another shape on main).**
+  The payload-header path answered
   FAILURE silently, since the payload has no OBUs, and with a reference snapshot a key frame was
   described as inter (`VideoSessionD3D12.hpp:128`, `:193` at v190, since 39ce136). Patch 0033
   describes the frame from the metadata whether a header is given or not, and adds
   `VideoAV1EncodeDecodeInfoDesc::keyFrame` (`NriOptional`; binding `KeyFrame`): set, the
   references are not used. Measured with the patch: the header case describes the frame as
-  without it; two agreeing references still give P, and IDR with `KeyFrame`.
+  without it; two agreeing references still give P, and IDR with `KeyFrame`. NRI main (57d92ff
+  and af45e72, merged 2026-10-22; 9131c1b) takes another shape, which `next` follows:
+  `VideoAV1EncodeDecodeInfoDesc::pictureDesc` and `av1PictureDesc` (the submitted descs) are
+  required without a header and give the frame type, a frame without references is a key frame,
+  `savedFrameStates` (8, by slot) serve headers that inherit state, and a payload header on D3D12
+  answers `UNSUPPORTED`. The binding on `next`: `KeyFrame` gone, `PictureDesc`, `Av1PictureDesc`
+  and `SavedFrameStates` on `NriVideoAV1EncodeDecodeInfoDesc`; `VideoExtensionTests` passes the
+  descs, expects `NriUnsupportedException` for the header on D3D12 and records the P case.
 - **An H.265 decode capability query at 64x64 removed the device** on the development machine's
   D3D12 driver ("[233] ... DXGI_ERROR_DRIVER_INTERNAL_ERROR"), inside NRI's decoder-heap probe. The
   tests use 256x256.

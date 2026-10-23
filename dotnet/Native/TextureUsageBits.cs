@@ -16,4 +16,5 @@ public enum TextureUsageBits : ushort
     VIDEO_DECODE = (1 << 7),
     VIDEO_ENCODE = (1 << 8),
     VIDEO_REFERENCE_ONLY = (1 << 9),
+    VIDEO_OUTPUT_ONLY = (1 << 10),
 }

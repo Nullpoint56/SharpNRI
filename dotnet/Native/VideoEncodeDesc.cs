@@ -53,6 +53,9 @@ public unsafe partial struct VideoEncodeDesc
     [NativeTypeName("const VideoH264EncodePictureDesc *")]
     public VideoH264EncodePictureDesc* h264PictureDesc;
 
+    [NativeTypeName("const VideoH265EncodePictureDesc *")]
+    public VideoH265EncodePictureDesc* h265PictureDesc;
+
     [NativeTypeName("const VideoAV1EncodePictureDesc *")]
     public VideoAV1EncodePictureDesc* av1PictureDesc;
 

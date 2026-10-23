@@ -66,6 +66,9 @@ public partial struct VideoCapabilities
     public byte decodeDpbAndOutputDistinct;
 
     [NativeTypeName("bool")]
+    public byte decodeReferenceOnlyRequired;
+
+    [NativeTypeName("bool")]
     public byte dpbTextureArrayRequired;
 
     [NativeTypeName("bool")]
@@ -79,4 +82,7 @@ public partial struct VideoCapabilities
 
     [NativeTypeName("bool")]
     public byte encodeFeedbackResolveRequired;
+
+    [NativeTypeName("bool")]
+    public byte encodeReferenceCountOverrideSupported;
 }

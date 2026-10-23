@@ -399,6 +399,11 @@ public readonly record struct NriVideoAV1DecodePictureDesc
     /// <summary>Optional; all 8 entries when provided.</summary>
     public NriVideoAV1OrderHints? OrderHints { get; init; }
 
+    /// <summary><c>skipModeFrames</c>: the two <c>SkipModeFrame</c> names, used with <c>SKIP_MODE_PRESENT</c>.</summary>
+    public VideoAV1ReferenceName SkipModeFrame0 { get; init; }
+
+    public VideoAV1ReferenceName SkipModeFrame1 { get; init; }
+
     public ReadOnlyMemory<VideoAV1DecodeTileDesc> Tiles { get; init; }
 
     public ReadOnlyMemory<NriVideoAV1ReferenceDesc> References { get; init; }
@@ -415,12 +420,15 @@ public readonly record struct NriVideoAV1EncodeDecodeInfoDesc
 
     public ReadOnlyMemory<byte> EncodedPayloadHeader { get; init; }
 
+    /// <summary>The previous DPB snapshot; required for inter frames. Without it the frame is described as a key frame.</summary>
     public ReadOnlyMemory<NriVideoAV1ReferenceDesc> References { get; init; }
 
-    /// <summary>
-    /// The frame was encoded as a key frame: <see cref="References"/> are not used. D3D12 describes the
-    /// frame from the encoder's metadata, which does not say it (patch 0033); Vulkan reads it from the
-    /// payload's OBUs.
-    /// </summary>
-    public bool KeyFrame { get; init; }
+    /// <summary>The submitted picture description; required when <see cref="EncodedPayloadHeader"/> is empty (D3D12 answers <c>UNSUPPORTED</c> for a header).</summary>
+    public VideoEncodePictureDesc? PictureDesc { get; init; }
+
+    /// <summary>The submitted AV1 picture description; required when <see cref="EncodedPayloadHeader"/> is empty.</summary>
+    public NriVideoAV1EncodePictureDesc? Av1PictureDesc { get; init; }
+
+    /// <summary>Optional; 8 entries indexed by <c>refFrameIndex</c> when provided: the saved state of the frame that last refreshed each slot.</summary>
+    public ReadOnlyMemory<VideoAV1SavedFrameState> SavedFrameStates { get; init; }
 }
