@@ -13,4 +13,7 @@ public partial struct BufferDesc
 
     [NativeTypeName("bool")]
     public byte byteAddress;
+
+    [NativeTypeName("bool")]
+    public byte shared;
 }

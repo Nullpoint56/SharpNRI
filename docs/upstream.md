@@ -74,7 +74,7 @@ question; the draft states the shape and offers the PR.
 | 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | filed 2026-10-19 against main 8ee40ca, [#282](https://github.com/NVIDIA-RTX/NRI/issues/282); fixed 2026-10-20 in 1163658, ours verbatim; dropped on `next` |
 | 0022 D3D12 copy layouts refused in copy command lists | bug | filed 2026-10-19 against main 8ee40ca, [#283](https://github.com/NVIDIA-RTX/NRI/issues/283); fixed 2026-10-20 in 732f737, ours without the sentinel guard, which 0002 now carries; dropped on `next` |
 | 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | filed 2026-10-19 against main 8ee40ca, [#284](https://github.com/NVIDIA-RTX/NRI/issues/284); fixed 2026-10-20 in 2603edc, the sharing mode recorded at creation; dropped on `next`, 0002 keeps the external family |
-| 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs, an extension only for substantial new API surface (2026-10-21 note above) |
+| 0002 shared buffers, textures and fences | proposal, PR | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs; re-cut in that shape on `next` 2026-10-23 (section below); the PR from the owner's fork is the next step, with the `FenceDesc` question in its body |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2, drafted 2026-10-19, not filed; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2, drafted 2026-10-19 as a question, not filed: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
 | 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2, drafted 2026-10-19, not filed; the uncapped order is his and stays |
@@ -264,30 +264,53 @@ device from the factory and wrapping it with `nriCreateDeviceFromD3D12Device`, a
 what we fall back to; it loses `Robustness`, `DeviceLostInfoLevel` and ray-tracing validation,
 which only the NRI-created path offers. Patch attached, 1 header line and ~20 lines.
 
-## 0002 — SharedHandle extension
+## 0002 — Shared buffers, textures and fences
 
-**Title:** Proposal: an extension to export textures and fences to other APIs and processes
+**Title:** Core: shared buffers, textures and fences (export to another device, API or process), the #49 request
 
-NRI has no way to export a texture's memory or a fence: `TextureDesc` and `AllocateMemoryDesc`
-carry no exportable flag and `CreateFence` takes no desc. A compositor, an editor hosting the
-renderer, a capture tool or a second process importing a frame needs exactly that. The patch adds
-`NRISharedHandle.h`: `CreateSharedTexture` (committed, dedicated, exportable), `CreateSharedFence`,
-`GetTextureSharedHandle` and `GetFenceSharedHandle`, each returning a caller-owned handle
-(`OPAQUE_WIN32` / `OPAQUE_FD` on Vulkan, NT handles on D3D12), plus an `EXTERNAL_QUEUE` sentinel
-for barriers that release to or acquire from `VK_QUEUE_FAMILY_EXTERNAL`. `CreateSharedFence` with
-the `SWAPCHAIN_SEMAPHORE` initial value, the value NRI already uses to ask for a binary semaphore,
-creates an exportable binary semaphore on Vulkan, the signal-once/wait-once object external
-compositors import; D3D12 has no binary fences and answers `UNSUPPORTED`. Vulkan enables the
-external-memory and external-semaphore extensions itself and allocates the shared texture's memory
-directly so the export info can be chained; D3D12 uses `D3D12_HEAP_FLAG_SHARED` and
-`D3D12_FENCE_FLAG_SHARED`; NONE returns dummies; the validation layer wraps the four calls.
+**Status 2026-10-23.** Re-cut in the shape the maintainer asked for on #49: no extension, fields
+on the existing descs, the getters in Core. What the PR adds, against main 72f5f46:
 
-Measured on v190, RTX 4070 SUPER: a Vulkan texture imports into a second Vulkan device byte for
-byte, the timeline semaphore signals both ways, and the binary semaphore, imported into a binary
-VkSemaphore, is signalled and waited by queue submits in both directions with the Khronos layer
-clean; a D3D12 fence opens on a second D3D12 device and signals
-both ways; a D3D12 texture opens on a second D3D12 device. One known limitation to state in the
-proposal: D3D11 refuses the typeless resource NRI creates. ~500 lines across 24 files.
+- `BufferDesc::shared`, `TextureDesc::shared`: a committed resource in `DEVICE` memory with a
+  dedicated, exportable allocation (VK: `VkExternalMemoryBufferCreateInfo` /
+  `VkExternalMemoryImageCreateInfo` and `VkExportMemoryAllocateInfo`, allocated outside VMA so the
+  export info can be chained, `DeviceVK::AllocateSharedMemory`; D3D12: `D3D12_HEAP_FLAG_SHARED`).
+- `FenceDesc { initialValue, shared }`, which `CreateFence` now takes (VK:
+  `VkExportSemaphoreCreateInfo`, timeline or binary; D3D12: `D3D12_FENCE_FLAG_SHARED`,
+  `UNSUPPORTED` for a binary semaphore). The one API break; the question for the maintainer is
+  whether he would rather keep `CreateFence(device, initialValue, fence)` and take the flag
+  another way.
+- `SharedHandleType`, `SharedHandle { handle, type, size }` and `CoreInterface::GetBufferSharedHandle`
+  / `GetTextureSharedHandle` / `GetFenceSharedHandle` beside the native-object getters: a new
+  caller-owned handle per call (VK: `vkGetMemory*` / `vkGetSemaphore*` `Win32HandleKHR` or
+  `FdKHR`; D3D12: `ID3D12Device::CreateSharedHandle`); `size` is the allocation size on both
+  backends, what an importer's `VkMemoryAllocateInfo::allocationSize` or
+  `CUDA_EXTERNAL_MEMORY_HANDLE_DESC::size` takes.
+- `DeviceDesc::features.sharedResources` / `sharedFences` (VK: the platform's external memory /
+  semaphore extension, which the backend enables itself; D3D12: true).
+- `EXTERNAL_QUEUE`, a sentinel for `TextureBarrierDesc::srcQueue` / `dstQueue` naming
+  `VK_QUEUE_FAMILY_EXTERNAL`, which the wrappers cannot express.
+- Validation refuses `shared` outside `CreateCommitted*` and outside `DEVICE` memory, a getter on
+  an object that is not shared, and a shared object on a device without the feature. NONE returns
+  zero handles. D3D11, WGPU and Metal answer `UNSUPPORTED`: the D3D11 stubs compiled here
+  (`NRI_ENABLE_D3D11_SUPPORT=ON`, 2026-10-24), WGPU and Metal are not compiled here.
+
+Measured on main 72f5f46, RTX 4070 SUPER, Windows: a Vulkan texture imports into a second Vulkan
+device byte for byte, the timeline semaphore signals both ways, the binary semaphore imported into
+a binary VkSemaphore is signalled and waited by queue submits in both directions with the Khronos
+layer clean; a D3D12 fence opens on a second D3D12 device and signals both ways; a D3D12 texture
+opens on a second D3D12 device; CUDA (the driver API, `cuImportExternalMemory` /
+`cuImportExternalSemaphore`) imports a shared buffer and the shared fence from both backends, reads
+what NRI wrote, writes, signals, and NRI's queue waits on CUDA's signal and reads CUDA's bytes
+(`CudaInteropTests`). Lavapipe: `sharedResources` 1, `sharedFences` 0 (no
+`VK_KHR_external_semaphore_fd`), buffer and texture export through fds. Known limitation to state:
+D3D11 refuses the typeless resource NRI creates. Not in the PR, a possible follow-up:
+`AllocateMemoryDesc::shared` and a memory getter for placed resources (some Vulkan drivers export
+images only from dedicated allocations, so it needs a capability check first).
+
+The earlier extension shape (`NRISharedHandle.h`, `CreateSharedTexture` / `CreateSharedFence` /
+`GetTextureSharedHandle` / `GetFenceSharedHandle`) is master's 0002 at v190; its measurements
+(2026-10-13 to 2026-10-16) are the same imports, without buffers and CUDA.
 
 ## 0010 — Streamer stages block-compressed textures in texel rows
 

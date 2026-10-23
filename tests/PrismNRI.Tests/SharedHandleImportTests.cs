@@ -72,7 +72,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.D3D12, messages);
 
-        using var texture = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, SharedDesc);
+        using var texture = device.CreateSharedTexture(SharedDesc);
         var expected = RenderShared(device, texture);
 
         using var adapter = DxgiAdapterFor(GraphicsAPI.D3D12);
@@ -90,13 +90,13 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         // device opens the same handle. Import into D3D12 or Vulkan instead; shared D3D12 textures
         // stay typeless like every other NRI texture; this test pins the refusal so a change in
         // either NRI or D3D11 shows up as a failure here rather than as a surprise downstream.
-        using var handle = device.SharedHandles.GetSharedHandle(texture);
+        using var handle = texture.GetSharedHandle();
         Assert.Equal(SharedHandleType.D3D12_RESOURCE, handle.Type);
         Assert.Contains("Typeless", D3D12ResourceFormat(texture), StringComparison.OrdinalIgnoreCase);
 
         var openResult = d3d11Device1.OpenSharedResource1(handle.Handle, out V11.ID3D11Texture2D? opened);
         using var ___ = opened;
-        Assert.True(openResult.Failure, "D3D11 opened NRI's typeless shared resource; the limitation recorded in CLAUDE.md (Shared handles) no longer holds and the header comment in NRISharedHandle.h should be revisited");
+        Assert.True(openResult.Failure, "D3D11 opened NRI's typeless shared resource; the limitation recorded in CLAUDE.md (Shared handles) no longer holds and the header comment in NRIDescs.h should be revisited");
         Assert.Equal(unchecked((int)0x80070057), openResult.Code); // E_INVALIDARG
 
         var hr12 = V12.D3D12.D3D12CreateDevice(adapter, VD3D.FeatureLevel.Level_12_0, out V12.ID3D12Device? second);
@@ -120,7 +120,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Require(GraphicsAPI.D3D12);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.D3D12, messages);
-        using var fence = device.SharedHandles.CreateSharedFence(0);
+        using var fence = device.CreateSharedFence(0);
 
         // The debug layer is process-wide and NRI enabled it before creating its device (validation is
         // on in every TestDevice); enabling it again now would remove the live device. The second
@@ -133,7 +133,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Assert.True(infoQueue is not null, "the second D3D12 device has no debug layer (ID3D12InfoQueue)");
 
         V12.ID3D12Fence opened;
-        using (var handle = device.SharedHandles.GetSharedHandle(fence))
+        using (var handle = fence.GetSharedHandle())
         {
             Assert.Equal(SharedHandleType.D3D12_FENCE, handle.Type);
             opened = second.OpenSharedHandle<V12.ID3D12Fence>(handle.Handle);
@@ -182,7 +182,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
 
-        using var texture = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, SharedDesc);
+        using var texture = device.CreateSharedTexture(SharedDesc);
         var expected = RenderShared(device, texture);
 
         using var vk = SecondVulkanDevice.Create(TestDevice.AdapterFor(GraphicsAPI.VK)!);
@@ -214,10 +214,9 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         api.vkGetImageMemoryRequirements(image, &requirements);
 
         VkDeviceMemory memory;
-        using (var handle = device.SharedHandles.GetSharedHandle(texture))
+        using (var handle = texture.GetSharedHandle())
         {
             Assert.Equal(SharedHandleType.OPAQUE_WIN32, handle.Type);
-            Assert.Equal(0UL, handle.Offset);
             output.WriteLine($"exported allocation {handle.Size} bytes; the importer's image needs {requirements.size} (alignment {requirements.alignment}, types 0x{requirements.memoryTypeBits:X})");
             Assert.True(handle.Size >= requirements.size, $"exported size {handle.Size} < required {requirements.size}");
 
@@ -307,7 +306,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Require(GraphicsAPI.VK);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
-        using var fence = device.SharedHandles.CreateSharedFence(0);
+        using var fence = device.CreateSharedFence(0);
 
         using var vk = SecondVulkanDevice.Create(TestDevice.AdapterFor(GraphicsAPI.VK)!);
         output.WriteLine($"second VkDevice on '{vk.DeviceName}', validation {(vk.Validated ? "on" : "unavailable")}");
@@ -320,7 +319,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         VkSemaphore semaphore;
         Check(api.vkCreateSemaphore(&semaphoreInfo, null, &semaphore), "vkCreateSemaphore");
 
-        using (var handle = device.SharedHandles.GetSharedHandle(fence))
+        using (var handle = fence.GetSharedHandle())
         {
             Assert.Equal(SharedHandleType.OPAQUE_WIN32, handle.Type);
             var import = new VkImportSemaphoreWin32HandleInfoKHR
@@ -378,7 +377,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Require(GraphicsAPI.VK);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
-        using var binary = device.SharedHandles.CreateSharedBinaryFence();
+        using var binary = device.CreateSharedBinaryFence();
         using var fence = device.CreateFence();
 
         using var vk = SecondVulkanDevice.Create(TestDevice.AdapterFor(GraphicsAPI.VK)!);
@@ -390,7 +389,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         VkSemaphore semaphore;
         Check(api.vkCreateSemaphore(&semaphoreInfo, null, &semaphore), "vkCreateSemaphore");
 
-        using (var handle = device.SharedHandles.GetSharedHandle(binary))
+        using (var handle = binary.GetSharedHandle())
         {
             Assert.Equal(SharedHandleType.OPAQUE_WIN32, handle.Type);
             var import = new VkImportSemaphoreWin32HandleInfoKHR

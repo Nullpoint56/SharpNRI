@@ -1,6 +1,8 @@
-// The SharedHandle extension (patches/0002): export a texture and a fence on each backend and
-// check the handle is the kind the backend promises. Importing it elsewhere is a separate proof
-// (SharedHandleImportTests) because it needs the other API's binding.
+// Shared buffers, textures and fences (patches/0002: BufferDesc::shared, TextureDesc::shared,
+// FenceDesc::shared, the Core getters and the feature bits): export each on each backend and check
+// the handle is the kind the backend promises, that the device reports the features, and that NRI
+// validation refuses the shapes the patch excludes. Importing elsewhere is a separate proof
+// (SharedHandleImportTests, CudaInteropTests) because it needs the other API's binding.
 
 using PrismNRI.Native;
 using Xunit;
@@ -9,7 +11,7 @@ namespace PrismNRI.Tests;
 
 public sealed class SharedHandleTests
 {
-    private static SharedHandleType ExpectedTextureType(GraphicsAPI api) => api switch
+    private static SharedHandleType ExpectedResourceType(GraphicsAPI api) => api switch
     {
         GraphicsAPI.D3D12 => SharedHandleType.D3D12_RESOURCE,
         GraphicsAPI.VK => OperatingSystem.IsWindows() ? SharedHandleType.OPAQUE_WIN32 : SharedHandleType.OPAQUE_FD,
@@ -24,26 +26,77 @@ public sealed class SharedHandleTests
     };
 
     /// <summary>
-    /// Skips when NRI's Vulkan backend could not fill the interface. It needs both the external
-    /// memory and the external semaphore extension of the platform; lavapipe (Mesa 25) advertises
-    /// VK_KHR_external_memory_fd but not VK_KHR_external_semaphore_fd (CLAUDE.md: Lavapipe), and
-    /// MoltenVK neither (CLAUDE.md: MoltenVK and the paravirtual Mac).
+    /// Skips when the Vulkan device lacks the platform's external memory extension (MoltenVK has no
+    /// fd handles, only VK_EXT_external_memory_metal; CLAUDE.md: MoltenVK and the paravirtual Mac).
     /// </summary>
-    private static void RequireSharedHandles(NriDevice device) =>
-        Assert.SkipWhen(device.GraphicsApi == GraphicsAPI.VK && device.TrySharedHandles is null,
-            "the adapter lacks VK_KHR_external_memory_fd/_win32 or VK_KHR_external_semaphore_fd/_win32 (lavapipe has no external semaphores; MoltenVK has neither)");
+    private static void RequireSharedResources(NriDevice device) =>
+        Assert.SkipWhen(device.Desc.features.sharedResources == 0,
+            "features.sharedResources is false: the adapter lacks VK_KHR_external_memory_fd/_win32");
 
+    /// <summary>
+    /// Skips when the Vulkan device lacks the platform's external semaphore extension: lavapipe (Mesa
+    /// 25) advertises VK_KHR_external_memory_fd but not VK_KHR_external_semaphore_fd (CLAUDE.md:
+    /// Lavapipe), MoltenVK neither.
+    /// </summary>
+    private static void RequireSharedFences(NriDevice device) =>
+        Assert.SkipWhen(device.Desc.features.sharedFences == 0,
+            "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_fd/_win32 (lavapipe has no external semaphores; MoltenVK neither)");
+
+    private static readonly TextureDesc SharedTexture = new()
+    {
+        type = TextureType.TEXTURE_2D, usage = TextureUsageBits.COLOR_ATTACHMENT | TextureUsageBits.SHADER_RESOURCE,
+        format = Format.RGBA8_UNORM, width = 64, height = 64,
+    };
+
+    private static readonly BufferDesc SharedBuffer = new() { size = 4096, usage = BufferUsageBits.SHADER_RESOURCE };
+
+    /// <summary>
+    /// What each backend reports: D3D12 both features, NONE both (it claims every feature), Vulkan
+    /// the extensions of the platform (recorded; on NVIDIA Windows both, on lavapipe memory only).
+    /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.AllBackends), MemberType = typeof(TestDevice))]
-    public void The_extension_is_available(Backend backend)
+    public void The_device_reports_the_shared_handle_features(Backend backend)
     {
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
-        RequireSharedHandles(device);
 
-        Assert.NotNull(device.TrySharedHandles);
-        Assert.Same(device.SharedHandles, device.TrySharedHandles);
+        var features = device.Desc.features;
+        GpuWork.Record($"{backend}: features.sharedResources {features.sharedResources}, features.sharedFences {features.sharedFences}");
+        if (backend.Api != GraphicsAPI.VK)
+        {
+            Assert.Equal(1, features.sharedResources);
+            Assert.Equal(1, features.sharedFences);
+        }
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void A_shared_buffer_exports_a_handle_of_the_backend_kind(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        RequireSharedResources(device);
+
+        using var buffer = device.CreateSharedBuffer(SharedBuffer);
+        Assert.Equal(4096UL, buffer.Desc.size);
+        Assert.Equal(1, buffer.Desc.shared);
+
+        using var handle = buffer.GetSharedHandle();
+        GpuWork.Record($"{backend}: buffer handle {handle}");
+        Assert.True(handle.IsValid, $"handle is {handle.Handle}");
+        Assert.Equal(ExpectedResourceType(backend.Api), handle.Type);
+        Assert.True(handle.Size >= 4096, $"size {handle.Size}");
+
+        // A second call also succeeds. Whether its value differs is the driver's business: NVIDIA's
+        // Vulkan driver returned the same NT handle value for the same memory on 2026-10-13
+        // (CLAUDE.md: Shared handles), so nothing here asserts on distinctness.
+        using var second = buffer.GetSharedHandle();
+        Assert.True(second.IsValid);
+
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
@@ -54,25 +107,19 @@ public sealed class SharedHandleTests
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
-        RequireSharedHandles(device);
+        RequireSharedResources(device);
 
-        using var texture = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, new TextureDesc
-        {
-            type = TextureType.TEXTURE_2D, usage = TextureUsageBits.COLOR_ATTACHMENT | TextureUsageBits.SHADER_RESOURCE,
-            format = Format.RGBA8_UNORM, width = 64, height = 64,
-        });
+        using var texture = device.CreateSharedTexture(SharedTexture);
         Assert.Equal(64, texture.Desc.width);
+        Assert.Equal(1, texture.Desc.shared);
 
-        using var handle = device.SharedHandles.GetSharedHandle(texture);
+        using var handle = texture.GetSharedHandle();
+        GpuWork.Record($"{backend}: texture handle {handle}");
         Assert.True(handle.IsValid, $"handle is {handle.Handle}");
-        Assert.Equal(ExpectedTextureType(backend.Api), handle.Type);
-        if (backend.Api == GraphicsAPI.VK) Assert.True(handle.Size >= 64 * 64 * 4, $"size {handle.Size}");
-        Assert.Equal(0UL, handle.Offset);
+        Assert.Equal(ExpectedResourceType(backend.Api), handle.Type);
+        Assert.True(handle.Size >= 64 * 64 * 4, $"size {handle.Size}");
 
-        // A second call also succeeds. Whether its value differs is the driver's business: NVIDIA's
-        // Vulkan driver returned the same NT handle value for the same memory on 2026-10-13
-        // (CLAUDE.md: Shared handles), so nothing here asserts on distinctness.
-        using var second = device.SharedHandles.GetSharedHandle(texture);
+        using var second = texture.GetSharedHandle();
         Assert.True(second.IsValid);
 
         Assert.DoesNotContain(messages, m => m.IsError);
@@ -85,14 +132,15 @@ public sealed class SharedHandleTests
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
-        RequireSharedHandles(device);
+        RequireSharedFences(device);
 
-        using var fence = device.SharedHandles.CreateSharedFence(5);
+        using var fence = device.CreateSharedFence(5);
         Assert.Equal(5UL, fence.Value);
 
-        using var handle = device.SharedHandles.GetSharedHandle(fence);
+        using var handle = fence.GetSharedHandle();
         Assert.True(handle.IsValid, $"handle is {handle.Handle}");
         Assert.Equal(ExpectedFenceType(backend.Api), handle.Type);
+        Assert.Equal(0UL, handle.Size);
 
         var queue = device.GetQueue(QueueType.GRAPHICS);
         using var allocator = queue.CreateCommandAllocator();
@@ -108,10 +156,10 @@ public sealed class SharedHandleTests
     }
 
     /// <summary>
-    /// The binary form (patch 0002, SWAPCHAIN_SEMAPHORE as the initial value): on Vulkan a binary
-    /// semaphore that exports like the timeline one and is signalled and then waited by NRI's own
-    /// queue; on D3D12, which has no binary fences, UNSUPPORTED without an error report. The
-    /// import into another device is SharedHandleImportTests.
+    /// The binary form (FenceDesc { SWAPCHAIN_SEMAPHORE, shared }): on Vulkan a binary semaphore
+    /// that exports like the timeline one and is signalled and then waited by NRI's own queue; on
+    /// D3D12, which has no binary fences, UNSUPPORTED without an error report. The import into
+    /// another device is SharedHandleImportTests.
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -120,18 +168,18 @@ public sealed class SharedHandleTests
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
-        RequireSharedHandles(device);
+        RequireSharedFences(device);
 
         if (backend.Api == GraphicsAPI.D3D12)
         {
-            Assert.Throws<NriUnsupportedException>(() => device.SharedHandles.CreateSharedBinaryFence());
+            Assert.Throws<NriUnsupportedException>(() => device.CreateSharedBinaryFence().Dispose());
             Assert.Equal(0, device.LiveObjects);
             Assert.DoesNotContain(messages, m => m.IsError);
             return;
         }
 
-        using var binary = device.SharedHandles.CreateSharedBinaryFence();
-        using (var handle = device.SharedHandles.GetSharedHandle(binary))
+        using var binary = device.CreateSharedBinaryFence();
+        using (var handle = binary.GetSharedHandle())
         {
             Assert.True(handle.IsValid, $"handle is {handle.Handle}");
             Assert.Equal(ExpectedFenceType(backend.Api), handle.Type);
@@ -181,7 +229,7 @@ public sealed class SharedHandleTests
             ? TestDevice.Create(backend.Api, messages, b => b.QueueFamilies =
                 [new NriQueueFamily(QueueType.GRAPHICS), new NriQueueFamily(QueueType.COMPUTE), new NriQueueFamily(QueueType.COPY)])
             : TestDevice.Create(backend.Api, messages);
-        RequireSharedHandles(device);
+        RequireSharedResources(device);
         device.GetQueue(QueueType.GRAPHICS); // before the texture: a CONCURRENT image allows the families active when it is created
         if (threeFamilies)
         {
@@ -190,11 +238,7 @@ public sealed class SharedHandleTests
             device.GetQueue(QueueType.COPY); // more than one active family: the texture below is CONCURRENT on Vulkan
         }
 
-        using var texture = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, new TextureDesc
-        {
-            type = TextureType.TEXTURE_2D, usage = TextureUsageBits.COLOR_ATTACHMENT | TextureUsageBits.SHADER_RESOURCE,
-            format = Format.RGBA8_UNORM, width = 64, height = 64,
-        });
+        using var texture = device.CreateSharedTexture(SharedTexture);
 
         var queue = device.GetQueue(QueueType.GRAPHICS);
         using var allocator = queue.CreateCommandAllocator();
@@ -217,20 +261,73 @@ public sealed class SharedHandleTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// An ordinary buffer, texture and fence asked for a handle: INVALID_ARGUMENT ("'shared' is
+    /// false": NRI validation for the resources, whose desc says so; the backend for the fence),
+    /// nothing created, nothing leaked.
+    /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
-    public void An_ordinary_texture_has_no_handle(Backend backend)
+    public void An_object_that_is_not_shared_has_no_handle(Backend backend)
     {
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
-        RequireSharedHandles(device);
 
-        using var texture = device.CreateCommittedTexture(MemoryLocation.DEVICE, new TextureDesc
+        using var buffer = device.CreateCommittedBuffer(MemoryLocation.DEVICE, SharedBuffer);
+        using var texture = device.CreateCommittedTexture(MemoryLocation.DEVICE, SharedTexture);
+        using var fence = device.CreateFence();
+        Assert.Equal(0, buffer.Desc.shared);
+        Assert.Equal(0, texture.Desc.shared);
+
+        foreach (var (what, get) in new (string, Func<NriSharedHandle>)[] { ("buffer", buffer.GetSharedHandle), ("texture", texture.GetSharedHandle), ("fence", fence.GetSharedHandle) })
         {
-            type = TextureType.TEXTURE_2D, usage = TextureUsageBits.SHADER_RESOURCE, format = Format.RGBA8_UNORM, width = 4, height = 4,
-        });
-        var e = Assert.Throws<NriException>(() => device.SharedHandles.GetSharedHandle(texture));
-        Assert.Equal(Result.INVALID_ARGUMENT, e.Result);
+            var start = messages.Count;
+            var e = Assert.Throws<NriException>(() => get().Dispose());
+            Assert.Equal(Result.INVALID_ARGUMENT, e.Result);
+            Assert.Contains(messages.Skip(start), m => m.IsError && m.Text.Contains("'shared' is false", StringComparison.Ordinal));
+            GpuWork.Record($"{backend}: {what}: {e.Message}");
+            lock (messages) messages.RemoveRange(start, messages.Count - start);
+        }
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// The shapes the patch excludes, refused by NRI validation before any backend call: a shared
+    /// resource created for placement (CreateBuffer / CreateTexture, whose memory could not carry
+    /// the export info) and a committed one outside DEVICE memory (D3D12 cannot share an upload or
+    /// readback heap; Vulkan's shared allocation is not mapped). Each answers INVALID_ARGUMENT and
+    /// names the rule; nothing is created.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Validation_refuses_a_shared_resource_outside_a_committed_DEVICE_allocation(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        RequireSharedResources(device);
+
+        var sharedBuffer = SharedBuffer;
+        sharedBuffer.shared = 1;
+        var sharedTexture = SharedTexture;
+        sharedTexture.shared = 1;
+        foreach (var (what, create, rule) in new (string, Action, string)[]
+        {
+            ("CreateBuffer", () => device.CreateBuffer(sharedBuffer).Dispose(), "'CreateCommittedBuffer'"),
+            ("CreateTexture", () => device.CreateTexture(sharedTexture).Dispose(), "'CreateCommittedTexture'"),
+            ("CreateCommittedBuffer in HOST_UPLOAD", () => device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, sharedBuffer).Dispose(), "'DEVICE' memory"),
+            ("CreateCommittedBuffer in HOST_READBACK", () => device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, sharedBuffer).Dispose(), "'DEVICE' memory"),
+        })
+        {
+            var start = messages.Count;
+            var e = Assert.Throws<NriException>(create);
+            Assert.Equal(Result.INVALID_ARGUMENT, e.Result);
+            Assert.Contains(messages.Skip(start), m => m.IsError && m.Text.Contains(rule, StringComparison.Ordinal));
+            GpuWork.Record($"{backend}: {what}: {e.Message}");
+            lock (messages) messages.RemoveRange(start, messages.Count - start);
+        }
+        Assert.Equal(0, device.LiveObjects);
+        Assert.DoesNotContain(messages, m => m.IsError);
     }
 }

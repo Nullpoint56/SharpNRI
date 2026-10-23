@@ -40,4 +40,7 @@ public partial struct TextureDesc
 
     [NativeTypeName("nri::ClearValue")]
     public ClearValue optimizedClearValue;
+
+    [NativeTypeName("bool")]
+    public byte shared;
 }

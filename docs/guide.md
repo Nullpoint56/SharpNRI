@@ -476,7 +476,7 @@ Acquired once per device on first use. `device.TryX` is null when the backend la
 
 | Property | NONE | Vulkan | D3D12 |
 |---|---|---|---|
-| `RayTracing`, `MeshShader`, `DescriptorHeap`, `Streamer`, `SwapChain`, `LowLatency`, `Upscaler`, `Imgui`, `Video`, `SharedHandles` | yes | per device | per device |
+| `RayTracing`, `MeshShader`, `DescriptorHeap`, `Streamer`, `SwapChain`, `LowLatency`, `Upscaler`, `Imgui`, `Video`, `SharedHandles` (master only; `next`: Core) | yes | per device | per device |
 | `WrapperVK` | no | yes | no |
 | `WrapperD3D12` | no | no | yes |
 
@@ -531,47 +531,73 @@ if (device.TryRayTracing is { } rt)
   `WrapperD3D12.CreateAccelerationStructureD3D12(desc, type)`; caller names the type; needs
   `RayTracing`. The import reports the same GPU handle, native object, buffer and scratch sizes.
 
-### SharedHandles (patch 0002)
+### Shared buffers, textures and fences (patch 0002)
 
 ```csharp
-using var shared = device.SharedHandles.CreateSharedTexture(MemoryLocation.DEVICE, in desc);
-using var handle = device.SharedHandles.GetSharedHandle(shared);   // NriSharedHandle: Handle, Type, Size, Offset; Dispose closes it once
-using var sharedFence = device.SharedHandles.CreateSharedFence();
-using var fenceHandle = device.SharedHandles.GetSharedHandle(sharedFence);
-using var binary = device.SharedHandles.CreateSharedBinaryFence();     // Vulkan only: binary semaphore
-using var binaryHandle = device.SharedHandles.GetSharedHandle(binary);
+using var shared = device.CreateSharedTexture(in desc);               // committed, DEVICE memory, exportable
+using var handle = shared.GetSharedHandle();                          // NriSharedHandle: Handle, Type, Size; Dispose closes it once
+using var buffer = device.CreateSharedBuffer(new BufferDesc { size = 4096, usage = BufferUsageBits.SHADER_RESOURCE });
+using var bufferHandle = buffer.GetSharedHandle();
+using var sharedFence = device.CreateSharedFence();
+using var fenceHandle = sharedFence.GetSharedHandle();
+using var binary = device.CreateSharedBinaryFence();                  // Vulkan only: binary semaphore
+using var binaryHandle = binary.GetSharedHandle();
+var ok = device.Desc.features.sharedResources != 0 && device.Desc.features.sharedFences != 0;
 ```
 
-| Backend | Texture handle | Fence handle |
+The same thing through the descs: `BufferDesc.shared` / `TextureDesc.shared` set to 1 with
+`CreateCommittedBuffer` / `CreateCommittedTexture` in `MemoryLocation.DEVICE`, and
+`CreateFence(new FenceDesc { initialValue = 0, shared = 1 })`.
+
+| Backend | Buffer and texture handle | Fence handle |
 |---|---|---|
 | Vulkan, Windows | `OPAQUE_WIN32` NT handle | `OPAQUE_WIN32` NT handle (timeline or binary semaphore) |
 | Vulkan, Linux | opaque fd | opaque fd |
 | D3D12 | `D3D12_RESOURCE` NT handle | `D3D12_FENCE` NT handle |
 | NONE | 0 | 0 |
 
-- Needs `VK_KHR_external_memory_win32`/`_fd` **and** `VK_KHR_external_semaphore_win32`/`_fd`.
-  lavapipe has external memory fd but not external semaphore fd; MoltenVK has neither fd
-  extension (only `VK_EXT_external_memory_metal`). On both, `TrySharedHandles` is null.
+- `Desc.features.sharedResources` needs `VK_KHR_external_memory_win32`/`_fd`,
+  `Desc.features.sharedFences` needs `VK_KHR_external_semaphore_win32`/`_fd`; D3D12 reports both.
+  lavapipe has external memory fd but not external semaphore fd (resources export, fences do not);
+  MoltenVK has neither fd extension (only `VK_EXT_external_memory_metal`). Creating a shared
+  object without the feature throws `NriUnsupportedException`.
+- A shared resource is committed and in `DEVICE` memory: `shared` with `CreateBuffer` /
+  `CreateTexture` / `CreatePlaced*`, or a committed one in `HOST_UPLOAD` / `HOST_READBACK`, is
+  `INVALID_ARGUMENT` from NRI validation (D3D12 cannot share an upload or readback heap; Vulkan's
+  exported allocation is not mapped).
+- `Size` is the allocation size on both backends: what the importer's
+  `VkMemoryAllocateInfo::allocationSize` or `CUDA_EXTERNAL_MEMORY_HANDLE_DESC::size` takes. 0 for
+  a fence.
 - The handle is yours; `Dispose` closes it, once: later calls do nothing, and `Handle` reads 0
   after the first (`NriSharedHandle` is a class, so every reference sees that). No finalizer: a
   handle never disposed stays open until the process exits. NVIDIA Vulkan returned the same NT
   handle value for two exports of the same memory: do not assume distinct values.
-- A non-shared texture asked for a handle: `INVALID_ARGUMENT` (through the validation layer).
-- A shared fence still works as a normal fence.
-- **Binary shared fence** (`CreateSharedBinaryFence()`, i.e. `CreateSharedFence(SwapChainSemaphore)`):
+- An object that is not shared asked for a handle: `INVALID_ARGUMENT` ("'shared' is false").
+- A shared buffer, texture or fence still works as a normal one.
+- **Binary shared fence** (`CreateSharedBinaryFence()`, i.e. `FenceDesc { SwapChainSemaphore, shared }`):
   the signal-once/wait-once semaphore external compositors import as an opaque NT handle or fd.
   Vulkan only; D3D12 has no binary fences and throws `NriUnsupportedException` (no error message).
   The handshake rule is the binary semaphore's: every signal is followed by exactly one wait
   before the next signal, counting both sides of the export (yours signals, theirs waits, theirs
   signals, yours waits). In `NriFenceSubmit` the value is ignored (pass 0); never call `Value` or
   `Wait` on it. Import it into a binary `VkSemaphore` (an import replaces the payload, not the type).
+- **CUDA**: `cuImportExternalMemory` takes the buffer or texture handle (`OPAQUE_WIN32` for
+  Vulkan; `D3D12_RESOURCE` with `CUDA_EXTERNAL_MEMORY_DEDICATED` for D3D12; `size` = `Size`) and
+  `cuImportExternalSemaphore` the fence handle (`TIMELINE_SEMAPHORE_WIN32` for a Vulkan fence,
+  `D3D12_FENCE` for D3D12); CUDA waits and signals the fence by value like a queue does, so a
+  frame can hand a buffer to CUDA and take it back with two fence values. The binding has no CUDA
+  code; the proof in `CudaInteropTests` uses the driver API from the NVIDIA driver's `nvcuda.dll`.
 - Verified imports: Vulkan texture into a second Vulkan device (byte-exact), Vulkan timeline
   semaphore both ways, Vulkan binary semaphore both ways (queue signal and queue wait on each side,
-  validation clean), D3D12 fence and texture into a second D3D12 device.
+  validation clean), D3D12 fence and texture into a second D3D12 device, CUDA buffer and fence from
+  both backends, both directions.
 - **D3D11 cannot open D3D12 shared textures**: NRI creates every D3D12 texture `TYPELESS`, and
-  `ID3D11Device1::OpenSharedResource1` refuses it with `E_INVALIDARG`. Import into D3D12 or Vulkan.
+  `ID3D11Device1::OpenSharedResource1` refuses it with `E_INVALIDARG`. Import into D3D12, Vulkan
+  or CUDA.
 - Exclusive Vulkan images need a release barrier with `DstQueue = NriQueue.External` before
   another device acquires them, and an acquire with `SrcQueue = NriQueue.External` coming back.
+- On master this is the `SharedHandle` extension (`device.SharedHandles.CreateSharedTexture(...)`
+  and friends, no buffers); `next` carries the shape proposed upstream.
 
 ### Upscaler
 
@@ -851,7 +877,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
   `CmdSetRootConstants` crashed (SIGSEGV at 0) while `HOST_TRANSFER` textures were rejected. NRI
   a4e562e clamps its Vulkan version to the instance's. Such a device reports
   as Vulkan 1.3.
-- lavapipe: no external semaphores (no `SharedHandles`); a first ray tracing submit can take
+- lavapipe: no external semaphores (`features.sharedFences` 0; shared buffers and textures export); a first ray tracing submit can take
   seconds (JIT, see RayTracing).
 - `NriAdapter.Uid` is built from the device UUID (no LUID on Linux).
 - NRI builds with GCC 13 since 9b45d77; clang is what CI uses.
@@ -870,7 +896,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
   "duplicate layer" warning.
 - Portability device: `samplerLodBiasMax` is 0 (sampler `mipBias` must be 0); raw instances must opt
   into portability enumeration (see Wrappers).
-- No `SharedHandles`, ray tracing, mesh shaders, video, descriptor heaps, shading-rate attachments.
+- No shared handles (`features.sharedResources` and `sharedFences` 0: no fd extensions), ray tracing, mesh shaders, video, descriptor heaps, shading-rate attachments.
 - Apple Paravirtual device (GitHub's macOS VMs): `HOST_TRANSFER` texture binding segfaults;
   same-submission timestamp copies read 0. Not measured on physical Macs.
 
@@ -902,7 +928,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | GPU work longer than 5 s behind `fence.Wait` | `TimeoutException` (NRI's `NRI_TIMEOUT_FENCE`); poll `fence.Value` | RayTracing |
 | D3D12 micromaps | debug error 1162 (the prebuild). A `{MICROMAP_WRITE, MICROMAP}` before side closes (patch 0030); before the patch NRI added postbuild-info sync and `Close` failed | RayTracing |
 | Index-less OMM on Vulkan | VUID-...-pInfos-10904 (likely false positive) | RayTracing |
-| `TrySharedHandles` null | lavapipe (no external semaphore fd), MoltenVK (no fd handles) | SharedHandles |
+| `features.sharedFences` 0 | lavapipe (no external semaphore fd), MoltenVK (no fd handles; `sharedResources` 0 too) | SharedHandles |
 | D3D11 opening a D3D12 shared texture | `E_INVALIDARG` (TYPELESS) | SharedHandles |
 | Two exports, same handle value | NVIDIA Vulkan returns the same NT handle | SharedHandles |
 | `IsUpscalerSupported` true, DLL absent | `CreateUpscaler` throws naming the file | Upscaler |

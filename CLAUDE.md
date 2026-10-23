@@ -118,8 +118,9 @@ structs filled by `nriGetInterface(device, "Name", sizeof(Name), &table)`; no re
 `Create*` free-threaded, `Destroy*` / `Cmd*` externally synchronized; nothing implicit. v190 surface
 (excluding D3D11/Metal/WebGPU wrappers): 13 interface tables with 229 functions, plus the two
 structs the caller fills (`CallbackInterface`, `AllocationCallbacks`: 5), so 234 function pointers;
-with patch 0002's `SharedHandleInterface` 14 tables, 233 functions, 238 function pointers (the ABI
-oracle's count). 19 flat exports (20 on master with patch 0024's `nriEnumerateAdapters2`; main's `nriEnumerateAdapters`
+with master's patch 0002 (`SharedHandleInterface`) 14 tables, 233 functions, 238 function pointers;
+with `next`'s 0002 (three getters in Core) 13 tables, 232 functions, 237 function pointers (the
+ABI oracle's count on each). 19 flat exports (20 on master with patch 0024's `nriEnumerateAdapters2`; main's `nriEnumerateAdapters`
 takes the backends to probe since 962615b), 246 named structs
 + 33 nested anonymous + 2 unions, 95 enums (57 `NriEnum` + 38 `NriBits`), 4 bitfields (all in
 `TopLevelInstance`).
@@ -389,7 +390,7 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | Patch | What | Why |
 |---|---|---|
 | 0001 agility-sdk-device-factory | `DeviceCreationDesc::d3d12AgilitySdkPath`; `D3D12GetInterface(CLSID_D3D12SDKConfiguration)` -> `ID3D12SDKConfiguration1::CreateDeviceFactory(NRI_AGILITY_SDK_VERSION_MAJOR, path)` -> `ApplyToGlobalState()` before any other D3D12 call | a managed host cannot export `D3D12SDKVersion`, so the SDK never loads otherwise |
-| 0002 shared-handle-extension | `NRISharedHandle.h`: `CreateSharedTexture`, `CreateSharedFence`, `GetTextureSharedHandle`, `GetFenceSharedHandle`; Vulkan opaque win32/fd, D3D12 NT, NONE dummy, through validation; `EXTERNAL_QUEUE` sentinel for barriers to/from `VK_QUEUE_FAMILY_EXTERNAL`; `CreateSharedFence(SWAPCHAIN_SEMAPHORE)` = exportable binary VkSemaphore (D3D12 `UNSUPPORTED`, silently; validation marks it a swap-chain semaphore); on `next` re-cut over 2603edc / 732f737: the external family is kept on `CONCURRENT` images where other sides are `IGNORED`, `CreateSharedTexture` sets `TextureVK`'s concurrency flag, and D3D12's `IsCopyQueue` skips the sentinel | upstream has no export path; compositors import binary semaphores; the maintainer wants it as fields on the buffer, texture and fence descs (#49, 2026-10-21) |
+| 0002 shared-buffers-textures-fences | `BufferDesc::shared`, `TextureDesc::shared` (a committed resource in `DEVICE` memory with a dedicated, exportable allocation: VK `VkExternalMemory*CreateInfo` + `VkExportMemoryAllocateInfo` outside VMA, D3D12 `D3D12_HEAP_FLAG_SHARED`), `FenceDesc { initialValue, shared }` which `CreateFence` now takes (VK `VkExportSemaphoreCreateInfo`, timeline or binary; D3D12 `D3D12_FENCE_FLAG_SHARED`, `UNSUPPORTED` for a binary semaphore), `SharedHandleType` / `SharedHandle { handle, type, size }` and `CoreInterface::GetBufferSharedHandle` / `GetTextureSharedHandle` / `GetFenceSharedHandle` beside the native-object getters (a new caller-owned handle per call; `size` is the allocation size on both backends), `features.sharedResources` / `sharedFences`, `EXTERNAL_QUEUE` for barriers to/from `VK_QUEUE_FAMILY_EXTERNAL`; validation refuses `shared` outside `CreateCommitted*` and outside `DEVICE`, a getter on an object that is not shared, and a shared object without the feature; NONE zero handles; D3D11, WGPU, Metal `UNSUPPORTED`. The shape the maintainer asked for on #49 (2026-10-23); master's 0002 is the extension shape (`NRISharedHandle.h`) | upstream has no export path; compositors, a second device and CUDA (`cudaImportExternalMemory` / `cudaImportExternalSemaphore` take exactly these handles) import binary semaphores, timeline fences, buffers and textures |
 | 0006 vulkan-portability-sampler-lod-bias | `samplerLodBiasMax = 0` with `VK_KHR_portability_subset` and no `samplerMipLodBias` (6 lines beside NRI's `imageView2DOn3DImage` read) | upstream bug: MoltenVK reports 15.999 and forbids any bias |
 | 0007 cmake-vulkan-loader-link-option | `NRI_ENABLE_VULKAN_LOADER_LINKING` (default ON) wraps the Apple `find_package(Vulkan)` + link; we pass OFF | shipped dylib otherwise needs the build machine's loader path; NRI PR 134 added it for an IDE case, maintainer: "just not needed" |
 | 0009 vulkan-swapchain-out-of-date-not-an-error | `AcquireNextTexture` / `Present` return `OUT_OF_DATE` for exactly `VK_ERROR_OUT_OF_DATE_KHR` before `NRI_RETURN_ON_BAD_VKRESULT` (no report); return values unchanged | upstream reporting defect: a documented, expected result reported as `Message::ERROR` on every resize |
@@ -437,16 +438,16 @@ configured per machine: the adapter named is whichever one the suite picked on t
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); on master 0003-0021 and 0024-0036 each also apply alone onto the bare tag (0022 and 0023 do not: their context is 0020's and 0002's lines); on `next` all twenty-two do (72f5f46, 2026-10-23). 0002 was re-cut once more on `next` (a scratch clone at 2f7a49f with 0001 committed, the old 0002 applied with `--3way`, the conflict and two stale spots fixed, `git diff --cached HEAD`), and again on 2026-10-22 for the null-wrapper checks that 0034 cannot add: a later patch must not change lines an earlier patch adds (the earlier one's `-C0` reverse check then fails and the scripts refuse the tree). Patches to a
+  `git diff --cached HEAD`); on master 0003-0021 and 0024-0036 each also apply alone onto the bare tag (0022 and 0023 do not: their context is 0020's and 0002's lines); on `next` all but 0034 do (72f5f46, 2026-10-23: 0034's `CreateFence` hunk sits on 0002's lines). 0002 was re-cut once more on `next` (a scratch clone at 2f7a49f with 0001 committed, the old 0002 applied with `--3way`, the conflict and two stale spots fixed, `git diff --cached HEAD`), and again on 2026-10-22 for the null-wrapper checks that 0034 cannot add, and rewritten on 2026-10-23 in the maintainer's shape (a scratch clone at 72f5f46 with 0001 committed, the shape written in place, `git diff` against that commit; 0034 re-cut over it, with the `-C0` rule shaping `DeviceVal::CreateFence`, see Shared handles): a later patch must not change lines an earlier patch adds (the earlier one's `-C0` reverse check then fails and the scripts refuse the tree). Patches to a
   file an earlier patch touches (0012-0035 all are, or are cut the same way) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit; 0025-0035 are master's cuts over v190 + 0001-0024, which applied onto 2f7a49f with line offsets (2026-10-22); on 72f5f46 0029 and 0034 are re-cut (2026-10-23). There is no 0011: it corrected
-- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,872 offsets, 56 fixed
-  buffers and 95 enums on `next` at 72f5f46 (main's video descs; `DescriptorSetBits` gone;
-  2026-10-23); 273 structs, 1,844 offsets, 55 fixed buffers and 96 enums on master at v190
+- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,876 offsets, 56 fixed
+  buffers and 95 enums on `next` at 72f5f46 (main's video descs, `DescriptorSetBits` gone, 0002's
+  `shared` fields, `FenceDesc` and feature bits; 2026-10-23); 273 structs, 1,844 offsets, 55 fixed buffers and 96 enums on master at v190
   (1,840 offsets before patches 0017-0019 and 0033 added a field each); 4 bitfields (exact bytes
   written),
-  238 function-pointer fields, 19 `DllImport`s on `next` (20 on master, with patch 0024's
-  `nriEnumerateAdapters2`); zero mismatches on x64
+  237 function-pointer fields on `next` (238 on master: the extension table), 19 `DllImport`s on
+  `next` (20 on master, with patch 0024's `nriEnumerateAdapters2`); zero mismatches on x64
   (win-x64, 2026-10-22) and arm64 (the macOS CI job, last run before patch 0017). Blind to calling convention, `const`, reference vs pointer,
   `bool` vs `uint8_t`. The anonymous union in `BottomLevelGeometryDesc` is checked as outer offsets.
 - **`nriGetInterface` checks the table size itself**: mismatch = `INVALID_ARGUMENT` after both sizes
@@ -1300,8 +1301,9 @@ Measured by `DebugAidTests`.
 - Mesa 25.2.8 "llvmpipe (LLVM 20.1.2, 256 bits)", Vulkan 1.4.318, on the stock 1.3 loader -> NRI runs
   it as a 1.3 device (patch 0004 on master, a4e562e on `next`).
 - **No external semaphores**: has `VK_KHR_external_memory_fd`, not `VK_KHR_external_semaphore_fd`;
-  `SharedHandleInterface` is `UNSUPPORTED`, `TrySharedHandles` null; `SharedHandleTests` skip naming
-  both extensions (`SharedHandleTests.cs`).
+  on `next` `features.sharedResources` is 1 and `features.sharedFences` 0, so shared buffers and
+  textures export (fd) and the fence tests skip naming the extension (`SharedHandleTests.cs`).
+  On master (the extension shape) `SharedHandleInterface` is `UNSUPPORTED` and `TrySharedHandles` null.
 - **Slow first submit**: shaders are JIT-compiled when the command buffer executes; with a cold Mesa
   shader cache a ray tracing submit took 0.6 s on a Ryzen 9700X and passed NRI's 5 s fence timeout
   under load. That was the "ray query miss" (CI runners and flakes, item 1), not a traversal bug.
@@ -1497,29 +1499,65 @@ extensions.
 
 ### Shared handles
 
-- Vulkan backend (patch 0002) enables `VK_KHR_external_memory_win32`/`_fd` and
+- **Shape on `next` (patch 0002, 2026-10-23, the maintainer's choice on #49)**: `shared` on
+  `BufferDesc` and `TextureDesc`, `FenceDesc { initialValue, shared }` for `CreateFence`, the
+  three Core getters beside `Get*NativeObject`, `features.sharedResources` / `sharedFences`,
+  `EXTERNAL_QUEUE` in `NRIDescs.h`. Binding: `NriDevice.CreateSharedBuffer` /
+  `CreateSharedTexture` (committed, `DEVICE`), `CreateSharedFence` / `CreateSharedBinaryFence`,
+  `NriBuffer` / `NriTexture` / `NriFence.GetSharedHandle()`, `NriSharedHandle { Handle, Type,
+  Size }` in `dotnet/Core`; no extension object. Master keeps the extension shape
+  (`NRISharedHandle.h`, `device.SharedHandles`) until a tag carries the merged form.
+- Vulkan backend enables `VK_KHR_external_memory_win32`/`_fd` and
   `VK_KHR_external_semaphore_win32`/`_fd` itself (55 device extensions on NVIDIA, up from 53) and
-  allocates the shared texture's memory directly (not VMA) to chain the export info.
+  allocates a shared resource's memory directly (`DeviceVK::AllocateSharedMemory`, not VMA) to
+  chain the export info; the features report the extensions. D3D12 reports both true.
+- `SharedHandle::size` is the allocation size on both backends (VK: `VkMemoryAllocateInfo`;
+  D3D12: `D3D12MA::Allocation::GetSize`, what `CUDA_EXTERNAL_MEMORY_HANDLE_DESC::size` takes); 0
+  for a fence.
 - NVIDIA VK: second `vkGetMemoryWin32HandleKHR` on the same memory returned the same handle value.
   Tests assert nothing about distinctness.
-- Ordinary texture asked for a handle: `INVALID_ARGUMENT` through validation.
+- An object that is not shared asked for a handle: `INVALID_ARGUMENT` "'shared' is false"
+  (validation for buffers and textures, from the desc; the backend for fences). A `shared`
+  resource through `CreateBuffer` / `CreateTexture` / `CreatePlaced*`, or committed outside
+  `DEVICE`: `INVALID_ARGUMENT` from validation naming the rule (D3D12 cannot share an upload or
+  readback heap; Vulkan's shared allocation is not mapped). The backends refuse the location too.
 - Import proofs (`SharedHandleImportTests`, Windows): VK texture into a second VK device as a
   dedicated allocation, 16,384 bytes match (same SHA-256); timeline semaphore both ways; D3D12 fence
   both ways; D3D12 texture opens on a second D3D12 device.
+- **CUDA** (`CudaInteropTests`, Windows, the NVIDIA adapter, nothing shipped): the CUDA driver API
+  in `nvcuda.dll` (installed by the driver; the test skips naming it when absent and on a
+  non-NVIDIA adapter) imports a shared buffer (`cuImportExternalMemory`: `OPAQUE_WIN32` for
+  Vulkan, `D3D12_RESOURCE` with `CUDA_EXTERNAL_MEMORY_DEDICATED` for D3D12, `size` = the
+  handle's) and the shared timeline fence (`cuImportExternalSemaphore`: `TIMELINE_SEMAPHORE_WIN32`
+  for Vulkan, `D3D12_FENCE` for D3D12); NRI copies 0x11 in and signals 1, CUDA waits 1, reads 0x11,
+  writes 0x5A and signals 2, NRI's queue waits 2, copies out and signals 3: both directions of
+  memory and synchronisation in one test. The CUDA device is matched to the adapter by LUID
+  (`cuDeviceGetLuid` = `adapterDesc.uid.low`). The structs are declared by hand with the offsets
+  of cuda.h 12.9 on x64, measured with a C++ probe (`CUDA_EXTERNAL_MEMORY_HANDLE_DESC` 104 bytes:
+  type 0, handle 8, size 24, flags 32; `..._BUFFER_DESC` 88: offset 0, size 8, flags 16;
+  `..._SEMAPHORE_HANDLE_DESC` 96: type 0, handle 8, flags 24; signal and wait params 144: value
+  0, flags 72). `CUDAAPI` is `__stdcall` on Windows.
 - **D3D11 refuses D3D12 shared textures**: `OpenSharedResource1` -> `E_INVALIDARG`, isolated to the
   format: NRI creates every texture `TYPELESS` (`DeviceD3D12::GetResourceDesc`), D3D11 opens typed
-  only. The test asserts the refusal; if D3D11 ever opens it, the header comment in
-  `NRISharedHandle.h` needs revisiting.
-- **Binary shared fence** (`CreateSharedBinaryFence`, patch 0002): VK binary semaphore with
-  `VkExportSemaphoreCreateInfo`; NRI's `QueueSubmit` passes the value, which a binary semaphore
-  ignores, as for swap-chain semaphores. Import proof (Windows, NVIDIA): imported into a binary
-  VkSemaphore on a second device; NRI queue signals -> second queue waits, second queue signals ->
-  NRI queue waits; second device's Khronos layer and NRI's messages clean. D3D12: `UNSUPPORTED`,
-  no message. Upstream 0002 refused the sentinel in validation ("a shared fence can't be a swap
-  chain semaphore"); the extended patch passes it through and marks the `FenceVal` a swap-chain
-  semaphore.
+  only. The test asserts the refusal; if D3D11 ever opens it, the `D3D12_RESOURCE` comment in
+  `NRIDescs.h` needs revisiting.
+- **Binary shared fence** (`CreateSharedBinaryFence`, `FenceDesc { SWAPCHAIN_SEMAPHORE, shared }`):
+  VK binary semaphore with `VkExportSemaphoreCreateInfo`; NRI's `QueueSubmit` passes the value,
+  which a binary semaphore ignores, as for swap-chain semaphores. Import proof (Windows, NVIDIA):
+  imported into a binary VkSemaphore on a second device; NRI queue signals -> second queue waits,
+  second queue signals -> NRI queue waits; second device's Khronos layer and NRI's messages clean.
+  D3D12: `UNSUPPORTED`, no message.
 - Exclusive VK images need a release to `VK_QUEUE_FAMILY_EXTERNAL`; `NriQueue.External` (patch
   0002's `EXTERNAL_QUEUE`) expresses it. NVIDIA tolerated the omission before.
+- **Other backends**: D3D11, WGPU and Metal take `FenceDesc.initialValue` and answer `UNSUPPORTED`
+  for `shared` and for the three getters. The D3D11 build was compiled once from the scratch clone
+  with `NRI_ENABLE_D3D11_SUPPORT=ON` against the staged `_deps` (2026-10-24, 0 errors); WGPU
+  (needs the wgpu-native download) and Metal (macOS) are not compiled here, the maintainer's CI
+  covers them.
+- **Patch-file rule met the hard way**: 0034 wraps validation's `CreateFence` allocation in the
+  `OUT_OF_MEMORY` check, so 0002's hunk there must end before that line; `DeviceVal::CreateFence`
+  keeps upstream's `Allocate` line byte for byte behind a `const uint64_t initialValue` alias.
+  0034 is the one patch on `next` that does not apply alone (its context is 0002's lines).
 
 ### Extensions
 

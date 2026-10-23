@@ -75,7 +75,6 @@ $headers = @(
     "Extensions/NRIImgui.h", "Extensions/NRILowLatency.h", "Extensions/NRIMeshShader.h",
     "Extensions/NRIRayTracing.h", "Extensions/NRIStreamer.h", "Extensions/NRISwapChain.h",
     "Extensions/NRIUpscaler.h", "Extensions/NRIVideo.h",
-    "Extensions/NRISharedHandle.h",
     "Extensions/NRIWrapperVK.h", "Extensions/NRIWrapperD3D12.h"
 )
 $umbrella = Join-Path $objDir "nri_all.h"

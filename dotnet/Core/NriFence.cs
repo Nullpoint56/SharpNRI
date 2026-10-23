@@ -23,6 +23,17 @@ public sealed unsafe class NriFence : NriObject
     /// <summary>The last value signalled so far.</summary>
     public ulong Value => Device.Core.GetFenceValue(Raw);
 
+    /// <summary>
+    /// A new handle to the fence, which the caller owns (patch 0002). Throws with
+    /// <see cref="Result.INVALID_ARGUMENT"/> for a fence not created shared (<see cref="NriDevice.CreateSharedFence"/>).
+    /// </summary>
+    public NriSharedHandle GetSharedHandle()
+    {
+        SharedHandle h;
+        Device.Check(Device.Core.GetFenceSharedHandle(Raw, &h), "GetFenceSharedHandle");
+        return NriSharedHandle.From(in h);
+    }
+
     /// <summary>Blocks the calling thread until the fence reaches <paramref name="value"/>.</summary>
     /// <remarks>NRI waits at most 5 s (<c>NRI_TIMEOUT_FENCE</c>, Vulkan and D3D12), reports an ERROR
     /// message and returns; this method then throws instead of returning with the fence still short

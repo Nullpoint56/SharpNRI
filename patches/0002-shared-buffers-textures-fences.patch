@@ -1,0 +1,1370 @@
+Core: shared buffers, textures and fences, exportable to another device, API or process.
+
+NRI has no way to export a buffer's or texture's memory or a fence: BufferDesc, TextureDesc and
+AllocateMemoryDesc carry no exportable flag, CreateFence takes no desc, and the Vulkan backend loads
+one external-memory entry point for its own use only. A compositor or editor importing the viewport,
+a second NRI device, or CUDA (cudaImportExternalMemory and cudaImportExternalSemaphore take exactly
+these handles) needs it; imports already go through the wrapper descs.
+
+This adds, in the shape the maintainer asked for on #49 (fields on the existing descs, no parallel
+creation functions):
+  - BufferDesc::shared, TextureDesc::shared: a committed resource in DEVICE memory with a dedicated,
+    exportable allocation (VK: VkExternalMemoryBufferCreateInfo / VkExternalMemoryImageCreateInfo and
+    VkExportMemoryAllocateInfo, allocated outside VMA so the export info can be chained; D3D12:
+    D3D12_HEAP_FLAG_SHARED)
+  - FenceDesc { initialValue, shared }, which CreateFence now takes (VK: VkExportSemaphoreCreateInfo,
+    timeline or binary; D3D12: D3D12_FENCE_FLAG_SHARED, UNSUPPORTED for a binary semaphore)
+  - SharedHandleType, SharedHandle and CoreInterface::GetBufferSharedHandle / GetTextureSharedHandle
+    / GetFenceSharedHandle beside the native-object getters: a new caller-owned handle per call
+    (VK: vkGetMemory* / vkGetSemaphore* Win32HandleKHR or FdKHR; D3D12: ID3D12Device::CreateSharedHandle)
+  - DeviceDesc::features.sharedResources / sharedFences (VK: the platform's external memory /
+    semaphore extension; D3D12: true)
+  - EXTERNAL_QUEUE, a sentinel for TextureBarrierDesc::srcQueue / dstQueue naming
+    VK_QUEUE_FAMILY_EXTERNAL, which the wrappers cannot express
+The Vulkan backend enables VK_KHR_external_memory_win32/fd and VK_KHR_external_semaphore_win32/fd
+when the device has them. Validation refuses "shared" outside CreateCommitted* and outside DEVICE
+memory, a getter on an object that is not shared, and a shared object on a device without the
+feature. NONE returns zero handles. D3D11, WGPU and Metal answer UNSUPPORTED. Applies on top of NRI
+main 72f5f46 and patch 0001.
+
+diff --git a/Include/Extensions/NRISwapChain.h b/Include/Extensions/NRISwapChain.h
+index e9e0e4b7..153fb433 100644
+--- a/Include/Extensions/NRISwapChain.h
++++ b/Include/Extensions/NRISwapChain.h
+@@ -165,12 +165,14 @@ Typical usage example, valid if the number of swap chain images >= queued frames
+         } swapChainTextures[16] = {};
+ 
+         Fence* frameFence;
+-        NRI.CreateFence(device, 0, frameFence);
++        FenceDesc fenceDesc = {};
++        NRI.CreateFence(device, fenceDesc, frameFence);
+ 
+         // Use "GetSwapChainTextures" to populate
+         for (uint32_t i = 0; i < swapChainDesc.textureNum; i++) {
+-            NRI.CreateFence(device, SWAPCHAIN_SEMAPHORE, swapChainTextures[i].swapChainAcquireSemaphore);
+-            NRI.CreateFence(device, SWAPCHAIN_SEMAPHORE, swapChainTextures[i].swapChainReleaseSemaphore);
++            fenceDesc.initialValue = SWAPCHAIN_SEMAPHORE;
++            NRI.CreateFence(device, fenceDesc, swapChainTextures[i].swapChainAcquireSemaphore);
++            NRI.CreateFence(device, fenceDesc, swapChainTextures[i].swapChainReleaseSemaphore);
+             ...
+         }
+ 
+diff --git a/Include/NRI.h b/Include/NRI.h
+index 64bb01a9..88b20d57 100644
+--- a/Include/NRI.h
++++ b/Include/NRI.h
+@@ -79,7 +79,7 @@ NriStruct(CoreInterface) {
+     // Create (doesn't assume allocation of big chunks of memory on the device, but it happens for some entities implicitly)
+     Nri(Result)         (NRI_CALL *CreateCommandAllocator)          (NriRef(Queue) queue, NriOut NriRef(CommandAllocator*) commandAllocator);
+     Nri(Result)         (NRI_CALL *CreateCommandBuffer)             (NriRef(CommandAllocator) commandAllocator, NriOut NriRef(CommandBuffer*) commandBuffer);
+-    Nri(Result)         (NRI_CALL *CreateFence)                     (NriRef(Device) device, uint64_t initialValue, NriOut NriRef(Fence*) fence);
++    Nri(Result)         (NRI_CALL *CreateFence)                     (NriRef(Device) device, const NriRef(FenceDesc) fenceDesc, NriOut NriRef(Fence*) fence);
+     Nri(Result)         (NRI_CALL *CreateDescriptorPool)            (NriRef(Device) device, const NriRef(DescriptorPoolDesc) descriptorPoolDesc, NriOut NriRef(DescriptorPool*) descriptorPool);
+     Nri(Result)         (NRI_CALL *CreatePipelineLayout)            (NriRef(Device) device, const NriRef(PipelineLayoutDesc) pipelineLayoutDesc, NriOut NriRef(PipelineLayout*) pipelineLayout);
+     Nri(Result)         (NRI_CALL *CreateGraphicsPipeline)          (NriRef(Device) device, const NriRef(GraphicsPipelineDesc) graphicsPipelineDesc, NriOut NriRef(Pipeline*) pipeline);
+@@ -282,6 +282,11 @@ NriStruct(CoreInterface) {
+     uint64_t            (NRI_CALL *GetBufferNativeObject)           (const NriPtr(Buffer) buffer);               // ID3D11Buffer*                   | ID3D12Resource*             | VkBuffer                           | WGPUBuffer
+     uint64_t            (NRI_CALL *GetTextureNativeObject)          (const NriPtr(Texture) texture);             // ID3D11Resource*                 | ID3D12Resource*             | VkImage                            | WGPUTexture
+     uint64_t            (NRI_CALL *GetDescriptorNativeObject)       (const NriPtr(Descriptor) descriptor);       // ID3D11View/ID3D11SamplerState*  | D3D12_CPU_DESCRIPTOR_HANDLE | VkImageView/VkBufferView/VkSampler | WGPUTextureView/WGPUBuffer/WGPUSampler
++
++    // Shared handles (see "BufferDesc::shared", "TextureDesc::shared" and "FenceDesc::shared"): every call creates a new handle, which the caller owns
++    Nri(Result)         (NRI_CALL *GetBufferSharedHandle)           (const NriRef(Buffer) buffer, NriOut NriRef(SharedHandle) sharedHandle);
++    Nri(Result)         (NRI_CALL *GetTextureSharedHandle)          (const NriRef(Texture) texture, NriOut NriRef(SharedHandle) sharedHandle);
++    Nri(Result)         (NRI_CALL *GetFenceSharedHandle)            (const NriRef(Fence) fence, NriOut NriRef(SharedHandle) sharedHandle);
+ };
+ 
+ NriNamespaceEnd
+diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
+index f3dfc334..8321ac66 100644
+--- a/Include/NRIDescs.h
++++ b/Include/NRIDescs.h
+@@ -666,6 +666,11 @@ NriStruct(BufferBarrierDesc) {
+     Nri(AccessStage) after;
+ };
+ 
++// Marks a queue family ownership transfer to or from an external user of a shared texture (another device, API or process)
++// VK: "VK_QUEUE_FAMILY_EXTERNAL" as "TextureBarrierDesc::srcQueue" (acquire after import) or "dstQueue" (release before export)
++// D3D12: ignored (queue ownership does not exist)
++static const NriPtr(Queue) NriConstant(EXTERNAL_QUEUE) = (NriPtr(Queue))1;
++
+ NriStruct(TextureBarrierDesc) {
+     NriPtr(Texture) texture;
+     Nri(AccessLayoutStage) before;
+@@ -779,6 +784,7 @@ NriStruct(TextureDesc) {
+     NriOptional Nri(VideoCodec) videoCodec;             // VK: required for video textures
+     NriOptional bool videoAV1FilmGrain;                 // VK: AV1 decode textures of sessions with "VideoSessionDesc::av1FilmGrain"
+     NriOptional Nri(ClearValue) optimizedClearValue;    // D3D12: not needed on desktop, since any HW can track many clear values
++    NriOptional bool shared;                            // exportable to another device, API or process ("GetTextureSharedHandle"): "CreateCommittedTexture" in "DEVICE" memory only, requires "features.sharedResources"
+ };
+ 
+ // - VK: buffers are always created with sharing mode "CONCURRENT" to match D3D12 spec
+@@ -790,6 +796,7 @@ NriStruct(BufferDesc) {
+     uint32_t structureStride;   // enable "STRUCTURED" views
+     Nri(BufferUsageBits) usage;
+     bool byteAddress;           // enable "BYTE_ADDRESS" views
++    NriOptional bool shared;    // exportable to another device, API or process ("GetBufferSharedHandle"): "CreateCommittedBuffer" in "DEVICE" memory only, requires "features.sharedResources"
+ };
+ 
+ #pragma endregion
+@@ -856,6 +863,28 @@ NriStruct(BindTextureMemoryDesc) {
+ 
+ #pragma endregion
+ 
++//============================================================================================================================================================================================
++#pragma region [ Shared handles ]
++//============================================================================================================================================================================================
++
++// Export of "shared" buffers, textures and fences (see "BufferDesc::shared", "TextureDesc::shared" and "FenceDesc::shared") to another device, API or process:
++// a second NRI device, D3D12, Vulkan, CUDA, a compositor. Imports go through the wrapper extensions ("BufferD3D12Desc", "TextureVKDesc", "FenceD3D12Desc"...)
++NriEnum(SharedHandleType, uint8_t,
++    NONE,
++    OPAQUE_WIN32,       // VK: "VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT" / "VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT" (NT handle)
++    OPAQUE_FD,          // VK: "VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT" / "VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT" (file descriptor)
++    D3D12_RESOURCE,     // D3D12: NT handle from "ID3D12Device::CreateSharedHandle" for an "ID3D12Resource" on a "D3D12_HEAP_FLAG_SHARED" heap
++    D3D12_FENCE         // D3D12: NT handle from "ID3D12Device::CreateSharedHandle" for a "D3D12_FENCE_FLAG_SHARED" fence
++);
++
++NriStruct(SharedHandle) {
++    void* handle;               // NT handle (Windows) or file descriptor cast to a pointer (Linux), owned by the caller ("CloseHandle" / "close")
++    Nri(SharedHandleType) type;
++    uint64_t size;              // resources only: the allocation size, for "VkMemoryAllocateInfo::allocationSize" or "CUDA_EXTERNAL_MEMORY_HANDLE_DESC::size" on import (0 for fences)
++};
++
++#pragma endregion
++
+ //============================================================================================================================================================================================
+ #pragma region [ Resource views and samplers (descriptors) ]
+ //============================================================================================================================================================================================
+@@ -1861,6 +1890,11 @@ NriStruct(ReadbackTextureToHostMemoryDesc) {
+     NriOptional uint32_t dstSlicePitch; // if slices are not tightly packed
+ };
+ 
++NriStruct(FenceDesc) {
++    uint64_t initialValue;      // "SWAPCHAIN_SEMAPHORE" creates a binary semaphore (see "NRISwapChain.h")
++    NriOptional bool shared;    // exportable to another device, API or process ("GetFenceSharedHandle"), requires "features.sharedFences"; D3D12: not for a binary semaphore
++};
++
+ // Work submission
+ NriStruct(FenceSubmitDesc) {
+     NriPtr(Fence) fence;
+@@ -2258,6 +2292,10 @@ NriStruct(DeviceDesc) {
+         bool layerBasedMultiview;                                 // see "Multiview::LAYRED_BASED"
+         bool viewportBasedMultiview;                              // see "Multiview::VIEWPORT_BASED"
+ 
++        // Shared handles
++        bool sharedResources;                                     // see "BufferDesc::shared" and "TextureDesc::shared"
++        bool sharedFences;                                        // see "FenceDesc::shared"
++
+         // Texture compression
+         bool textureCompressionBC;                                // all "BC" texture formats are supported
+         bool textureCompressionETC2;                              // all "ETC2" texture formats are supported
+diff --git a/Source/D3D11/ImplD3D11.cpp b/Source/D3D11/ImplD3D11.cpp
+index 4f3e46d3..6c220cf6 100644
+--- a/Source/D3D11/ImplD3D11.cpp
++++ b/Source/D3D11/ImplD3D11.cpp
+@@ -93,8 +93,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+     return ((CommandAllocatorD3D11&)commandAllocator).CreateCommandBuffer(commandBuffer);
+ }
+ 
+-static Result NRI_CALL CreateFence(Device& device, uint64_t initialValue, Fence*& fence) {
+-    return ((DeviceD3D11&)device).CreateImplementation<FenceD3D11>(fence, initialValue);
++static Result NRI_CALL CreateFence(Device& device, const FenceDesc& fenceDesc, Fence*& fence) {
++    if (fenceDesc.shared)
++        return Result::UNSUPPORTED;
++
++    return ((DeviceD3D11&)device).CreateImplementation<FenceD3D11>(fence, fenceDesc.initialValue);
+ }
+ 
+ static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
+@@ -743,6 +746,24 @@ static void* NRI_CALL EmuGetCommandBufferNativeObject(const CommandBuffer* comma
+     return commandBufferBase->GetNativeObject();
+ }
+ 
++static Result NRI_CALL GetBufferSharedHandle(const Buffer&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::UNSUPPORTED;
++}
++
++static Result NRI_CALL GetTextureSharedHandle(const Texture&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::UNSUPPORTED;
++}
++
++static Result NRI_CALL GetFenceSharedHandle(const Fence&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::UNSUPPORTED;
++}
++
+ Result DeviceD3D11::FillFunctionTable(CoreInterface& table) const {
+     table.GetDeviceDesc = ::GetDeviceDesc;
+     table.GetBufferDesc = ::GetBufferDesc;
+@@ -815,6 +836,10 @@ Result DeviceD3D11::FillFunctionTable(CoreInterface& table) const {
+     table.GetBufferNativeObject = ::GetBufferNativeObject;
+     table.GetTextureNativeObject = ::GetTextureNativeObject;
+     table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
++    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
++    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
++    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
++
+ 
+     if (m_IsDeferredContextEmulated) {
+         table.BeginCommandBuffer = ::EmuBeginCommandBuffer;
+diff --git a/Source/D3D12/BufferD3D12.h b/Source/D3D12/BufferD3D12.h
+index 1917b609..89627909 100644
+--- a/Source/D3D12/BufferD3D12.h
++++ b/Source/D3D12/BufferD3D12.h
+@@ -42,6 +42,7 @@ struct BufferD3D12 final : public DebugNameBase {
+     Result Create(const BufferD3D12Desc& bufferD3D12Desc);
+     Result Allocate(MemoryLocation memoryLocation, float priority, bool committed);
+     Result BindMemory(const MemoryD3D12& memory, uint64_t offset);
++    Result GetSharedHandle(SharedHandle& sharedHandle) const;
+ 
+     //================================================================================================================
+     // DebugNameBase
+diff --git a/Source/D3D12/BufferD3D12.hpp b/Source/D3D12/BufferD3D12.hpp
+index 960deb88..cfaec659 100644
+--- a/Source/D3D12/BufferD3D12.hpp
++++ b/Source/D3D12/BufferD3D12.hpp
+@@ -28,6 +28,11 @@ Result BufferD3D12::Allocate(MemoryLocation memoryLocation, float priority, bool
+     if (deviceDesc.tiers.memory == 0)
+         heapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
+ 
++    if (m_Desc.shared) {
++        NRI_RETURN_ON_FAILURE(&m_Device, m_Device.GetHeapType(memoryLocation) == D3D12_HEAP_TYPE_DEFAULT, Result::INVALID_ARGUMENT, "Shared buffers must be in 'DEVICE' memory");
++        heapFlags |= D3D12_HEAP_FLAG_SHARED;
++    }
++
+     D3D12MA::ALLOCATION_DESC allocationDesc = {};
+     allocationDesc.HeapType = m_Device.GetHeapType(memoryLocation);
+     allocationDesc.Flags = (D3D12MA::ALLOCATION_FLAGS)flags;
+@@ -132,6 +137,22 @@ Result BufferD3D12::BindMemory(const MemoryD3D12& memory, uint64_t offset) {
+     return SetPriorityAndPersistentlyMap(memory.GetPriority(), isCommitted, heapDesc.Properties);
+ }
+ 
++Result BufferD3D12::GetSharedHandle(SharedHandle& sharedHandle) const {
++    sharedHandle = {};
++
++    NRI_RETURN_ON_FAILURE(&m_Device, m_Desc.shared && m_Buffer, Result::INVALID_ARGUMENT, "'shared' is false");
++
++    HANDLE handle = nullptr;
++    HRESULT hr = m_Device->CreateSharedHandle(m_Buffer.GetInterface(), nullptr, GENERIC_ALL, nullptr, &handle);
++    NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12Device::CreateSharedHandle");
++
++    sharedHandle.handle = handle;
++    sharedHandle.type = SharedHandleType::D3D12_RESOURCE;
++    sharedHandle.size = m_VmaAllocation ? m_VmaAllocation->GetSize() : 0;
++
++    return Result::SUCCESS;
++}
++
+ NRI_INLINE Result BufferD3D12::SetPriorityAndPersistentlyMap(float priority, bool committed, const D3D12_HEAP_PROPERTIES& heapProps) {
+     // Priority
+     D3D12_RESIDENCY_PRIORITY residencyPriority = (D3D12_RESIDENCY_PRIORITY)ConvertPriority(priority);
+diff --git a/Source/D3D12/CommandBufferD3D12.hpp b/Source/D3D12/CommandBufferD3D12.hpp
+index ca43f02e..dac12345 100644
+--- a/Source/D3D12/CommandBufferD3D12.hpp
++++ b/Source/D3D12/CommandBufferD3D12.hpp
+@@ -300,7 +300,7 @@ constexpr std::array<D3D12_BARRIER_LAYOUT, (size_t)Layout::MAX_NUM> g_BarrierLay
+ NRI_VALIDATE_ARRAY(g_BarrierLayouts);
+ 
+ static inline bool IsCopyQueue(const Queue* queue) {
+-    return queue && ((const QueueD3D12*)queue)->GetType() == D3D12_COMMAND_LIST_TYPE_COPY;
++    return queue && queue != EXTERNAL_QUEUE && ((const QueueD3D12*)queue)->GetType() == D3D12_COMMAND_LIST_TYPE_COPY;
+ }
+ 
+ static inline D3D12_BARRIER_LAYOUT GetBarrierLayout(Layout layout, AccessBits accessBits, bool isCopyQueue) {
+diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
+index 6d841dd9..3f2cf16d 100644
+--- a/Source/D3D12/DeviceD3D12.hpp
++++ b/Source/D3D12/DeviceD3D12.hpp
+@@ -1231,6 +1231,8 @@ void DeviceD3D12::FillDesc(bool disableD3D12EnhancedBarrier) {
+     m_Desc.features.filterOpMinMax = levels.MaxSupportedFeatureLevel >= D3D_FEATURE_LEVEL_11_1 ? true : false;
+     m_Desc.features.logicOp = options.OutputMergerLogicOp != 0;
+     m_Desc.features.depthBoundsTest = options2.DepthBoundsTestSupported != 0;
++    m_Desc.features.sharedResources = true;
++    m_Desc.features.sharedFences = true;
+     m_Desc.features.drawIndirectCount = true;
+     m_Desc.features.lineSmoothing = true;
+     m_Desc.features.pipelineStatistics = true;
+diff --git a/Source/D3D12/FenceD3D12.h b/Source/D3D12/FenceD3D12.h
+index b38f5583..70f48cdf 100644
+--- a/Source/D3D12/FenceD3D12.h
++++ b/Source/D3D12/FenceD3D12.h
+@@ -18,8 +18,9 @@ struct FenceD3D12 final : public DebugNameBase {
+         return m_Device;
+     }
+ 
+-    Result Create(uint64_t initialValue);
++    Result Create(const FenceDesc& fenceDesc);
+     Result Create(const FenceD3D12Desc& fenceD3D12Desc);
++    Result GetSharedHandle(SharedHandle& sharedHandle) const;
+ 
+     //================================================================================================================
+     // DebugNameBase
+@@ -42,6 +43,7 @@ private:
+     DeviceD3D12& m_Device;
+     ComPtr<ID3D12Fence> m_Fence;
+     HANDLE m_Event = 0;
++    bool m_IsShared = false;
+ };
+ 
+ } // namespace nri
+diff --git a/Source/D3D12/FenceD3D12.hpp b/Source/D3D12/FenceD3D12.hpp
+index 24903196..d3b17037 100644
+--- a/Source/D3D12/FenceD3D12.hpp
++++ b/Source/D3D12/FenceD3D12.hpp
+@@ -1,12 +1,15 @@
+ // © 2021 NVIDIA Corporation
+ 
+-Result FenceD3D12::Create(uint64_t initialValue) {
+-    if (initialValue != SWAPCHAIN_SEMAPHORE) {
+-        HRESULT hr = m_Device->CreateFence(initialValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_Fence));
++Result FenceD3D12::Create(const FenceDesc& fenceDesc) {
++    if (fenceDesc.initialValue != SWAPCHAIN_SEMAPHORE) {
++        D3D12_FENCE_FLAGS flags = fenceDesc.shared ? D3D12_FENCE_FLAG_SHARED : D3D12_FENCE_FLAG_NONE;
++        HRESULT hr = m_Device->CreateFence(fenceDesc.initialValue, flags, IID_PPV_ARGS(&m_Fence));
+         NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12Device::CreateFence");
+ 
+         m_Event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+-    }
++        m_IsShared = fenceDesc.shared;
++    } else if (fenceDesc.shared)
++        return Result::UNSUPPORTED; // no binary fences
+ 
+     return Result::SUCCESS;
+ }
+@@ -18,6 +21,21 @@ Result FenceD3D12::Create(const FenceD3D12Desc& fenceD3D12Desc) {
+     return Result::SUCCESS;
+ }
+ 
++Result FenceD3D12::GetSharedHandle(SharedHandle& sharedHandle) const {
++    sharedHandle = {};
++
++    NRI_RETURN_ON_FAILURE(&m_Device, m_IsShared && m_Fence, Result::INVALID_ARGUMENT, "'shared' is false");
++
++    HANDLE handle = nullptr;
++    HRESULT hr = m_Device->CreateSharedHandle(m_Fence.GetInterface(), nullptr, GENERIC_ALL, nullptr, &handle);
++    NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12Device::CreateSharedHandle");
++
++    sharedHandle.handle = handle;
++    sharedHandle.type = SharedHandleType::D3D12_FENCE;
++
++    return Result::SUCCESS;
++}
++
+ NRI_INLINE uint64_t FenceD3D12::GetFenceValue() const {
+     return m_Fence ? m_Fence->GetCompletedValue() : 0;
+ }
+diff --git a/Source/D3D12/ImplD3D12.cpp b/Source/D3D12/ImplD3D12.cpp
+index 75d4916f..177fc6d9 100644
+--- a/Source/D3D12/ImplD3D12.cpp
++++ b/Source/D3D12/ImplD3D12.cpp
+@@ -104,8 +104,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+     return ((CommandAllocatorD3D12&)commandAllocator).CreateCommandBuffer(commandBuffer);
+ }
+ 
+-static Result NRI_CALL CreateFence(Device& device, uint64_t initialValue, Fence*& fence) {
+-    return ((DeviceD3D12&)device).CreateImplementation<FenceD3D12>(fence, initialValue);
++static Result NRI_CALL CreateFence(Device& device, const FenceDesc& fenceDesc, Fence*& fence) {
++    return ((DeviceD3D12&)device).CreateImplementation<FenceD3D12>(fence, fenceDesc);
+ }
+ 
+ static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
+@@ -602,6 +602,18 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+     return uint64_t(((DescriptorD3D12*)descriptor)->GetDescriptorHandleCPU());
+ }
+ 
++static Result NRI_CALL GetBufferSharedHandle(const Buffer& buffer, SharedHandle& sharedHandle) {
++    return ((const BufferD3D12&)buffer).GetSharedHandle(sharedHandle);
++}
++
++static Result NRI_CALL GetTextureSharedHandle(const Texture& texture, SharedHandle& sharedHandle) {
++    return ((const TextureD3D12&)texture).GetSharedHandle(sharedHandle);
++}
++
++static Result NRI_CALL GetFenceSharedHandle(const Fence& fence, SharedHandle& sharedHandle) {
++    return ((const FenceD3D12&)fence).GetSharedHandle(sharedHandle);
++}
++
+ Result DeviceD3D12::FillFunctionTable(CoreInterface& table) const {
+     table.GetDeviceDesc = ::GetDeviceDesc;
+     table.GetBufferDesc = ::GetBufferDesc;
+@@ -717,6 +729,9 @@ Result DeviceD3D12::FillFunctionTable(CoreInterface& table) const {
+     table.GetBufferNativeObject = ::GetBufferNativeObject;
+     table.GetTextureNativeObject = ::GetTextureNativeObject;
+     table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
++    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
++    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
++    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
+ 
+     return Result::SUCCESS;
+ }
+diff --git a/Source/D3D12/QueueD3D12.hpp b/Source/D3D12/QueueD3D12.hpp
+index 6cdf10c9..1e6d49ad 100644
+--- a/Source/D3D12/QueueD3D12.hpp
++++ b/Source/D3D12/QueueD3D12.hpp
+@@ -83,7 +83,8 @@ NRI_INLINE Result QueueD3D12::Submit(const QueueSubmitDesc& queueSubmitDesc) {
+ 
+ NRI_INLINE Result QueueD3D12::WaitIdle() {
+     FenceD3D12* fence = nullptr;
+-    Result result = m_Device.CreateImplementation<FenceD3D12>(fence, 0);
++    FenceDesc fenceDesc = {};
++    Result result = m_Device.CreateImplementation<FenceD3D12>(fence, fenceDesc);
+     if (result == Result::SUCCESS) {
+         fence->QueueSignal(*this, 1);
+         result = fence->Wait(1);
+diff --git a/Source/D3D12/TextureD3D12.h b/Source/D3D12/TextureD3D12.h
+index 4eb5c3b4..051a1f42 100644
+--- a/Source/D3D12/TextureD3D12.h
++++ b/Source/D3D12/TextureD3D12.h
+@@ -38,6 +38,7 @@ struct TextureD3D12 final : public DebugNameBase {
+     Result Create(const TextureD3D12Desc& textureD3D12Desc);
+     Result Allocate(MemoryLocation memoryLocation, float priority, bool committed);
+     Result BindMemory(const MemoryD3D12& memory, uint64_t offset);
++    Result GetSharedHandle(SharedHandle& sharedHandle) const;
+ 
+     //================================================================================================================
+     // DebugNameBase
+diff --git a/Source/D3D12/TextureD3D12.hpp b/Source/D3D12/TextureD3D12.hpp
+index c53ab454..e9c31571 100644
+--- a/Source/D3D12/TextureD3D12.hpp
++++ b/Source/D3D12/TextureD3D12.hpp
+@@ -43,6 +43,11 @@ Result TextureD3D12::Allocate(MemoryLocation memoryLocation, float priority, boo
+             heapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
+     }
+ 
++    if (m_Desc.shared) {
++        NRI_RETURN_ON_FAILURE(&m_Device, m_Device.GetHeapType(memoryLocation) == D3D12_HEAP_TYPE_DEFAULT, Result::INVALID_ARGUMENT, "Shared textures must be in 'DEVICE' memory");
++        heapFlags |= D3D12_HEAP_FLAG_SHARED;
++    }
++
+     D3D12MA::ALLOCATION_DESC allocationDesc = {};
+     allocationDesc.HeapType = m_Device.GetHeapType(memoryLocation);
+     allocationDesc.Flags = (D3D12MA::ALLOCATION_FLAGS)flags;
+@@ -143,3 +148,19 @@ Result TextureD3D12::BindMemory(const MemoryD3D12& memory, uint64_t offset) {
+ 
+     return Result::SUCCESS;
+ }
++
++Result TextureD3D12::GetSharedHandle(SharedHandle& sharedHandle) const {
++    sharedHandle = {};
++
++    NRI_RETURN_ON_FAILURE(&m_Device, m_Desc.shared && m_Texture, Result::INVALID_ARGUMENT, "'shared' is false");
++
++    HANDLE handle = nullptr;
++    HRESULT hr = m_Device->CreateSharedHandle(m_Texture.GetInterface(), nullptr, GENERIC_ALL, nullptr, &handle);
++    NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12Device::CreateSharedHandle");
++
++    sharedHandle.handle = handle;
++    sharedHandle.type = SharedHandleType::D3D12_RESOURCE;
++    sharedHandle.size = m_VmaAllocation ? m_VmaAllocation->GetSize() : 0;
++
++    return Result::SUCCESS;
++}
+diff --git a/Source/D3D12/TransferContextD3D12.hpp b/Source/D3D12/TransferContextD3D12.hpp
+index a8bc29e7..23c7ab72 100644
+--- a/Source/D3D12/TransferContextD3D12.hpp
++++ b/Source/D3D12/TransferContextD3D12.hpp
+@@ -11,7 +11,8 @@ TransferContextD3D12::~TransferContextD3D12() {
+ Result TransferContextD3D12::Create(QueueD3D12& queue) {
+     m_CommandListType = queue.GetType();
+ 
+-    Result result = m_Device.CreateImplementation<FenceD3D12>(m_Fence, 0);
++    FenceDesc fenceDesc = {};
++    Result result = m_Device.CreateImplementation<FenceD3D12>(m_Fence, fenceDesc);
+ 
+     if (result == Result::SUCCESS)
+         result = m_Device.CreateImplementation<CommandAllocatorD3D12>(m_CommandAllocator, (Queue&)queue);
+diff --git a/Source/Metal/ImplMetal.cpp b/Source/Metal/ImplMetal.cpp
+index 80349e45..8f90e718 100644
+--- a/Source/Metal/ImplMetal.cpp
++++ b/Source/Metal/ImplMetal.cpp
+@@ -116,8 +116,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+     return allocator.GetDevice().CreateImplementation<CommandBufferMetal>(commandBuffer, (const CommandAllocator&)allocator);
+ }
+ 
+-static Result NRI_CALL CreateFence(Device& device, uint64_t initialValue, Fence*& fence) {
+-    return ((DeviceMetal&)device).CreateImplementation<FenceMetal>(fence, initialValue);
++static Result NRI_CALL CreateFence(Device& device, const FenceDesc& fenceDesc, Fence*& fence) {
++    if (fenceDesc.shared)
++        return Result::UNSUPPORTED;
++
++    return ((DeviceMetal&)device).CreateImplementation<FenceMetal>(fence, fenceDesc.initialValue);
+ }
+ 
+ static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
+@@ -598,6 +601,24 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+     return ((DescriptorMetal*)descriptor)->GetNativeObject();
+ }
+ 
++static Result NRI_CALL GetBufferSharedHandle(const Buffer&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::UNSUPPORTED;
++}
++
++static Result NRI_CALL GetTextureSharedHandle(const Texture&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::UNSUPPORTED;
++}
++
++static Result NRI_CALL GetFenceSharedHandle(const Fence&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::UNSUPPORTED;
++}
++
+ Result DeviceMetal::FillFunctionTable(CoreInterface& table) const {
+     table.GetDeviceDesc = ::GetDeviceDesc;
+     table.GetBufferDesc = ::GetBufferDesc;
+@@ -713,6 +734,10 @@ Result DeviceMetal::FillFunctionTable(CoreInterface& table) const {
+     table.GetBufferNativeObject = ::GetBufferNativeObject;
+     table.GetTextureNativeObject = ::GetTextureNativeObject;
+     table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
++    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
++    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
++    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
++
+ 
+     return Result::SUCCESS;
+ }
+diff --git a/Source/NONE/ImplNONE.cpp b/Source/NONE/ImplNONE.cpp
+index c1c69ed4..fffab432 100644
+--- a/Source/NONE/ImplNONE.cpp
++++ b/Source/NONE/ImplNONE.cpp
+@@ -281,7 +281,7 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator&, CommandBuffer*& co
+     return Result::SUCCESS;
+ }
+ 
+-static Result NRI_CALL CreateFence(Device&, uint64_t, Fence*& fence) {
++static Result NRI_CALL CreateFence(Device&, const FenceDesc&, Fence*& fence) {
+     fence = DummyObject<Fence>();
+ 
+     return Result::SUCCESS;
+@@ -686,6 +686,24 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor*) {
+     return 0;
+ }
+ 
++static Result NRI_CALL GetBufferSharedHandle(const Buffer&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::SUCCESS;
++}
++
++static Result NRI_CALL GetTextureSharedHandle(const Texture&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::SUCCESS;
++}
++
++static Result NRI_CALL GetFenceSharedHandle(const Fence&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::SUCCESS;
++}
++
+ Result DeviceNONE::FillFunctionTable(CoreInterface& table) const {
+     table.GetDeviceDesc = ::GetDeviceDesc;
+     table.GetBufferDesc = ::GetBufferDesc;
+@@ -801,6 +819,10 @@ Result DeviceNONE::FillFunctionTable(CoreInterface& table) const {
+     table.GetBufferNativeObject = ::GetBufferNativeObject;
+     table.GetTextureNativeObject = ::GetTextureNativeObject;
+     table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
++    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
++    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
++    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
++
+ 
+     return Result::SUCCESS;
+ }
+diff --git a/Source/Shared/HelperInterface.hpp b/Source/Shared/HelperInterface.hpp
+index 822e7ecc..40c633e0 100644
+--- a/Source/Shared/HelperInterface.hpp
++++ b/Source/Shared/HelperInterface.hpp
+@@ -156,7 +156,8 @@ Result HelperDataUpload::Create(const TextureUploadDesc* textureUploadDescs, uin
+     }
+ 
+     { // Create other resources
+-        Result result = m_iCore.CreateFence(m_Device, 0, m_Fence);
++        FenceDesc fenceDesc = {};
++        Result result = m_iCore.CreateFence(m_Device, fenceDesc, m_Fence);
+ 
+         if (result == Result::SUCCESS)
+             result = m_iCore.CreateCommandAllocator(m_Queue, m_CommandAllocator);
+diff --git a/Source/Shared/UpscalerInterface.hpp b/Source/Shared/UpscalerInterface.hpp
+index 34110998..63b3978b 100644
+--- a/Source/Shared/UpscalerInterface.hpp
++++ b/Source/Shared/UpscalerInterface.hpp
+@@ -1305,8 +1305,10 @@ Result UpscalerImpl::Create(const UpscalerDesc& upscalerDesc) {
+                 result = m_iCore.CreateCommandAllocator(*graphicsQueue, commandAllocator);
+             if (result == Result::SUCCESS)
+                 result = m_iCore.CreateCommandBuffer(*commandAllocator, commandBuffer);
+-            if (result == Result::SUCCESS)
+-                result = m_iCore.CreateFence(m_Device, 0, fence);
++            if (result == Result::SUCCESS) {
++                FenceDesc fenceDesc = {};
++                result = m_iCore.CreateFence(m_Device, fenceDesc, fence);
++            }
+             if (result == Result::SUCCESS)
+                 result = m_iCore.BeginCommandBuffer(*commandBuffer, nullptr);
+         }
+diff --git a/Source/VK/BufferVK.h b/Source/VK/BufferVK.h
+index 5788d766..c09acfc0 100644
+--- a/Source/VK/BufferVK.h
++++ b/Source/VK/BufferVK.h
+@@ -41,6 +41,7 @@ struct BufferVK final : public DebugNameBase {
+     Result FlushMappedRange(uint64_t offset, uint64_t size);
+     Result AllocateAndBindMemory(MemoryLocation memoryLocation, float priority, bool committed);
+     Result BindMemory(MemoryVK& memory, uint64_t offset, bool bindMemory);
++    Result GetSharedHandle(SharedHandle& sharedHandle) const;
+     void GetMemoryDesc(MemoryLocation memoryLocation, MemoryDesc& memoryDesc) const;
+ 
+     //================================================================================================================
+@@ -71,6 +72,8 @@ private:
+     uint64_t m_MappedMemoryRangeOffset = 0;
+     BufferDesc m_Desc = {};
+     VmaAllocation m_VmaAllocation = nullptr;
++    VkDeviceMemory m_SharedMemory = VK_NULL_HANDLE;
++    uint64_t m_SharedSize = 0;
+     uint64_t m_MemoryAlignment = 1;
+     bool m_OwnsNativeObjects = true;
+     bool m_IsDescriptorHeap = false;
+diff --git a/Source/VK/BufferVK.hpp b/Source/VK/BufferVK.hpp
+index 078721c7..732c47a6 100644
+--- a/Source/VK/BufferVK.hpp
++++ b/Source/VK/BufferVK.hpp
+@@ -8,6 +8,9 @@ BufferVK::~BufferVK() {
+             vmaDestroyBuffer(m_Device.GetVma(), m_Handle, m_VmaAllocation);
+         else
+             vk.DestroyBuffer(m_Device, m_Handle, m_Device.GetVkAllocationCallbacks());
++
++        if (m_SharedMemory)
++            vk.FreeMemory(m_Device, m_SharedMemory, m_Device.GetVkAllocationCallbacks());
+     }
+ }
+ 
+@@ -20,6 +23,17 @@ Result BufferVK::Create(const BufferDesc& bufferDesc) {
+     VkBufferCreateInfo info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+     FillCreateInfo(info);
+ 
++    VkExternalMemoryBufferCreateInfo externalInfo = {VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO};
++    externalInfo.handleTypes = SHARED_MEMORY_HANDLE_TYPE;
++
++    if (m_Desc.shared) {
++        if (!m_Device.GetDesc().features.sharedResources)
++            return Result::UNSUPPORTED;
++
++        externalInfo.pNext = info.pNext;
++        info.pNext = &externalInfo;
++    }
++
+     const auto& vk = m_Device.GetDispatchTable();
+     VkBuffer handle = VK_NULL_HANDLE;
+     VkResult vkResult = vk.CreateBuffer(m_Device, &info, m_Device.GetVkAllocationCallbacks(), &handle);
+@@ -72,6 +86,33 @@ Result BufferVK::AllocateAndBindMemory(MemoryLocation memoryLocation, float prio
+     if (memoryTypeInfo.mustBeDedicated)
+         committed = true;
+ 
++    if (m_Desc.shared) {
++        NRI_RETURN_ON_FAILURE(&m_Device, !IsHostVisibleMemory(memoryTypeInfo.location), Result::INVALID_ARGUMENT, "Shared buffers must be in 'DEVICE' memory");
++
++        Result result = m_Device.AllocateSharedMemory(memoryDesc, priority, m_Handle, VK_NULL_HANDLE, m_SharedMemory);
++        if (result != Result::SUCCESS)
++            return result;
++
++        m_SharedSize = memoryDesc.size;
++
++        VkBindBufferMemoryInfo bindBufferMemoryInfo = {VK_STRUCTURE_TYPE_BIND_BUFFER_MEMORY_INFO};
++        bindBufferMemoryInfo.buffer = m_Handle;
++        bindBufferMemoryInfo.memory = m_SharedMemory;
++
++        const auto& vk = m_Device.GetDispatchTable();
++        VkResult vkResult = vk.BindBufferMemory2(m_Device, 1, &bindBufferMemoryInfo);
++        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkBindBufferMemory2");
++
++        if (m_Device.m_IsSupported.deviceAddress) {
++            VkBufferDeviceAddressInfo bufferDeviceAddressInfo = {VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
++            bufferDeviceAddressInfo.buffer = m_Handle;
++
++            m_DeviceAddress = vk.GetBufferDeviceAddress(m_Device, &bufferDeviceAddressInfo);
++        }
++
++        return Result::SUCCESS;
++    }
++
+     VkMemoryRequirements memoryRequirements = {};
+     memoryRequirements.size = memoryDesc.size;
+     memoryRequirements.alignment = memoryDesc.alignment; // can't use "vmaAllocateMemoryForBuffer" because of alignment (see "GetMemoryDesc")
+@@ -199,6 +240,10 @@ Result BufferVK::BindMemory(MemoryVK& memory, uint64_t offset, bool bindMemory)
+     return Result::SUCCESS;
+ }
+ 
++Result BufferVK::GetSharedHandle(SharedHandle& sharedHandle) const {
++    return m_Device.GetSharedMemoryHandle(m_SharedMemory, m_SharedSize, sharedHandle);
++}
++
+ bool BufferVK::IsVideoOnly() const {
+     constexpr uint32_t videoUsageMask = (uint32_t)BufferUsageBits::VIDEO_DECODE | (uint32_t)BufferUsageBits::VIDEO_ENCODE;
+     const uint32_t usageMask = (uint32_t)m_Desc.usage;
+diff --git a/Source/VK/CommandBufferVK.hpp b/Source/VK/CommandBufferVK.hpp
+index b428efd4..ccc552f0 100644
+--- a/Source/VK/CommandBufferVK.hpp
++++ b/Source/VK/CommandBufferVK.hpp
+@@ -2676,8 +2676,9 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
+         out.dstAccessMask = GetAccessFlags(in.after.access);
+         out.oldLayout = GetImageLayout(in.before.layout);
+         out.newLayout = GetImageLayout(in.after.layout);
+-        out.srcQueueFamilyIndex = (in.srcQueue && !isConcurrent) ? srcQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED;
+-        out.dstQueueFamilyIndex = (in.dstQueue && !isConcurrent) ? dstQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED;
++        // "EXTERNAL_QUEUE" is the external queue family, which a transfer may name for either sharing mode
++        out.srcQueueFamilyIndex = in.srcQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : ((in.srcQueue && !isConcurrent) ? srcQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
++        out.dstQueueFamilyIndex = in.dstQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : ((in.dstQueue && !isConcurrent) ? dstQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
+         out.image = textureVK.GetHandle();
+         out.subresourceRange = {
+             aspectFlags,
+diff --git a/Source/VK/DeviceVK.h b/Source/VK/DeviceVK.h
+index a6c31012..0218624b 100644
+--- a/Source/VK/DeviceVK.h
++++ b/Source/VK/DeviceVK.h
+@@ -220,6 +220,8 @@ struct DeviceVK final : public DeviceBase {
+     VkRenderPass GetOrCreateRenderPass(const RenderPassDesc& desc);
+     VkFramebuffer GetOrCreateFramebuffer(const FramebufferDesc& desc);
+     void FillCreateInfo(const BufferDesc& bufferDesc, VkBufferCreateInfo& info) const;
++    Result AllocateSharedMemory(const MemoryDesc& memoryDesc, float priority, VkBuffer buffer, VkImage image, VkDeviceMemory& memory);
++    Result GetSharedMemoryHandle(VkDeviceMemory memory, uint64_t size, SharedHandle& sharedHandle);
+     void FillCreateInfo(const TextureDesc& bufferDesc, VkImageCreateInfo& info) const;
+     void AppendVideoProfileList(const TextureDesc& textureDesc, VkImageCreateInfo& info, VideoResourceProfileListVK& videoProfiles) const; // "videoProfiles" must outlive "info"
+     void FillCreateInfo(const SamplerDesc& samplerDesc, VkSamplerCreateInfo& info, VkSamplerReductionModeCreateInfo& reductionModeInfo, VkSamplerCustomBorderColorCreateInfoEXT& borderColorInfo) const;
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index 5a0f1e14..669f7a84 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -595,6 +595,15 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
+ 
+     APPEND_EXT(deviceLostInfoLevel != DeviceLostInfoLevel::NONE, VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+ 
++    // Shared handles (skipped if the app already asked for them via "vkExtensions")
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++    APPEND_EXT(!IsExtensionSupported(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME, desiredDeviceExts), VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
++    APPEND_EXT(!IsExtensionSupported(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME, desiredDeviceExts), VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
++#else
++    APPEND_EXT(!IsExtensionSupported(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME, desiredDeviceExts), VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
++    APPEND_EXT(!IsExtensionSupported(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME, desiredDeviceExts), VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
++#endif
++
+     APPEND_EXT(true, VK_KHR_COMPUTE_SHADER_DERIVATIVES_EXTENSION_NAME);
+     APPEND_EXT(true, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+     APPEND_EXT(true, VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+@@ -1633,6 +1642,13 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+         m_Desc.features.constantAlphaBlendFactors = true;
+         m_Desc.features.logicOp = features.features.logicOp;
+         m_Desc.features.depthBoundsTest = features.features.depthBounds;
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++        m_Desc.features.sharedResources = IsExtensionSupported(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME, desiredDeviceExts);
++        m_Desc.features.sharedFences = IsExtensionSupported(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME, desiredDeviceExts);
++#else
++        m_Desc.features.sharedResources = IsExtensionSupported(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME, desiredDeviceExts);
++        m_Desc.features.sharedFences = IsExtensionSupported(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME, desiredDeviceExts);
++#endif
+         m_Desc.features.drawIndirectCount = features12.drawIndirectCount;
+         m_Desc.features.lineSmoothing = features14.smoothLines;
+         m_Desc.features.meshShaderPipelineStats = MeshShaderFeatures.meshShaderQueries == VK_TRUE;
+@@ -2434,6 +2450,18 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
+         GET_DEVICE_FUNC(GetMemoryWin32HandlePropertiesKHR);
+ #endif
+ 
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++    if (IsExtensionSupported(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME, desiredDeviceExts))
++        GET_DEVICE_FUNC(GetMemoryWin32HandleKHR);
++    if (IsExtensionSupported(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME, desiredDeviceExts))
++        GET_DEVICE_FUNC(GetSemaphoreWin32HandleKHR);
++#else
++    if (IsExtensionSupported(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME, desiredDeviceExts))
++        GET_DEVICE_FUNC(GetMemoryFdKHR);
++    if (IsExtensionSupported(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME, desiredDeviceExts))
++        GET_DEVICE_FUNC(GetSemaphoreFdKHR);
++#endif
++
+     if (IsExtensionSupported(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, desiredDeviceExts)) {
+         GET_DEVICE_FUNC(CreateAccelerationStructureKHR);
+         GET_DEVICE_FUNC(DestroyAccelerationStructureKHR);
+@@ -2902,6 +2930,73 @@ NRI_INLINE void DeviceVK::DestroyFramebuffers(VkImageView imageView) {
+     }
+ }
+ 
++// Shared resources are dedicated allocations outside VMA, so the export info can be chained
++Result DeviceVK::AllocateSharedMemory(const MemoryDesc& memoryDesc, float priority, VkBuffer buffer, VkImage image, VkDeviceMemory& memory) {
++    MemoryTypeInfo memoryTypeInfo = Unpack(memoryDesc.type);
++
++    VkExportMemoryAllocateInfo exportInfo = {VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO};
++    exportInfo.handleTypes = SHARED_MEMORY_HANDLE_TYPE;
++
++    VkMemoryPriorityAllocateInfoEXT priorityInfo = {VK_STRUCTURE_TYPE_MEMORY_PRIORITY_ALLOCATE_INFO_EXT};
++    priorityInfo.pNext = &exportInfo;
++    priorityInfo.priority = priority * 0.5f + 0.5f;
++
++    VkMemoryDedicatedAllocateInfo dedicatedInfo = {VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO};
++    dedicatedInfo.pNext = m_IsSupported.memoryPriority ? (const void*)&priorityInfo : (const void*)&exportInfo;
++    dedicatedInfo.buffer = buffer;
++    dedicatedInfo.image = image;
++
++    VkMemoryAllocateFlagsInfo flagsInfo = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO};
++    flagsInfo.pNext = &dedicatedInfo;
++    flagsInfo.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
++
++    VkMemoryAllocateInfo allocateInfo = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
++    allocateInfo.pNext = (buffer && m_IsSupported.deviceAddress) ? (const void*)&flagsInfo : (const void*)&dedicatedInfo; // buffers get "VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT" (see "FillCreateInfo")
++    allocateInfo.allocationSize = memoryDesc.size;
++    allocateInfo.memoryTypeIndex = memoryTypeInfo.index;
++
++    VkDeviceMemory handle = VK_NULL_HANDLE;
++    VkResult vkResult = m_VK.AllocateMemory(m_Device, &allocateInfo, m_AllocationCallbackPtr, &handle);
++    NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkAllocateMemory");
++
++    memory = handle;
++
++    return Result::SUCCESS;
++}
++
++Result DeviceVK::GetSharedMemoryHandle(VkDeviceMemory memory, uint64_t size, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    NRI_RETURN_ON_FAILURE(this, memory != VK_NULL_HANDLE, Result::INVALID_ARGUMENT, "'shared' is false");
++
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++    VkMemoryGetWin32HandleInfoKHR getInfo = {VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR};
++    getInfo.memory = memory;
++    getInfo.handleType = SHARED_MEMORY_HANDLE_TYPE;
++
++    HANDLE handle = nullptr;
++    VkResult vkResult = m_VK.GetMemoryWin32HandleKHR(m_Device, &getInfo, &handle);
++    NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkGetMemoryWin32HandleKHR");
++
++    sharedHandle.handle = handle;
++    sharedHandle.type = SharedHandleType::OPAQUE_WIN32;
++#else
++    VkMemoryGetFdInfoKHR getInfo = {VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR};
++    getInfo.memory = memory;
++    getInfo.handleType = SHARED_MEMORY_HANDLE_TYPE;
++
++    int fd = -1;
++    VkResult vkResult = m_VK.GetMemoryFdKHR(m_Device, &getInfo, &fd);
++    NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkGetMemoryFdKHR");
++
++    sharedHandle.handle = (void*)(intptr_t)fd;
++    sharedHandle.type = SharedHandleType::OPAQUE_FD;
++#endif
++    sharedHandle.size = size;
++
++    return Result::SUCCESS;
++}
++
+ NRI_INLINE Result DeviceVK::CreateCommittedBuffer(MemoryLocation memoryLocation, float priority, const BufferDesc& bufferDesc, Buffer*& buffer) {
+     Result result = CreateImplementation<BufferVK>(buffer, bufferDesc);
+ 
+diff --git a/Source/VK/DispatchTable.h b/Source/VK/DispatchTable.h
+index e36064c4..4c925421 100644
+--- a/Source/VK/DispatchTable.h
++++ b/Source/VK/DispatchTable.h
+@@ -208,6 +208,14 @@ struct DispatchTable {
+ #ifdef VK_USE_PLATFORM_WIN32_KHR
+                                                           // VK_KHR_external_memory_win32
+     VK_FUNC(GetMemoryWin32HandlePropertiesKHR);           // + | +
++    VK_FUNC(GetMemoryWin32HandleKHR);                     // + | +
++                                                          // VK_KHR_external_semaphore_win32
++    VK_FUNC(GetSemaphoreWin32HandleKHR);                  // + | +
++#else
++                                                          // VK_KHR_external_memory_fd
++    VK_FUNC(GetMemoryFdKHR);                              // + | +
++                                                          // VK_KHR_external_semaphore_fd
++    VK_FUNC(GetSemaphoreFdKHR);                           // + | +
+ #endif
+                                                           // VK_KHR_acceleration_structure
+     VK_FUNC(CreateAccelerationStructureKHR);              // + | +
+diff --git a/Source/VK/FenceVK.h b/Source/VK/FenceVK.h
+index 92217700..acbe8605 100644
+--- a/Source/VK/FenceVK.h
++++ b/Source/VK/FenceVK.h
+@@ -19,8 +19,9 @@ struct FenceVK final : public DebugNameBase {
+ 
+     ~FenceVK();
+ 
+-    Result Create(uint64_t initialValue);
++    Result Create(const FenceDesc& fenceDesc);
+     Result Create(const FenceVKDesc& fenceVKDesc);
++    Result GetSharedHandle(SharedHandle& sharedHandle) const;
+ 
+     //================================================================================================================
+     // DebugNameBase
+@@ -39,6 +40,7 @@ private:
+     DeviceVK& m_Device;
+     VkSemaphore m_Handle = VK_NULL_HANDLE;
+     bool m_OwnsNativeObjects = true;
++    bool m_IsShared = false;
+ };
+ 
+ } // namespace nri
+diff --git a/Source/VK/FenceVK.hpp b/Source/VK/FenceVK.hpp
+index 11c9dd07..97a928f6 100644
+--- a/Source/VK/FenceVK.hpp
++++ b/Source/VK/FenceVK.hpp
+@@ -7,10 +7,21 @@ FenceVK::~FenceVK() {
+     }
+ }
+ 
+-Result FenceVK::Create(uint64_t initialValue) {
++Result FenceVK::Create(const FenceDesc& fenceDesc) {
+     VkSemaphoreTypeCreateInfo semaphoreTypeCreateInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+-    semaphoreTypeCreateInfo.semaphoreType = initialValue == SWAPCHAIN_SEMAPHORE ? VK_SEMAPHORE_TYPE_BINARY : VK_SEMAPHORE_TYPE_TIMELINE;
+-    semaphoreTypeCreateInfo.initialValue = initialValue == SWAPCHAIN_SEMAPHORE ? 0 : initialValue;
++    semaphoreTypeCreateInfo.semaphoreType = fenceDesc.initialValue == SWAPCHAIN_SEMAPHORE ? VK_SEMAPHORE_TYPE_BINARY : VK_SEMAPHORE_TYPE_TIMELINE;
++    semaphoreTypeCreateInfo.initialValue = fenceDesc.initialValue == SWAPCHAIN_SEMAPHORE ? 0 : fenceDesc.initialValue;
++
++    VkExportSemaphoreCreateInfo exportInfo = {VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO};
++    exportInfo.handleTypes = SHARED_SEMAPHORE_HANDLE_TYPE;
++
++    if (fenceDesc.shared) {
++        if (!m_Device.GetDesc().features.sharedFences)
++            return Result::UNSUPPORTED;
++
++        semaphoreTypeCreateInfo.pNext = &exportInfo;
++        m_IsShared = true;
++    }
+ 
+     VkSemaphoreCreateInfo semaphoreCreateInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+     semaphoreCreateInfo.pNext = &semaphoreTypeCreateInfo;
+@@ -29,6 +40,39 @@ Result FenceVK::Create(const FenceVKDesc& fenceVKDesc) {
+     return Result::SUCCESS;
+ }
+ 
++Result FenceVK::GetSharedHandle(SharedHandle& sharedHandle) const {
++    sharedHandle = {};
++
++    NRI_RETURN_ON_FAILURE(&m_Device, m_IsShared, Result::INVALID_ARGUMENT, "'shared' is false");
++
++    const auto& vk = m_Device.GetDispatchTable();
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++    VkSemaphoreGetWin32HandleInfoKHR getInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR};
++    getInfo.semaphore = m_Handle;
++    getInfo.handleType = SHARED_SEMAPHORE_HANDLE_TYPE;
++
++    HANDLE handle = nullptr;
++    VkResult vkResult = vk.GetSemaphoreWin32HandleKHR(m_Device, &getInfo, &handle);
++    NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkGetSemaphoreWin32HandleKHR");
++
++    sharedHandle.handle = handle;
++    sharedHandle.type = SharedHandleType::OPAQUE_WIN32;
++#else
++    VkSemaphoreGetFdInfoKHR getInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR};
++    getInfo.semaphore = m_Handle;
++    getInfo.handleType = SHARED_SEMAPHORE_HANDLE_TYPE;
++
++    int fd = -1;
++    VkResult vkResult = vk.GetSemaphoreFdKHR(m_Device, &getInfo, &fd);
++    NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkGetSemaphoreFdKHR");
++
++    sharedHandle.handle = (void*)(intptr_t)fd;
++    sharedHandle.type = SharedHandleType::OPAQUE_FD;
++#endif
++
++    return Result::SUCCESS;
++}
++
+ NRI_INLINE void FenceVK::SetDebugName(const char* name) {
+     m_Device.SetDebugNameToTrivialObject(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)m_Handle, name);
+ }
+diff --git a/Source/VK/ImplVK.cpp b/Source/VK/ImplVK.cpp
+index ff77c32b..4bff573d 100644
+--- a/Source/VK/ImplVK.cpp
++++ b/Source/VK/ImplVK.cpp
+@@ -105,8 +105,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+     return ((CommandAllocatorVK&)commandAllocator).CreateCommandBuffer(commandBuffer);
+ }
+ 
+-static Result NRI_CALL CreateFence(Device& device, uint64_t initialValue, Fence*& fence) {
+-    return ((DeviceVK&)device).CreateImplementation<FenceVK>(fence, initialValue);
++static Result NRI_CALL CreateFence(Device& device, const FenceDesc& fenceDesc, Fence*& fence) {
++    return ((DeviceVK&)device).CreateImplementation<FenceVK>(fence, fenceDesc);
+ }
+ 
+ static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
+@@ -622,6 +622,18 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+     return handle;
+ }
+ 
++static Result NRI_CALL GetBufferSharedHandle(const Buffer& buffer, SharedHandle& sharedHandle) {
++    return ((const BufferVK&)buffer).GetSharedHandle(sharedHandle);
++}
++
++static Result NRI_CALL GetTextureSharedHandle(const Texture& texture, SharedHandle& sharedHandle) {
++    return ((const TextureVK&)texture).GetSharedHandle(sharedHandle);
++}
++
++static Result NRI_CALL GetFenceSharedHandle(const Fence& fence, SharedHandle& sharedHandle) {
++    return ((const FenceVK&)fence).GetSharedHandle(sharedHandle);
++}
++
+ Result DeviceVK::FillFunctionTable(CoreInterface& table) const {
+     table.GetDeviceDesc = ::GetDeviceDesc;
+     table.GetBufferDesc = ::GetBufferDesc;
+@@ -737,6 +749,9 @@ Result DeviceVK::FillFunctionTable(CoreInterface& table) const {
+     table.GetBufferNativeObject = ::GetBufferNativeObject;
+     table.GetTextureNativeObject = ::GetTextureNativeObject;
+     table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
++    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
++    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
++    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
+ 
+     return Result::SUCCESS;
+ }
+diff --git a/Source/VK/SharedVK.h b/Source/VK/SharedVK.h
+index 1ef5c449..9007a5f8 100644
+--- a/Source/VK/SharedVK.h
++++ b/Source/VK/SharedVK.h
+@@ -194,6 +194,15 @@ struct VideoResourceProfileListVK {
+     }
+ };
+ 
++// Shared handles: the one handle type of the platform
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++constexpr VkExternalMemoryHandleTypeFlagBits SHARED_MEMORY_HANDLE_TYPE = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
++constexpr VkExternalSemaphoreHandleTypeFlagBits SHARED_SEMAPHORE_HANDLE_TYPE = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT;
++#else
++constexpr VkExternalMemoryHandleTypeFlagBits SHARED_MEMORY_HANDLE_TYPE = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
++constexpr VkExternalSemaphoreHandleTypeFlagBits SHARED_SEMAPHORE_HANDLE_TYPE = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
++#endif
++
+ } // namespace nri
+ 
+ #include "DeviceVK.h"
+diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
+index da0cff26..4a234ae2 100644
+--- a/Source/VK/SwapChainVK.hpp
++++ b/Source/VK/SwapChainVK.hpp
+@@ -441,7 +441,8 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
+     // Latency fence
+     if (allowLowLatency) {
+         m_LatencyFence = Allocate<FenceVK>(m_Device.GetAllocationCallbacks(), m_Device);
+-        m_LatencyFence->Create(0);
++        FenceDesc fenceDesc = {};
++        m_LatencyFence->Create(fenceDesc);
+     }
+ 
+     // Finalize
+diff --git a/Source/VK/TextureVK.h b/Source/VK/TextureVK.h
+index a25f3084..07299a06 100644
+--- a/Source/VK/TextureVK.h
++++ b/Source/VK/TextureVK.h
+@@ -39,6 +39,7 @@ struct TextureVK final : public DebugNameBase {
+     Result Create(const TextureVKDesc& textureVKDesc);
+     Result AllocateAndBindMemory(MemoryLocation memoryLocation, float priority, bool committed);
+     Result BindMemory(const MemoryVK& memory, uint64_t offset);
++    Result GetSharedHandle(SharedHandle& sharedHandle) const;
+     void GetMemoryDesc(MemoryLocation memoryLocation, MemoryDesc& memoryDesc) const;
+ 
+     //================================================================================================================
+@@ -52,6 +53,8 @@ private:
+     VkImage m_Handle = VK_NULL_HANDLE;
+     TextureDesc m_Desc = {};
+     VmaAllocation m_VmaAllocation = nullptr;
++    VkDeviceMemory m_SharedMemory = VK_NULL_HANDLE;
++    uint64_t m_SharedSize = 0;
+     bool m_OwnsNativeObjects = true;
+     bool m_IsConcurrent = false; // TODO: sharing mode is unknown for wrapped images
+ };
+diff --git a/Source/VK/TextureVK.hpp b/Source/VK/TextureVK.hpp
+index ef1a005a..e228aaf3 100644
+--- a/Source/VK/TextureVK.hpp
++++ b/Source/VK/TextureVK.hpp
+@@ -8,6 +8,9 @@ TextureVK::~TextureVK() {
+             vmaDestroyImage(m_Device.GetVma(), m_Handle, m_VmaAllocation);
+         else
+             vk.DestroyImage(m_Device, m_Handle, m_Device.GetVkAllocationCallbacks());
++
++        if (m_SharedMemory)
++            vk.FreeMemory(m_Device, m_SharedMemory, m_Device.GetVkAllocationCallbacks());
+     }
+ }
+ 
+@@ -21,6 +24,17 @@ Result TextureVK::Create(const TextureDesc& textureDesc) {
+     VideoResourceProfileListVK videoProfiles = {};
+     m_Device.AppendVideoProfileList(m_Desc, info, videoProfiles);
+ 
++    VkExternalMemoryImageCreateInfo externalInfo = {VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
++    externalInfo.handleTypes = SHARED_MEMORY_HANDLE_TYPE;
++
++    if (m_Desc.shared) {
++        if (!m_Device.GetDesc().features.sharedResources)
++            return Result::UNSUPPORTED;
++
++        externalInfo.pNext = info.pNext;
++        info.pNext = &externalInfo;
++    }
++
+     const auto& vk = m_Device.GetDispatchTable();
+     VkImage handle = VK_NULL_HANDLE;
+     VkResult vkResult = vk.CreateImage(m_Device, &info, m_Device.GetVkAllocationCallbacks(), &handle);
+@@ -97,6 +111,26 @@ Result TextureVK::AllocateAndBindMemory(MemoryLocation memoryLocation, float pri
+     if (memoryTypeInfo.mustBeDedicated)
+         committed = true;
+ 
++    if (m_Desc.shared) {
++        NRI_RETURN_ON_FAILURE(&m_Device, !IsHostVisibleMemory(memoryTypeInfo.location), Result::INVALID_ARGUMENT, "Shared textures must be in 'DEVICE' memory");
++
++        Result result = m_Device.AllocateSharedMemory(memoryDesc, priority, VK_NULL_HANDLE, m_Handle, m_SharedMemory);
++        if (result != Result::SUCCESS)
++            return result;
++
++        m_SharedSize = memoryDesc.size;
++
++        VkBindImageMemoryInfo bindImageMemoryInfo = {VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO};
++        bindImageMemoryInfo.image = m_Handle;
++        bindImageMemoryInfo.memory = m_SharedMemory;
++
++        const auto& vk = m_Device.GetDispatchTable();
++        VkResult vkResult = vk.BindImageMemory2(m_Device, 1, &bindImageMemoryInfo);
++        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkBindImageMemory2");
++
++        return Result::SUCCESS;
++    }
++
+     VkMemoryRequirements memoryRequirements = {};
+     memoryRequirements.size = memoryDesc.size;
+     memoryRequirements.alignment = memoryDesc.alignment;
+@@ -136,6 +170,10 @@ Result TextureVK::BindMemory(const MemoryVK& memory, uint64_t offset) {
+     return Result::SUCCESS;
+ }
+ 
++Result TextureVK::GetSharedHandle(SharedHandle& sharedHandle) const {
++    return m_Device.GetSharedMemoryHandle(m_SharedMemory, m_SharedSize, sharedHandle);
++}
++
+ void TextureVK::GetMemoryDesc(MemoryLocation memoryLocation, MemoryDesc& memoryDesc) const {
+     VkMemoryDedicatedRequirements dedicatedRequirements = {VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS};
+ 
+diff --git a/Source/VK/TransferContextVK.hpp b/Source/VK/TransferContextVK.hpp
+index 4033b2bd..64dc5203 100644
+--- a/Source/VK/TransferContextVK.hpp
++++ b/Source/VK/TransferContextVK.hpp
+@@ -11,7 +11,8 @@ TransferContextVK::~TransferContextVK() {
+ Result TransferContextVK::Create(QueueVK& queue) {
+     m_FamilyIndex = queue.GetFamilyIndex();
+ 
+-    Result result = m_Device.CreateImplementation<FenceVK>(m_Fence, 0);
++    FenceDesc fenceDesc = {};
++    Result result = m_Device.CreateImplementation<FenceVK>(m_Fence, fenceDesc);
+ 
+     if (result == Result::SUCCESS)
+         result = m_Device.CreateImplementation<CommandAllocatorVK>(m_CommandAllocator, (Queue&)queue);
+diff --git a/Source/Validation/CommandBufferVal.hpp b/Source/Validation/CommandBufferVal.hpp
+index ea20d831..985d0252 100644
+--- a/Source/Validation/CommandBufferVal.hpp
++++ b/Source/Validation/CommandBufferVal.hpp
+@@ -1237,8 +1237,8 @@ NRI_INLINE void CommandBufferVal::Barrier(const BarrierDesc& barrierDesc) {
+         memcpy(textures, barrierDesc.textures, sizeof(TextureBarrierDesc) * barrierDesc.textureNum);
+         for (uint32_t i = 0; i < barrierDesc.textureNum; i++) {
+             textures[i].texture = NRI_GET_IMPL(Texture, barrierDesc.textures[i].texture);
+-            textures[i].srcQueue = NRI_GET_IMPL(Queue, barrierDesc.textures[i].srcQueue);
+-            textures[i].dstQueue = NRI_GET_IMPL(Queue, barrierDesc.textures[i].dstQueue);
++            textures[i].srcQueue = barrierDesc.textures[i].srcQueue == EXTERNAL_QUEUE ? (Queue*)EXTERNAL_QUEUE : NRI_GET_IMPL(Queue, barrierDesc.textures[i].srcQueue);
++            textures[i].dstQueue = barrierDesc.textures[i].dstQueue == EXTERNAL_QUEUE ? (Queue*)EXTERNAL_QUEUE : NRI_GET_IMPL(Queue, barrierDesc.textures[i].dstQueue);
+         }
+     }
+ 
+diff --git a/Source/Validation/DeviceVal.h b/Source/Validation/DeviceVal.h
+index 276ac863..4735a3c8 100644
+--- a/Source/Validation/DeviceVal.h
++++ b/Source/Validation/DeviceVal.h
+@@ -136,7 +136,7 @@ struct DeviceVal final : public DeviceBase {
+     // NRI
+     //================================================================================================================
+ 
+-    Result CreateFence(uint64_t initialValue, Fence*& fence);
++    Result CreateFence(const FenceDesc& fenceDesc, Fence*& fence);
+     Result CreateFence(const FenceVKDesc& fenceVKDesc, Fence*& fence);
+     Result CreateFence(const FenceD3D12Desc& fenceD3D12Desc, Fence*& fence);
+     Result CreateFence(const FenceMetalDesc& fenceMetalDesc, Fence*& fence);
+diff --git a/Source/Validation/DeviceVal.hpp b/Source/Validation/DeviceVal.hpp
+index fda122cc..29e4e298 100644
+--- a/Source/Validation/DeviceVal.hpp
++++ b/Source/Validation/DeviceVal.hpp
+@@ -333,6 +333,7 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolDesc& desc
+ }
+ 
+ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferDesc& bufferDesc, Buffer*& buffer) {
++    NRI_RETURN_ON_FAILURE(this, !bufferDesc.shared, Result::INVALID_ARGUMENT, "'shared' buffers must be created with 'CreateCommittedBuffer'");
+     NRI_RETURN_ON_FAILURE(this, bufferDesc.size != 0, Result::INVALID_ARGUMENT, "'size' is 0");
+ 
+     Buffer* bufferImpl = nullptr;
+@@ -346,6 +347,7 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferDesc& bufferDesc, Buffer*&
+ }
+ 
+ NRI_INLINE Result DeviceVal::CreateTexture(const TextureDesc& textureDesc, Texture*& texture) {
++    NRI_RETURN_ON_FAILURE(this, !textureDesc.shared, Result::INVALID_ARGUMENT, "'shared' textures must be created with 'CreateCommittedTexture'");
+     NRI_RETURN_ON_FAILURE(this, textureDesc.type < TextureType::MAX_NUM, Result::INVALID_ARGUMENT, "'type' is invalid");
+     NRI_RETURN_ON_FAILURE(this, textureDesc.format > Format::UNKNOWN && textureDesc.format < Format::MAX_NUM, Result::INVALID_ARGUMENT, "'format' is invalid");
+     NRI_RETURN_ON_FAILURE(this, textureDesc.sharingMode < SharingMode::MAX_NUM, Result::INVALID_ARGUMENT, "'sharingMode' is invalid");
+@@ -903,9 +905,12 @@ NRI_INLINE Result DeviceVal::CreateQueryPool(const QueryPoolDesc& queryPoolDesc,
+     return result;
+ }
+ 
+-NRI_INLINE Result DeviceVal::CreateFence(uint64_t initialValue, Fence*& fence) {
++NRI_INLINE Result DeviceVal::CreateFence(const FenceDesc& fenceDesc, Fence*& fence) {
++    NRI_RETURN_ON_FAILURE(this, !fenceDesc.shared || GetDesc().features.sharedFences, Result::UNSUPPORTED, "'shared' fences are not supported by the device");
++
++    const uint64_t initialValue = fenceDesc.initialValue;
+     Fence* fenceImpl = nullptr;
+-    Result result = m_iCoreImpl.CreateFence(m_Impl, initialValue, fenceImpl);
++    Result result = m_iCoreImpl.CreateFence(m_Impl, fenceDesc, fenceImpl);
+ 
+     fence = nullptr;
+     if (result == Result::SUCCESS)
+@@ -965,6 +970,8 @@ NRI_INLINE void DeviceVal::DestroyFence(Fence* fence) {
+ }
+ 
+ NRI_INLINE Result DeviceVal::CreateCommittedBuffer(MemoryLocation memoryLocation, float priority, const BufferDesc& bufferDesc, Buffer*& buffer) {
++    NRI_RETURN_ON_FAILURE(this, !bufferDesc.shared || GetDesc().features.sharedResources, Result::UNSUPPORTED, "'shared' resources are not supported by the device");
++    NRI_RETURN_ON_FAILURE(this, !bufferDesc.shared || memoryLocation == MemoryLocation::DEVICE, Result::INVALID_ARGUMENT, "'shared' resources must be in 'DEVICE' memory");
+     NRI_RETURN_ON_FAILURE(this, priority >= -1.0f && priority <= 1.0f, Result::INVALID_ARGUMENT, "'priority' outside of [-1; 1] range");
+     NRI_RETURN_ON_FAILURE(this, bufferDesc.size != 0, Result::INVALID_ARGUMENT, "'size' is 0");
+ 
+@@ -982,6 +989,8 @@ NRI_INLINE Result DeviceVal::CreateCommittedBuffer(MemoryLocation memoryLocation
+ }
+ 
+ NRI_INLINE Result DeviceVal::CreateCommittedTexture(MemoryLocation memoryLocation, float priority, const TextureDesc& textureDesc, Texture*& texture) {
++    NRI_RETURN_ON_FAILURE(this, !textureDesc.shared || GetDesc().features.sharedResources, Result::UNSUPPORTED, "'shared' resources are not supported by the device");
++    NRI_RETURN_ON_FAILURE(this, !textureDesc.shared || memoryLocation == MemoryLocation::DEVICE, Result::INVALID_ARGUMENT, "'shared' resources must be in 'DEVICE' memory");
+     NRI_RETURN_ON_FAILURE(this, priority >= -1.0f && priority <= 1.0f, Result::INVALID_ARGUMENT, "'priority' outside of [-1; 1] range");
+     NRI_RETURN_ON_FAILURE(this, textureDesc.type < TextureType::MAX_NUM, Result::INVALID_ARGUMENT, "'type' is invalid");
+     NRI_RETURN_ON_FAILURE(this, textureDesc.format > Format::UNKNOWN && textureDesc.format < Format::MAX_NUM, Result::INVALID_ARGUMENT, "'format' is invalid");
+@@ -1093,6 +1102,7 @@ NRI_INLINE Result DeviceVal::CreateCommittedAccelerationStructure(MemoryLocation
+ }
+ 
+ NRI_INLINE Result DeviceVal::CreatePlacedBuffer(Memory* memory, uint64_t offset, const BufferDesc& bufferDesc, Buffer*& buffer) {
++    NRI_RETURN_ON_FAILURE(this, !bufferDesc.shared, Result::INVALID_ARGUMENT, "'shared' buffers must be created with 'CreateCommittedBuffer'");
+     NRI_RETURN_ON_FAILURE(this, bufferDesc.size != 0, Result::INVALID_ARGUMENT, "'size' is 0");
+ 
+     if (memory) {
+@@ -1135,6 +1145,7 @@ NRI_INLINE Result DeviceVal::CreatePlacedBuffer(Memory* memory, uint64_t offset,
+ }
+ 
+ NRI_INLINE Result DeviceVal::CreatePlacedTexture(Memory* memory, uint64_t offset, const TextureDesc& textureDesc, Texture*& texture) {
++    NRI_RETURN_ON_FAILURE(this, !textureDesc.shared, Result::INVALID_ARGUMENT, "'shared' textures must be created with 'CreateCommittedTexture'");
+     NRI_RETURN_ON_FAILURE(this, textureDesc.type < TextureType::MAX_NUM, Result::INVALID_ARGUMENT, "'type' is invalid");
+     NRI_RETURN_ON_FAILURE(this, textureDesc.format > Format::UNKNOWN && textureDesc.format < Format::MAX_NUM, Result::INVALID_ARGUMENT, "'format' is invalid");
+     NRI_RETURN_ON_FAILURE(this, textureDesc.sharingMode < SharingMode::MAX_NUM, Result::INVALID_ARGUMENT, "'sharingMode' is invalid");
+diff --git a/Source/Validation/ImplVal.cpp b/Source/Validation/ImplVal.cpp
+index 0b1f85ef..94c9adf1 100644
+--- a/Source/Validation/ImplVal.cpp
++++ b/Source/Validation/ImplVal.cpp
+@@ -446,8 +446,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+     return ((CommandAllocatorVal&)commandAllocator).CreateCommandBuffer(commandBuffer);
+ }
+ 
+-static Result NRI_CALL CreateFence(Device& device, uint64_t initialValue, Fence*& fence) {
+-    return ((DeviceVal&)device).CreateFence(initialValue, fence);
++static Result NRI_CALL CreateFence(Device& device, const FenceDesc& fenceDesc, Fence*& fence) {
++    return ((DeviceVal&)device).CreateFence(fenceDesc, fence);
+ }
+ 
+ static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
+@@ -1040,6 +1040,30 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+     return ((DescriptorVal*)descriptor)->GetNativeObject();
+ }
+ 
++static Result NRI_CALL GetBufferSharedHandle(const Buffer& buffer, SharedHandle& sharedHandle) {
++    const BufferVal& bufferVal = (const BufferVal&)buffer;
++    sharedHandle = {};
++
++    NRI_RETURN_ON_FAILURE(&bufferVal.GetDevice(), bufferVal.GetDesc().shared, Result::INVALID_ARGUMENT, "'shared' is false");
++
++    return bufferVal.GetDevice().GetCoreInterfaceImpl().GetBufferSharedHandle(*bufferVal.GetImpl(), sharedHandle);
++}
++
++static Result NRI_CALL GetTextureSharedHandle(const Texture& texture, SharedHandle& sharedHandle) {
++    const TextureVal& textureVal = (const TextureVal&)texture;
++    sharedHandle = {};
++
++    NRI_RETURN_ON_FAILURE(&textureVal.GetDevice(), textureVal.GetDesc().shared, Result::INVALID_ARGUMENT, "'shared' is false");
++
++    return textureVal.GetDevice().GetCoreInterfaceImpl().GetTextureSharedHandle(*textureVal.GetImpl(), sharedHandle);
++}
++
++static Result NRI_CALL GetFenceSharedHandle(const Fence& fence, SharedHandle& sharedHandle) {
++    const FenceVal& fenceVal = (const FenceVal&)fence;
++
++    return fenceVal.GetDevice().GetCoreInterfaceImpl().GetFenceSharedHandle(*fenceVal.GetImpl(), sharedHandle);
++}
++
+ Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
+     table.GetDeviceDesc = ::GetDeviceDesc;
+     table.GetBufferDesc = ::GetBufferDesc;
+@@ -1155,6 +1179,10 @@ Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
+     table.GetBufferNativeObject = ::GetBufferNativeObject;
+     table.GetTextureNativeObject = ::GetTextureNativeObject;
+     table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
++    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
++    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
++    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
++
+ 
+     return Result::SUCCESS;
+ }
+diff --git a/Source/WGPU/ImplWGPU.cpp b/Source/WGPU/ImplWGPU.cpp
+index a34aa583..7e65ad84 100644
+--- a/Source/WGPU/ImplWGPU.cpp
++++ b/Source/WGPU/ImplWGPU.cpp
+@@ -100,8 +100,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+     return ((CommandAllocatorWGPU&)commandAllocator).CreateCommandBuffer(commandBuffer);
+ }
+ 
+-static Result NRI_CALL CreateFence(Device& device, uint64_t initialValue, Fence*& fence) {
+-    return ((DeviceWGPU&)device).CreateImplementation<FenceWGPU>(fence, initialValue);
++static Result NRI_CALL CreateFence(Device& device, const FenceDesc& fenceDesc, Fence*& fence) {
++    if (fenceDesc.shared)
++        return Result::UNSUPPORTED;
++
++    return ((DeviceWGPU&)device).CreateImplementation<FenceWGPU>(fence, fenceDesc.initialValue);
+ }
+ 
+ static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
+@@ -628,6 +631,24 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+     }
+ }
+ 
++static Result NRI_CALL GetBufferSharedHandle(const Buffer&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::UNSUPPORTED;
++}
++
++static Result NRI_CALL GetTextureSharedHandle(const Texture&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::UNSUPPORTED;
++}
++
++static Result NRI_CALL GetFenceSharedHandle(const Fence&, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++    return Result::UNSUPPORTED;
++}
++
+ Result DeviceWGPU::FillFunctionTable(CoreInterface& table) const {
+     table.GetDeviceDesc = ::GetDeviceDesc;
+     table.GetBufferDesc = ::GetBufferDesc;
+@@ -743,6 +764,10 @@ Result DeviceWGPU::FillFunctionTable(CoreInterface& table) const {
+     table.GetBufferNativeObject = ::GetBufferNativeObject;
+     table.GetTextureNativeObject = ::GetTextureNativeObject;
+     table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
++    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
++    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
++    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
++
+ 
+     return Result::SUCCESS;
+ }

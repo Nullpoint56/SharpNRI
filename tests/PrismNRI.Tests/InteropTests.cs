@@ -400,10 +400,10 @@ public sealed unsafe class InteropTests
         Assert.SkipUnless(OperatingSystem.IsWindows(), "GetHandleInformation is Windows' (the handle is a file descriptor elsewhere)");
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
-        Assert.SkipWhen(device.TrySharedHandles is null, "the adapter lacks VK_KHR_external_memory_win32 or VK_KHR_external_semaphore_win32");
+        Assert.SkipWhen(device.Desc.features.sharedFences == 0, "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_win32");
 
-        using var fence = device.SharedHandles.CreateSharedFence();
-        var handle = device.SharedHandles.GetSharedHandle(fence);
+        using var fence = device.CreateSharedFence();
+        var handle = fence.GetSharedHandle();
         var value = handle.Handle;
         Assert.True(handle.IsValid);
         Assert.Contains($"Handle = {value}, Type = {handle.Type}", handle.ToString(), StringComparison.Ordinal);
@@ -438,10 +438,10 @@ public sealed unsafe class InteropTests
             foreach (var e in events) CloseHandle(e);
         }
 
-        Assert.False(new NriSharedHandle(0, handle.Type, 0, 0).IsValid);
-        Assert.False(new NriSharedHandle(-1, handle.Type, 0, 0).IsValid);
-        new NriSharedHandle(0, handle.Type, 0, 0).Dispose();
-        new NriSharedHandle(-1, handle.Type, 0, 0).Dispose();
+        Assert.False(new NriSharedHandle(0, handle.Type, 0).IsValid);
+        Assert.False(new NriSharedHandle(-1, handle.Type, 0).IsValid);
+        new NriSharedHandle(0, handle.Type, 0).Dispose();
+        new NriSharedHandle(-1, handle.Type, 0).Dispose();
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 

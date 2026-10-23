@@ -35,7 +35,7 @@ index ce1c862d..6eb68699 100644
  
      if (result == Result::SUCCESS) {
 diff --git a/Source/D3D12/DeviceD3D12.h b/Source/D3D12/DeviceD3D12.h
-index 71d6e5d9..cf72d72d 100644
+index 2138c2b3..7433aca7 100644
 --- a/Source/D3D12/DeviceD3D12.h
 +++ b/Source/D3D12/DeviceD3D12.h
 @@ -85,6 +85,10 @@ struct DeviceD3D12 final : public DeviceBase {
@@ -50,7 +50,7 @@ index 71d6e5d9..cf72d72d 100644
  
          if (result != Result::SUCCESS) {
 diff --git a/Source/D3D12/ImplD3D12.cpp b/Source/D3D12/ImplD3D12.cpp
-index 3dc62d58..46d73ce7 100644
+index 296b0923..528f008c 100644
 --- a/Source/D3D12/ImplD3D12.cpp
 +++ b/Source/D3D12/ImplD3D12.cpp
 @@ -61,6 +61,10 @@ using namespace nri;
@@ -64,7 +64,7 @@ index 3dc62d58..46d73ce7 100644
      Result result = impl->Create(desc, descD3D12);
  
      if (result != Result::SUCCESS) {
-@@ -811,6 +815,10 @@ Result DeviceD3D12::FillFunctionTable(HelperInterface& table) const {
+@@ -826,6 +830,10 @@ Result DeviceD3D12::FillFunctionTable(HelperInterface& table) const {
  static Result NRI_CALL CreateImgui(Device& device, const ImguiDesc& imguiDesc, Imgui*& imgui) {
      DeviceD3D12& deviceD3D12 = (DeviceD3D12&)device;
      ImguiImpl* impl = Allocate<ImguiImpl>(deviceD3D12.GetAllocationCallbacks(), device, deviceD3D12.GetCoreInterface());
@@ -75,7 +75,7 @@ index 3dc62d58..46d73ce7 100644
      Result result = impl->Create(imguiDesc);
  
      if (result != Result::SUCCESS) {
-@@ -1243,6 +1251,10 @@ Result DeviceD3D12::FillFunctionTable(VideoInterface& table) const {
+@@ -1258,6 +1266,10 @@ Result DeviceD3D12::FillFunctionTable(VideoInterface& table) const {
  static Result NRI_CALL CreateStreamer(Device& device, const StreamerDesc& streamerDesc, Streamer*& streamer) {
      DeviceD3D12& deviceD3D12 = (DeviceD3D12&)device;
      StreamerImpl* impl = Allocate<StreamerImpl>(deviceD3D12.GetAllocationCallbacks(), device, deviceD3D12.GetCoreInterface());
@@ -86,7 +86,7 @@ index 3dc62d58..46d73ce7 100644
      Result result = impl->Create(streamerDesc);
  
      if (result != Result::SUCCESS) {
-@@ -1361,6 +1373,10 @@ Result DeviceD3D12::FillFunctionTable(SwapChainInterface& table) const {
+@@ -1376,6 +1388,10 @@ Result DeviceD3D12::FillFunctionTable(SwapChainInterface& table) const {
  static Result NRI_CALL CreateUpscaler(Device& device, const UpscalerDesc& upscalerDesc, Upscaler*& upscaler) {
      DeviceD3D12& deviceD3D12 = (DeviceD3D12&)device;
      UpscalerImpl* impl = Allocate<UpscalerImpl>(deviceD3D12.GetAllocationCallbacks(), device, deviceD3D12.GetCoreInterface());
@@ -118,7 +118,7 @@ index 1415b2f9..213ffa5d 100644
          m_Textures.push_back(texture);
      }
 diff --git a/Source/Shared/UpscalerInterface.hpp b/Source/Shared/UpscalerInterface.hpp
-index 34110998..70de4115 100644
+index 63b3978b..739c2f0a 100644
 --- a/Source/Shared/UpscalerInterface.hpp
 +++ b/Source/Shared/UpscalerInterface.hpp
 @@ -849,6 +849,8 @@ Result UpscalerImpl::Create(const UpscalerDesc& upscalerDesc) {
@@ -157,7 +157,7 @@ index 34110998..70de4115 100644
  
          { // Create instance
              ExclusiveScope lock(g_ngx.lock);
-@@ -1474,6 +1482,8 @@ Result UpscalerImpl::Create(const UpscalerDesc& upscalerDesc) {
+@@ -1476,6 +1484,8 @@ Result UpscalerImpl::Create(const UpscalerDesc& upscalerDesc) {
  
          const auto& allocationCallbacks = ((DeviceBase&)m_Device).GetAllocationCallbacks();
          m.metalfx = Allocate<MetalFx>(allocationCallbacks);
@@ -183,7 +183,7 @@ index 5404af6a..74c7f4e5 100644
  
      commandBuffer = (CommandBuffer*)commandBufferVK;
 diff --git a/Source/VK/DeviceVK.h b/Source/VK/DeviceVK.h
-index 1b9fc46f..85f8ecf5 100644
+index 0218624b..1d428358 100644
 --- a/Source/VK/DeviceVK.h
 +++ b/Source/VK/DeviceVK.h
 @@ -202,6 +202,10 @@ struct DeviceVK final : public DeviceBase {
@@ -198,7 +198,7 @@ index 1b9fc46f..85f8ecf5 100644
  
          if (result != Result::SUCCESS) {
 diff --git a/Source/VK/ImplVK.cpp b/Source/VK/ImplVK.cpp
-index b5e6544b..37011271 100644
+index 4bff573d..56c9ef40 100644
 --- a/Source/VK/ImplVK.cpp
 +++ b/Source/VK/ImplVK.cpp
 @@ -62,6 +62,10 @@ using namespace nri;
@@ -212,7 +212,7 @@ index b5e6544b..37011271 100644
      Result result = impl->Create(desc, descVK);
  
      if (result != Result::SUCCESS) {
-@@ -829,6 +833,10 @@ Result DeviceVK::FillFunctionTable(HelperInterface& table) const {
+@@ -844,6 +848,10 @@ Result DeviceVK::FillFunctionTable(HelperInterface& table) const {
  static Result NRI_CALL CreateImgui(Device& device, const ImguiDesc& imguiDesc, Imgui*& imgui) {
      DeviceVK& deviceVK = (DeviceVK&)device;
      ImguiImpl* impl = Allocate<ImguiImpl>(deviceVK.GetAllocationCallbacks(), device, deviceVK.GetCoreInterface());
@@ -223,7 +223,7 @@ index b5e6544b..37011271 100644
      Result result = impl->Create(imguiDesc);
  
      if (result != Result::SUCCESS) {
-@@ -1254,6 +1262,10 @@ Result DeviceVK::FillFunctionTable(VideoInterface& table) const {
+@@ -1269,6 +1277,10 @@ Result DeviceVK::FillFunctionTable(VideoInterface& table) const {
  static Result NRI_CALL CreateStreamer(Device& device, const StreamerDesc& streamerDesc, Streamer*& streamer) {
      DeviceVK& deviceVK = (DeviceVK&)device;
      StreamerImpl* impl = Allocate<StreamerImpl>(deviceVK.GetAllocationCallbacks(), device, deviceVK.GetCoreInterface());
@@ -234,7 +234,7 @@ index b5e6544b..37011271 100644
      Result result = impl->Create(streamerDesc);
  
      if (result != Result::SUCCESS) {
-@@ -1372,6 +1384,10 @@ Result DeviceVK::FillFunctionTable(SwapChainInterface& table) const {
+@@ -1387,6 +1399,10 @@ Result DeviceVK::FillFunctionTable(SwapChainInterface& table) const {
  static Result NRI_CALL CreateUpscaler(Device& device, const UpscalerDesc& upscalerDesc, Upscaler*& upscaler) {
      DeviceVK& deviceVK = (DeviceVK&)device;
      UpscalerImpl* impl = Allocate<UpscalerImpl>(deviceVK.GetAllocationCallbacks(), device, deviceVK.GetCoreInterface());
@@ -246,7 +246,7 @@ index b5e6544b..37011271 100644
  
      if (result != Result::SUCCESS) {
 diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
-index 6bb87b54..3cb721c0 100644
+index 25302015..a1fca4b4 100644
 --- a/Source/VK/SwapChainVK.hpp
 +++ b/Source/VK/SwapChainVK.hpp
 @@ -437,6 +437,9 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
@@ -266,9 +266,9 @@ index 6bb87b54..3cb721c0 100644
 +        if (!m_LatencyFence)
 +            return Result::OUT_OF_MEMORY;
 +
-         m_LatencyFence->Create(0);
+         FenceDesc fenceDesc = {};
+         m_LatencyFence->Create(fenceDesc);
      }
- 
 diff --git a/Source/Validation/AccelerationStructureVal.hpp b/Source/Validation/AccelerationStructureVal.hpp
 index 793b01de..f56651ec 100644
 --- a/Source/Validation/AccelerationStructureVal.hpp
@@ -308,10 +308,10 @@ index e8a1fc78..ae544e30 100644
      return result;
  }
 diff --git a/Source/Validation/DeviceVal.hpp b/Source/Validation/DeviceVal.hpp
-index 28285503..2f337c1e 100644
+index 059ebf94..bde1fd09 100644
 --- a/Source/Validation/DeviceVal.hpp
 +++ b/Source/Validation/DeviceVal.hpp
-@@ -271,8 +271,13 @@ NRI_INLINE Result DeviceVal::CreateSwapChain(const SwapChainDesc& swapChainDesc,
+@@ -270,8 +270,13 @@ NRI_INLINE Result DeviceVal::CreateSwapChain(const SwapChainDesc& swapChainDesc,
      Result result = m_iSwapChainImpl.CreateSwapChain(m_Impl, swapChainDescImpl, swapChainImpl);
  
      swapChain = nullptr;
@@ -326,7 +326,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -296,6 +301,8 @@ NRI_INLINE Result DeviceVal::GetQueue(QueueType queueType, uint32_t queueIndex,
+@@ -295,6 +300,8 @@ NRI_INLINE Result DeviceVal::GetQueue(QueueType queueType, uint32_t queueIndex,
          QueueVal*& queueVal = m_Queues[key];
          if (!queueVal)
              queueVal = Allocate<QueueVal>(GetAllocationCallbacks(), *this, queueImpl, queueType);
@@ -335,7 +335,7 @@ index 28285503..2f337c1e 100644
  
          queue = (Queue*)queueVal;
      }
-@@ -314,8 +321,13 @@ NRI_INLINE Result DeviceVal::CreateCommandAllocator(const Queue& queue, CommandA
+@@ -313,8 +320,13 @@ NRI_INLINE Result DeviceVal::CreateCommandAllocator(const Queue& queue, CommandA
      Result result = m_iCoreImpl.CreateCommandAllocator(*queueVal.GetImpl(), commandAllocatorImpl);
  
      commandAllocator = nullptr;
@@ -350,7 +350,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -327,8 +339,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolDesc& desc
+@@ -326,8 +338,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolDesc& desc
      Result result = m_iCoreImpl.CreateDescriptorPool(m_Impl, descriptorPoolDesc, descriptorPoolImpl);
  
      descriptorPool = nullptr;
@@ -380,7 +380,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -373,8 +395,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureDesc& textureDesc, Textu
+@@ -374,8 +396,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureDesc& textureDesc, Textu
      Result result = m_iCoreImpl.CreateTexture(m_Impl, textureDesc, textureImpl);
  
      texture = nullptr;
@@ -395,7 +395,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -414,6 +441,10 @@ NRI_INLINE Result DeviceVal::CreateDescriptor(const BufferViewDesc& bufferViewDe
+@@ -415,6 +442,10 @@ NRI_INLINE Result DeviceVal::CreateDescriptor(const BufferViewDesc& bufferViewDe
          auto bufferViewDescVal = bufferViewDesc;
          bufferViewDescVal.size = size;
          bufferView = (Descriptor*)Allocate<DescriptorVal>(GetAllocationCallbacks(), *this, descriptorImpl, bufferViewDescVal);
@@ -406,7 +406,7 @@ index 28285503..2f337c1e 100644
      }
  
      return result;
-@@ -470,8 +501,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptor(const TextureViewDesc& textureView
+@@ -471,8 +502,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptor(const TextureViewDesc& textureView
      Result result = m_iCoreImpl.CreateTextureView(textureViewDescImpl, descriptorImpl);
  
      textureView = nullptr;
@@ -421,7 +421,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -496,8 +532,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptor(const SamplerDesc& samplerDesc, De
+@@ -497,8 +533,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptor(const SamplerDesc& samplerDesc, De
      Result result = m_iCoreImpl.CreateSampler(m_Impl, samplerDesc, samplerImpl);
  
      sampler = nullptr;
@@ -436,7 +436,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -618,8 +659,13 @@ NRI_INLINE Result DeviceVal::CreatePipelineLayout(const PipelineLayoutDesc& pipe
+@@ -619,8 +660,13 @@ NRI_INLINE Result DeviceVal::CreatePipelineLayout(const PipelineLayoutDesc& pipe
      Result result = m_iCoreImpl.CreatePipelineLayout(m_Impl, pipelineLayoutDesc, pipelineLayoutImpl);
  
      pipelineLayout = nullptr;
@@ -451,7 +451,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -827,8 +873,13 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const GraphicsPipelineDesc& graphics
+@@ -828,8 +874,13 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const GraphicsPipelineDesc& graphics
      Result result = m_iCoreImpl.CreateGraphicsPipeline(m_Impl, graphicsPipelineDescImpl, pipelineImpl);
  
      pipeline = nullptr;
@@ -466,7 +466,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -860,8 +911,13 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const ComputePipelineDesc& computePi
+@@ -861,8 +912,13 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const ComputePipelineDesc& computePi
      Result result = m_iCoreImpl.CreateComputePipeline(m_Impl, computePipelineDescImpl, pipelineImpl);
  
      pipeline = nullptr;
@@ -481,7 +481,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -873,8 +929,13 @@ NRI_INLINE Result DeviceVal::CreatePipelineCache(const PipelineCacheDesc& pipeli
+@@ -874,8 +930,13 @@ NRI_INLINE Result DeviceVal::CreatePipelineCache(const PipelineCacheDesc& pipeli
      Result result = m_iCoreImpl.CreatePipelineCache(m_Impl, pipelineCacheDesc, pipelineCacheImpl);
  
      pipelineCache = nullptr;
@@ -496,7 +496,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -906,8 +967,13 @@ NRI_INLINE Result DeviceVal::CreateQueryPool(const QueryPoolDesc& queryPoolDesc,
+@@ -907,8 +968,13 @@ NRI_INLINE Result DeviceVal::CreateQueryPool(const QueryPoolDesc& queryPoolDesc,
      Result result = m_iCoreImpl.CreateQueryPool(m_Impl, queryPoolDesc, queryPoolImpl);
  
      queryPool = nullptr;
@@ -511,8 +511,8 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -917,8 +983,13 @@ NRI_INLINE Result DeviceVal::CreateFence(uint64_t initialValue, Fence*& fence) {
-     Result result = m_iCoreImpl.CreateFence(m_Impl, initialValue, fenceImpl);
+@@ -921,8 +987,13 @@ NRI_INLINE Result DeviceVal::CreateFence(const FenceDesc& fenceDesc, Fence*& fen
+     Result result = m_iCoreImpl.CreateFence(m_Impl, fenceDesc, fenceImpl);
  
      fence = nullptr;
 -    if (result == Result::SUCCESS)
@@ -526,7 +526,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -981,8 +1052,13 @@ NRI_INLINE Result DeviceVal::CreateCommittedBuffer(MemoryLocation memoryLocation
+@@ -987,8 +1058,13 @@ NRI_INLINE Result DeviceVal::CreateCommittedBuffer(MemoryLocation memoryLocation
      Result result = m_iCoreImpl.CreateCommittedBuffer(m_Impl, memoryLocation, priority, bufferDesc, bufferImpl);
  
      buffer = nullptr;
@@ -541,7 +541,7 @@ index 28285503..2f337c1e 100644
  
      if (buffer)
          ((BufferVal*)buffer)->SetMemoryLocation(memoryLocation);
-@@ -1018,8 +1094,13 @@ NRI_INLINE Result DeviceVal::CreateCommittedTexture(MemoryLocation memoryLocatio
+@@ -1026,8 +1102,13 @@ NRI_INLINE Result DeviceVal::CreateCommittedTexture(MemoryLocation memoryLocatio
      Result result = m_iCoreImpl.CreateCommittedTexture(m_Impl, memoryLocation, priority, textureDesc, textureImpl);
  
      texture = nullptr;
@@ -556,7 +556,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1037,8 +1118,13 @@ NRI_INLINE Result DeviceVal::CreateCommittedMicromap(MemoryLocation memoryLocati
+@@ -1045,8 +1126,13 @@ NRI_INLINE Result DeviceVal::CreateCommittedMicromap(MemoryLocation memoryLocati
      Result result = m_iRayTracingImpl.CreateCommittedMicromap(m_Impl, memoryLocation, priority, micromapDesc, micromapImpl);
  
      micromap = nullptr;
@@ -571,7 +571,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1095,8 +1181,13 @@ NRI_INLINE Result DeviceVal::CreateCommittedAccelerationStructure(MemoryLocation
+@@ -1103,8 +1189,13 @@ NRI_INLINE Result DeviceVal::CreateCommittedAccelerationStructure(MemoryLocation
      Result result = m_iRayTracingImpl.CreateCommittedAccelerationStructure(m_Impl, memoryLocation, priority, accelerationStructureDescImpl, accelerationStructureImpl);
  
      accelerationStructure = nullptr;
@@ -586,7 +586,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1128,8 +1219,13 @@ NRI_INLINE Result DeviceVal::CreatePlacedBuffer(Memory* memory, uint64_t offset,
+@@ -1137,8 +1228,13 @@ NRI_INLINE Result DeviceVal::CreatePlacedBuffer(Memory* memory, uint64_t offset,
      Result result = m_iCoreImpl.CreatePlacedBuffer(m_Impl, memoryImpl, offset, bufferDesc, bufferImpl);
  
      buffer = nullptr;
@@ -601,7 +601,7 @@ index 28285503..2f337c1e 100644
  
      if (buffer && !memory)
          ((BufferVal*)buffer)->SetMemoryLocation((MemoryLocation)offset);
-@@ -1190,8 +1286,13 @@ NRI_INLINE Result DeviceVal::CreatePlacedTexture(Memory* memory, uint64_t offset
+@@ -1200,8 +1296,13 @@ NRI_INLINE Result DeviceVal::CreatePlacedTexture(Memory* memory, uint64_t offset
      Result result = m_iCoreImpl.CreatePlacedTexture(m_Impl, memoryImpl, offset, textureDesc, textureImpl);
  
      texture = nullptr;
@@ -616,7 +616,7 @@ index 28285503..2f337c1e 100644
  
      // Update
      if (texture && memory) {
-@@ -1234,8 +1335,13 @@ NRI_INLINE Result DeviceVal::CreatePlacedMicromap(Memory* memory, uint64_t offse
+@@ -1244,8 +1345,13 @@ NRI_INLINE Result DeviceVal::CreatePlacedMicromap(Memory* memory, uint64_t offse
      Result result = m_iRayTracingImpl.CreatePlacedMicromap(m_Impl, memoryImpl, offset, micromapDesc, micromapImpl);
  
      micromap = nullptr;
@@ -631,7 +631,7 @@ index 28285503..2f337c1e 100644
  
      // Update
      if (micromap && memory) {
-@@ -1316,8 +1422,13 @@ NRI_INLINE Result DeviceVal::CreatePlacedAccelerationStructure(Memory* memory, u
+@@ -1326,8 +1432,13 @@ NRI_INLINE Result DeviceVal::CreatePlacedAccelerationStructure(Memory* memory, u
      Result result = m_iRayTracingImpl.CreatePlacedAccelerationStructure(m_Impl, memoryImpl, offset, accelerationStructureDescImpl, accelerationStructureImpl);
  
      accelerationStructure = nullptr;
@@ -646,7 +646,7 @@ index 28285503..2f337c1e 100644
  
      // Update
      if (accelerationStructure && memory) {
-@@ -1349,8 +1460,13 @@ NRI_INLINE Result DeviceVal::AllocateMemory(const AllocateMemoryDesc& allocateMe
+@@ -1359,8 +1470,13 @@ NRI_INLINE Result DeviceVal::AllocateMemory(const AllocateMemoryDesc& allocateMe
      Result result = m_iCoreImpl.AllocateMemory(m_Impl, allocateMemoryDesc, memoryImpl);
  
      memory = nullptr;
@@ -661,7 +661,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1488,8 +1604,13 @@ NRI_INLINE Result DeviceVal::CreateCommandAllocator(const CommandAllocatorVKDesc
+@@ -1498,8 +1614,13 @@ NRI_INLINE Result DeviceVal::CreateCommandAllocator(const CommandAllocatorVKDesc
      Result result = m_iWrapperVKImpl.CreateCommandAllocatorVK(m_Impl, commandAllocatorVKDesc, commandAllocatorImpl);
  
      commandAllocator = nullptr;
@@ -676,7 +676,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1502,8 +1623,13 @@ NRI_INLINE Result DeviceVal::CreateCommandBuffer(const CommandBufferVKDesc& comm
+@@ -1512,8 +1633,13 @@ NRI_INLINE Result DeviceVal::CreateCommandBuffer(const CommandBufferVKDesc& comm
      Result result = m_iWrapperVKImpl.CreateCommandBufferVK(m_Impl, commandBufferVKDesc, commandBufferImpl);
  
      commandBuffer = nullptr;
@@ -691,7 +691,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1516,8 +1642,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolVKDesc& de
+@@ -1526,8 +1652,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolVKDesc& de
      Result result = m_iWrapperVKImpl.CreateDescriptorPoolVK(m_Impl, descriptorPoolVKDesc, descriptorPoolImpl);
  
      descriptorPool = nullptr;
@@ -706,7 +706,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1530,8 +1661,13 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferVKDesc& bufferVKDesc, Buff
+@@ -1540,8 +1671,13 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferVKDesc& bufferVKDesc, Buff
      Result result = m_iWrapperVKImpl.CreateBufferVK(m_Impl, bufferVKDesc, bufferImpl);
  
      buffer = nullptr;
@@ -721,7 +721,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1547,8 +1683,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureVKDesc& textureVKDesc, T
+@@ -1557,8 +1693,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureVKDesc& textureVKDesc, T
      Result result = m_iWrapperVKImpl.CreateTextureVK(m_Impl, textureVKDesc, textureImpl);
  
      texture = nullptr;
@@ -736,7 +736,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1561,8 +1702,13 @@ NRI_INLINE Result DeviceVal::CreateMemory(const MemoryVKDesc& memoryVKDesc, Memo
+@@ -1571,8 +1712,13 @@ NRI_INLINE Result DeviceVal::CreateMemory(const MemoryVKDesc& memoryVKDesc, Memo
      Result result = m_iWrapperVKImpl.CreateMemoryVK(m_Impl, memoryVKDesc, memoryImpl);
  
      memory = nullptr;
@@ -751,7 +751,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1574,8 +1720,13 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const PipelineVKDesc& pipelineVKDesc
+@@ -1584,8 +1730,13 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const PipelineVKDesc& pipelineVKDesc
      Result result = m_iWrapperVKImpl.CreatePipelineVK(m_Impl, pipelineVKDesc, pipelineImpl);
  
      pipeline = nullptr;
@@ -766,7 +766,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1590,6 +1741,10 @@ NRI_INLINE Result DeviceVal::CreateQueryPool(const QueryPoolVKDesc& queryPoolVKD
+@@ -1600,6 +1751,10 @@ NRI_INLINE Result DeviceVal::CreateQueryPool(const QueryPoolVKDesc& queryPoolVKD
      if (result == Result::SUCCESS) {
          QueryType queryType = GetQueryTypeVK(queryPoolVKDesc.vkQueryType);
          queryPool = (QueryPool*)Allocate<QueryPoolVal>(GetAllocationCallbacks(), *this, queryPoolImpl, queryType, 0);
@@ -777,7 +777,7 @@ index 28285503..2f337c1e 100644
      }
  
      return result;
-@@ -1602,8 +1757,13 @@ NRI_INLINE Result DeviceVal::CreateFence(const FenceVKDesc& fenceVKDesc, Fence*&
+@@ -1612,8 +1767,13 @@ NRI_INLINE Result DeviceVal::CreateFence(const FenceVKDesc& fenceVKDesc, Fence*&
      Result result = m_iWrapperVKImpl.CreateFenceVK(m_Impl, fenceVKDesc, fenceImpl);
  
      fence = nullptr;
@@ -792,7 +792,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1615,8 +1775,13 @@ NRI_INLINE Result DeviceVal::CreateAccelerationStructure(const AccelerationStruc
+@@ -1625,8 +1785,13 @@ NRI_INLINE Result DeviceVal::CreateAccelerationStructure(const AccelerationStruc
      Result result = m_iWrapperVKImpl.CreateAccelerationStructureVK(m_Impl, accelerationStructureVKDesc, accelerationStructureImpl);
  
      accelerationStructure = nullptr;
@@ -807,7 +807,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1632,8 +1797,13 @@ NRI_INLINE Result DeviceVal::CreateCommandBuffer(const CommandBufferD3D11Desc& c
+@@ -1642,8 +1807,13 @@ NRI_INLINE Result DeviceVal::CreateCommandBuffer(const CommandBufferD3D11Desc& c
      Result result = m_iWrapperD3D11Impl.CreateCommandBufferD3D11(m_Impl, commandBufferD3D11Desc, commandBufferImpl);
  
      commandBuffer = nullptr;
@@ -822,7 +822,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1645,8 +1815,13 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferD3D11Desc& bufferD3D11Desc
+@@ -1655,8 +1825,13 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferD3D11Desc& bufferD3D11Desc
      Result result = m_iWrapperD3D11Impl.CreateBufferD3D11(m_Impl, bufferD3D11Desc, bufferImpl);
  
      buffer = nullptr;
@@ -837,7 +837,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1658,8 +1833,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureD3D11Desc& textureD3D11D
+@@ -1668,8 +1843,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureD3D11Desc& textureD3D11D
      Result result = m_iWrapperD3D11Impl.CreateTextureD3D11(m_Impl, textureD3D11Desc, textureImpl);
  
      texture = nullptr;
@@ -852,7 +852,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1678,8 +1858,13 @@ NRI_INLINE Result DeviceVal::CreateCommandBuffer(const CommandBufferD3D12Desc& c
+@@ -1688,8 +1868,13 @@ NRI_INLINE Result DeviceVal::CreateCommandBuffer(const CommandBufferD3D12Desc& c
      Result result = m_iWrapperD3D12Impl.CreateCommandBufferD3D12(m_Impl, commandBufferD3D12Desc, commandBufferImpl);
  
      commandBuffer = nullptr;
@@ -867,7 +867,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1691,8 +1876,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolD3D12Desc&
+@@ -1701,8 +1886,13 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolD3D12Desc&
      Result result = m_iWrapperD3D12Impl.CreateDescriptorPoolD3D12(m_Impl, descriptorPoolD3D12Desc, descriptorPoolImpl);
  
      descriptorPool = nullptr;
@@ -882,7 +882,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1704,8 +1894,13 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferD3D12Desc& bufferD3D12Desc
+@@ -1714,8 +1904,13 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferD3D12Desc& bufferD3D12Desc
      Result result = m_iWrapperD3D12Impl.CreateBufferD3D12(m_Impl, bufferD3D12Desc, bufferImpl);
  
      buffer = nullptr;
@@ -897,7 +897,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1717,8 +1912,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureD3D12Desc& textureD3D12D
+@@ -1727,8 +1922,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureD3D12Desc& textureD3D12D
      Result result = m_iWrapperD3D12Impl.CreateTextureD3D12(m_Impl, textureD3D12Desc, textureImpl);
  
      texture = nullptr;
@@ -912,7 +912,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1732,8 +1932,13 @@ NRI_INLINE Result DeviceVal::CreateMemory(const MemoryD3D12Desc& memoryD3D12Desc
+@@ -1742,8 +1942,13 @@ NRI_INLINE Result DeviceVal::CreateMemory(const MemoryD3D12Desc& memoryD3D12Desc
      const uint64_t size = GetMemorySizeD3D12(memoryD3D12Desc);
  
      memory = nullptr;
@@ -927,7 +927,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1745,8 +1950,13 @@ NRI_INLINE Result DeviceVal::CreateFence(const FenceD3D12Desc& fenceD3D12Desc, F
+@@ -1755,8 +1960,13 @@ NRI_INLINE Result DeviceVal::CreateFence(const FenceD3D12Desc& fenceD3D12Desc, F
      Result result = m_iWrapperD3D12Impl.CreateFenceD3D12(m_Impl, fenceD3D12Desc, fenceImpl);
  
      fence = nullptr;
@@ -942,7 +942,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1758,8 +1968,13 @@ NRI_INLINE Result DeviceVal::CreateAccelerationStructure(const AccelerationStruc
+@@ -1768,8 +1978,13 @@ NRI_INLINE Result DeviceVal::CreateAccelerationStructure(const AccelerationStruc
      Result result = m_iWrapperD3D12Impl.CreateAccelerationStructureD3D12(m_Impl, accelerationStructureD3D12Desc, accelerationStructureImpl);
  
      accelerationStructure = nullptr;
@@ -957,7 +957,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1777,8 +1992,13 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferMetalDesc& bufferMetalDesc
+@@ -1787,8 +2002,13 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferMetalDesc& bufferMetalDesc
  
      buffer = nullptr;
  
@@ -972,7 +972,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1797,8 +2017,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureMetalDesc& textureMetalD
+@@ -1807,8 +2027,13 @@ NRI_INLINE Result DeviceVal::CreateTexture(const TextureMetalDesc& textureMetalD
  
      texture = nullptr;
  
@@ -987,7 +987,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1811,8 +2036,13 @@ NRI_INLINE Result DeviceVal::CreateFence(const FenceMetalDesc& fenceMetalDesc, F
+@@ -1821,8 +2046,13 @@ NRI_INLINE Result DeviceVal::CreateFence(const FenceMetalDesc& fenceMetalDesc, F
  
      fence = nullptr;
  
@@ -1002,7 +1002,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1858,8 +2088,13 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const RayTracingPipelineDesc& rayTra
+@@ -1868,8 +2098,13 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const RayTracingPipelineDesc& rayTra
      Result result = m_iRayTracingImpl.CreateRayTracingPipeline(m_Impl, pipelineDescImpl, pipelineImpl);
  
      pipeline = nullptr;
@@ -1017,7 +1017,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1876,8 +2111,13 @@ NRI_INLINE Result DeviceVal::CreateMicromap(const MicromapDesc& micromapDesc, Mi
+@@ -1886,8 +2121,13 @@ NRI_INLINE Result DeviceVal::CreateMicromap(const MicromapDesc& micromapDesc, Mi
      Result result = m_iRayTracingImpl.CreateMicromap(m_Impl, micromapDesc, micromapImpl);
  
      micromap = nullptr;
@@ -1032,7 +1032,7 @@ index 28285503..2f337c1e 100644
  
      return result;
  }
-@@ -1933,8 +2173,13 @@ NRI_INLINE Result DeviceVal::CreateAccelerationStructure(const AccelerationStruc
+@@ -1943,8 +2183,13 @@ NRI_INLINE Result DeviceVal::CreateAccelerationStructure(const AccelerationStruc
      Result result = m_iRayTracingImpl.CreateAccelerationStructure(m_Impl, accelerationStructureDescImpl, accelerationStructureImpl);
  
      accelerationStructure = nullptr;
@@ -1048,7 +1048,7 @@ index 28285503..2f337c1e 100644
      return result;
  }
 diff --git a/Source/Validation/ImplVal.cpp b/Source/Validation/ImplVal.cpp
-index feb0d906..1efeb406 100644
+index 94c9adf1..f02f6339 100644
 --- a/Source/Validation/ImplVal.cpp
 +++ b/Source/Validation/ImplVal.cpp
 @@ -406,6 +406,8 @@ static inline bool HasValidVideoAV1ReferenceKeys(const VideoAV1ReferenceDesc* re
@@ -1060,7 +1060,7 @@ index feb0d906..1efeb406 100644
  
      if (!deviceVal->Create()) {
          Destroy(desc.allocationCallbacks, deviceVal);
-@@ -1390,13 +1392,22 @@ static Result NRI_CALL CreateImgui(Device& device, const ImguiDesc& imguiDesc, I
+@@ -1418,13 +1420,22 @@ static Result NRI_CALL CreateImgui(Device& device, const ImguiDesc& imguiDesc, I
      DeviceVal& deviceVal = (DeviceVal&)device;
  
      ImguiImpl* impl = Allocate<ImguiImpl>(deviceVal.GetAllocationCallbacks(), device, deviceVal.GetCoreInterface());
@@ -1084,7 +1084,7 @@ index feb0d906..1efeb406 100644
  
      return result;
  }
-@@ -2061,13 +2072,22 @@ static Result NRI_CALL CreateStreamer(Device& device, const StreamerDesc& stream
+@@ -2089,13 +2100,22 @@ static Result NRI_CALL CreateStreamer(Device& device, const StreamerDesc& stream
      NRI_RETURN_ON_FAILURE(&deviceVal, isUpload, Result::INVALID_ARGUMENT, "'dynamicBufferMemoryLocation' must be an UPLOAD heap");
  
      StreamerImpl* impl = Allocate<StreamerImpl>(deviceVal.GetAllocationCallbacks(), device, deviceVal.GetCoreInterface());
@@ -1108,7 +1108,7 @@ index feb0d906..1efeb406 100644
  
      return result;
  }
-@@ -2315,13 +2335,22 @@ static Result NRI_CALL CreateUpscaler(Device& device, const UpscalerDesc& upscal
+@@ -2343,13 +2363,22 @@ static Result NRI_CALL CreateUpscaler(Device& device, const UpscalerDesc& upscal
          NRI_RETURN_ON_FAILURE(&deviceVal, !(upscalerDesc.flags & UpscalerBits::MV_UPSCALED), Result::UNSUPPORTED, "'MV_UPSCALED' is unsupported by 'METALFX_DENOISED'");
  
      UpscalerImpl* impl = Allocate<UpscalerImpl>(deviceVal.GetAllocationCallbacks(), device, deviceVal.GetCoreInterface());

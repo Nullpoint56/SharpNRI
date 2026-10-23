@@ -19,6 +19,9 @@ public static unsafe partial class NriApi
     [NativeTypeName("const Dim_t")]
     public const ushort REMAINING = 0;
 
+    [NativeTypeName("const Queue *")]
+    public static Queue* EXTERNAL_QUEUE = (Queue*)(1);
+
     [DllImport("NRI", CallingConvention = CallingConvention.StdCall, ExactSpelling = true)]
     [return: NativeTypeName("nri::Result")]
     public static extern Result nriGetInterface([NativeTypeName("const Device &")] Device* device, [NativeTypeName("const char *")] sbyte* interfaceName, [NativeTypeName("size_t")] nuint interfaceSize, void* interfacePtr);
@@ -126,9 +129,6 @@ public static unsafe partial class NriApi
 
     [NativeTypeName("const uint64_t")]
     public const ulong SWAPCHAIN_SEMAPHORE = unchecked((ulong)(-1));
-
-    [NativeTypeName("const Queue *")]
-    public static Queue* EXTERNAL_QUEUE = (Queue*)(1);
 
     [DllImport("NRI", CallingConvention = CallingConvention.StdCall, ExactSpelling = true)]
     [return: NativeTypeName("nri::Result")]

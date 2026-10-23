@@ -367,7 +367,7 @@ public sealed partial class NativeAbiTests(ITestOutputHelper output)
         "Extensions/NRIDeviceCreation.h", "Extensions/NRIHelper.h", "Extensions/NRIDescriptorHeap.h",
         "Extensions/NRIImgui.h", "Extensions/NRILowLatency.h", "Extensions/NRIMeshShader.h",
         "Extensions/NRIRayTracing.h", "Extensions/NRIStreamer.h", "Extensions/NRISwapChain.h",
-        "Extensions/NRIUpscaler.h", "Extensions/NRIVideo.h", "Extensions/NRISharedHandle.h",
+        "Extensions/NRIUpscaler.h", "Extensions/NRIVideo.h",
         "Extensions/NRIWrapperVK.h", "Extensions/NRIWrapperD3D12.h",
     ];
 
