@@ -1048,7 +1048,7 @@ index 059ebf94..bde1fd09 100644
      return result;
  }
 diff --git a/Source/Validation/ImplVal.cpp b/Source/Validation/ImplVal.cpp
-index 94c9adf1..f02f6339 100644
+index f093f6c2..6a1edf7d 100644
 --- a/Source/Validation/ImplVal.cpp
 +++ b/Source/Validation/ImplVal.cpp
 @@ -406,6 +406,8 @@ static inline bool HasValidVideoAV1ReferenceKeys(const VideoAV1ReferenceDesc* re
@@ -1060,7 +1060,7 @@ index 94c9adf1..f02f6339 100644
  
      if (!deviceVal->Create()) {
          Destroy(desc.allocationCallbacks, deviceVal);
-@@ -1418,13 +1420,22 @@ static Result NRI_CALL CreateImgui(Device& device, const ImguiDesc& imguiDesc, I
+@@ -1417,13 +1419,22 @@ static Result NRI_CALL CreateImgui(Device& device, const ImguiDesc& imguiDesc, I
      DeviceVal& deviceVal = (DeviceVal&)device;
  
      ImguiImpl* impl = Allocate<ImguiImpl>(deviceVal.GetAllocationCallbacks(), device, deviceVal.GetCoreInterface());
@@ -1084,7 +1084,7 @@ index 94c9adf1..f02f6339 100644
  
      return result;
  }
-@@ -2089,13 +2100,22 @@ static Result NRI_CALL CreateStreamer(Device& device, const StreamerDesc& stream
+@@ -2088,13 +2099,22 @@ static Result NRI_CALL CreateStreamer(Device& device, const StreamerDesc& stream
      NRI_RETURN_ON_FAILURE(&deviceVal, isUpload, Result::INVALID_ARGUMENT, "'dynamicBufferMemoryLocation' must be an UPLOAD heap");
  
      StreamerImpl* impl = Allocate<StreamerImpl>(deviceVal.GetAllocationCallbacks(), device, deviceVal.GetCoreInterface());
@@ -1108,7 +1108,7 @@ index 94c9adf1..f02f6339 100644
  
      return result;
  }
-@@ -2343,13 +2363,22 @@ static Result NRI_CALL CreateUpscaler(Device& device, const UpscalerDesc& upscal
+@@ -2342,13 +2362,22 @@ static Result NRI_CALL CreateUpscaler(Device& device, const UpscalerDesc& upscal
          NRI_RETURN_ON_FAILURE(&deviceVal, !(upscalerDesc.flags & UpscalerBits::MV_UPSCALED), Result::UNSUPPORTED, "'MV_UPSCALED' is unsupported by 'METALFX_DENOISED'");
  
      UpscalerImpl* impl = Allocate<UpscalerImpl>(deviceVal.GetAllocationCallbacks(), device, deviceVal.GetCoreInterface());

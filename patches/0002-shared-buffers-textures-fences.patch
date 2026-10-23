@@ -159,7 +159,7 @@ index f3dfc334..8321ac66 100644
          bool textureCompressionBC;                                // all "BC" texture formats are supported
          bool textureCompressionETC2;                              // all "ETC2" texture formats are supported
 diff --git a/Source/D3D11/ImplD3D11.cpp b/Source/D3D11/ImplD3D11.cpp
-index 4f3e46d3..6c220cf6 100644
+index 4f3e46d3..4a698d92 100644
 --- a/Source/D3D11/ImplD3D11.cpp
 +++ b/Source/D3D11/ImplD3D11.cpp
 @@ -93,8 +93,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
@@ -201,14 +201,13 @@ index 4f3e46d3..6c220cf6 100644
  Result DeviceD3D11::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -815,6 +836,10 @@ Result DeviceD3D11::FillFunctionTable(CoreInterface& table) const {
+@@ -815,6 +836,9 @@ Result DeviceD3D11::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
 +    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
 +    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
 +    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
-+
  
      if (m_IsDeferredContextEmulated) {
          table.BeginCommandBuffer = ::EmuBeginCommandBuffer;
@@ -479,7 +478,7 @@ index a8bc29e7..23c7ab72 100644
      if (result == Result::SUCCESS)
          result = m_Device.CreateImplementation<CommandAllocatorD3D12>(m_CommandAllocator, (Queue&)queue);
 diff --git a/Source/Metal/ImplMetal.cpp b/Source/Metal/ImplMetal.cpp
-index 80349e45..8f90e718 100644
+index 80349e45..73dfbf1a 100644
 --- a/Source/Metal/ImplMetal.cpp
 +++ b/Source/Metal/ImplMetal.cpp
 @@ -116,8 +116,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
@@ -521,19 +520,18 @@ index 80349e45..8f90e718 100644
  Result DeviceMetal::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -713,6 +734,10 @@ Result DeviceMetal::FillFunctionTable(CoreInterface& table) const {
+@@ -713,6 +734,9 @@ Result DeviceMetal::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
 +    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
 +    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
 +    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
-+
  
      return Result::SUCCESS;
  }
 diff --git a/Source/NONE/ImplNONE.cpp b/Source/NONE/ImplNONE.cpp
-index c1c69ed4..fffab432 100644
+index c1c69ed4..c984395f 100644
 --- a/Source/NONE/ImplNONE.cpp
 +++ b/Source/NONE/ImplNONE.cpp
 @@ -281,7 +281,7 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator&, CommandBuffer*& co
@@ -570,14 +568,13 @@ index c1c69ed4..fffab432 100644
  Result DeviceNONE::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -801,6 +819,10 @@ Result DeviceNONE::FillFunctionTable(CoreInterface& table) const {
+@@ -801,6 +819,9 @@ Result DeviceNONE::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
 +    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
 +    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
 +    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
-+
  
      return Result::SUCCESS;
  }
@@ -1258,7 +1255,7 @@ index fda122cc..29e4e298 100644
      NRI_RETURN_ON_FAILURE(this, textureDesc.format > Format::UNKNOWN && textureDesc.format < Format::MAX_NUM, Result::INVALID_ARGUMENT, "'format' is invalid");
      NRI_RETURN_ON_FAILURE(this, textureDesc.sharingMode < SharingMode::MAX_NUM, Result::INVALID_ARGUMENT, "'sharingMode' is invalid");
 diff --git a/Source/Validation/ImplVal.cpp b/Source/Validation/ImplVal.cpp
-index 0b1f85ef..94c9adf1 100644
+index 0b1f85ef..f093f6c2 100644
 --- a/Source/Validation/ImplVal.cpp
 +++ b/Source/Validation/ImplVal.cpp
 @@ -446,8 +446,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
@@ -1303,19 +1300,18 @@ index 0b1f85ef..94c9adf1 100644
  Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -1155,6 +1179,10 @@ Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
+@@ -1155,6 +1179,9 @@ Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
 +    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
 +    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
 +    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
-+
  
      return Result::SUCCESS;
  }
 diff --git a/Source/WGPU/ImplWGPU.cpp b/Source/WGPU/ImplWGPU.cpp
-index a34aa583..7e65ad84 100644
+index a34aa583..5c120a9b 100644
 --- a/Source/WGPU/ImplWGPU.cpp
 +++ b/Source/WGPU/ImplWGPU.cpp
 @@ -100,8 +100,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
@@ -1357,14 +1353,13 @@ index a34aa583..7e65ad84 100644
  Result DeviceWGPU::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -743,6 +764,10 @@ Result DeviceWGPU::FillFunctionTable(CoreInterface& table) const {
+@@ -743,6 +764,9 @@ Result DeviceWGPU::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
 +    table.GetBufferSharedHandle = ::GetBufferSharedHandle;
 +    table.GetTextureSharedHandle = ::GetTextureSharedHandle;
 +    table.GetFenceSharedHandle = ::GetFenceSharedHandle;
-+
  
      return Result::SUCCESS;
  }
