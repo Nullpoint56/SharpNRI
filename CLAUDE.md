@@ -1531,12 +1531,17 @@ extensions.
   handle's) and the shared timeline fence (`cuImportExternalSemaphore`: `TIMELINE_SEMAPHORE_WIN32`
   for Vulkan, `D3D12_FENCE` for D3D12); NRI copies 0x11 in and signals 1, CUDA waits 1, reads 0x11,
   writes 0x5A and signals 2, NRI's queue waits 2, copies out and signals 3: both directions of
-  memory and synchronisation in one test. The CUDA device is matched to the adapter by LUID
+  memory and synchronisation in one test; a second test renders the triangle into a shared
+  texture, releases it to the external family, and CUDA imports the memory as a mipmapped array
+  (`cuExternalMemoryGetMappedMipmappedArray`, the format, size and `CUDA_ARRAY3D_COLOR_ATTACHMENT`
+  restated, `CUDA_EXTERNAL_MEMORY_DEDICATED` on both backends) and copies level 0 out: 16,384 bytes
+  identical to NRI's readback on VK and D3D12. The CUDA device is matched to the adapter by LUID
   (`cuDeviceGetLuid` = `adapterDesc.uid.low`). The structs are declared by hand with the offsets
   of cuda.h 12.9 on x64, measured with a C++ probe (`CUDA_EXTERNAL_MEMORY_HANDLE_DESC` 104 bytes:
   type 0, handle 8, size 24, flags 32; `..._BUFFER_DESC` 88: offset 0, size 8, flags 16;
   `..._SEMAPHORE_HANDLE_DESC` 96: type 0, handle 8, flags 24; signal and wait params 144: value
-  0, flags 72). `CUDAAPI` is `__stdcall` on Windows.
+  0, flags 72; `..._MIPMAPPED_ARRAY_DESC` 120: offset 0, width 8, height 16, depth 24, format 32,
+  channels 36, flags 40, levels 48; `CUDA_MEMCPY2D` 128). `CUDAAPI` is `__stdcall` on Windows.
 - **D3D11 refuses D3D12 shared textures**: `OpenSharedResource1` -> `E_INVALIDARG`, isolated to the
   format: NRI creates every texture `TYPELESS` (`DeviceD3D12::GetResourceDesc`), D3D11 opens typed
   only. The test asserts the refusal; if D3D11 ever opens it, the `D3D12_RESOURCE` comment in

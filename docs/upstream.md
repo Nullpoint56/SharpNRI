@@ -301,7 +301,8 @@ a binary VkSemaphore is signalled and waited by queue submits in both directions
 layer clean; a D3D12 fence opens on a second D3D12 device and signals both ways; a D3D12 texture
 opens on a second D3D12 device; CUDA (the driver API, `cuImportExternalMemory` /
 `cuImportExternalSemaphore`) imports a shared buffer and the shared fence from both backends, reads
-what NRI wrote, writes, signals, and NRI's queue waits on CUDA's signal and reads CUDA's bytes
+what NRI wrote, writes, signals, and NRI's queue waits on CUDA's signal and reads CUDA's bytes;
+a shared texture NRI rendered imports as a mipmapped array, level 0 identical to NRI's readback
 (`CudaInteropTests`). Lavapipe: `sharedResources` 1, `sharedFences` 0 (no
 `VK_KHR_external_semaphore_fd`), buffer and texture export through fds. Known limitation to state:
 D3D11 refuses the typeless resource NRI creates. Not in the PR, a possible follow-up:

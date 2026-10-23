@@ -584,13 +584,15 @@ The same thing through the descs: `BufferDesc.shared` / `TextureDesc.shared` set
 - **CUDA**: `cuImportExternalMemory` takes the buffer or texture handle (`OPAQUE_WIN32` for
   Vulkan; `D3D12_RESOURCE` with `CUDA_EXTERNAL_MEMORY_DEDICATED` for D3D12; `size` = `Size`) and
   `cuImportExternalSemaphore` the fence handle (`TIMELINE_SEMAPHORE_WIN32` for a Vulkan fence,
-  `D3D12_FENCE` for D3D12); CUDA waits and signals the fence by value like a queue does, so a
-  frame can hand a buffer to CUDA and take it back with two fence values. The binding has no CUDA
+  `D3D12_FENCE` for D3D12); a texture is mapped with `cuExternalMemoryGetMappedMipmappedArray`
+  (restate the format, size and `CUDA_ARRAY3D_COLOR_ATTACHMENT` for an attachment, flag the
+  import `CUDA_EXTERNAL_MEMORY_DEDICATED`). CUDA waits and signals the fence by value like a queue
+  does, so a frame can hand a buffer or a frame to CUDA and take it back with two fence values. The binding has no CUDA
   code; the proof in `CudaInteropTests` uses the driver API from the NVIDIA driver's `nvcuda.dll`.
 - Verified imports: Vulkan texture into a second Vulkan device (byte-exact), Vulkan timeline
   semaphore both ways, Vulkan binary semaphore both ways (queue signal and queue wait on each side,
-  validation clean), D3D12 fence and texture into a second D3D12 device, CUDA buffer and fence from
-  both backends, both directions.
+  validation clean), D3D12 fence and texture into a second D3D12 device, CUDA buffer, texture and
+  fence from both backends, both directions.
 - **D3D11 cannot open D3D12 shared textures**: NRI creates every D3D12 texture `TYPELESS`, and
   `ID3D11Device1::OpenSharedResource1` refuses it with `E_INVALIDARG`. Import into D3D12, Vulkan
   or CUDA.

@@ -162,6 +162,142 @@ public sealed class CudaInteropTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// The texture path: NRI renders the triangle into a shared texture, releases it to the external
+    /// queue family and signals; CUDA imports the memory as a mipmapped array (the image's format,
+    /// size and colour-attachment flag restated in the array desc), waits, copies level 0 to the host
+    /// and signals; NRI acquires the texture back on CUDA's signal. CUDA's copy is compared byte for
+    /// byte with NRI's own readback of the render.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public unsafe void CUDA_reads_a_shared_texture_NRI_rendered_as_a_mipmapped_array(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "the proof opens nvcuda.dll and passes NT handles; on Linux it would be libcuda.so.1 and file descriptors, not measured");
+        Assert.SkipUnless(NativeLibrary.TryLoad("nvcuda.dll", out var nvcuda), "nvcuda.dll (the CUDA driver API, installed by the NVIDIA driver) is not present");
+        NativeLibrary.Free(nvcuda);
+
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        var adapter = device.Desc.adapterDesc;
+        Assert.SkipWhen(adapter.vendor != Vendor.NVIDIA, $"{backend}: the adapter is {adapter.vendor}'s, not NVIDIA's (CUDA)");
+        Assert.SkipWhen(device.Desc.features.sharedResources == 0 || device.Desc.features.sharedFences == 0, $"{backend}: features.sharedResources / sharedFences are off");
+
+        Cuda.Check(Cuda.cuInit(0), "cuInit");
+        var cudaDevice = Cuda.DeviceWithLuid(adapter.uid);
+        Assert.SkipWhen(cudaDevice < 0, $"{backend}: no CUDA device has the adapter's LUID");
+        nint context;
+        Cuda.Check(Cuda.cuCtxCreate_v2(&context, 0, cudaDevice), "cuCtxCreate");
+        try
+        {
+            const int Width = 64, Height = 64, Pitch = Width * 4;
+            using var texture = device.CreateSharedTexture(new TextureDesc
+            {
+                type = TextureType.TEXTURE_2D, usage = TextureUsageBits.COLOR_ATTACHMENT | TextureUsageBits.SHADER_RESOURCE,
+                format = Format.RGBA8_UNORM, width = Width, height = Height,
+            });
+            using var fence = device.CreateSharedFence();
+            var queue = device.GetQueue(QueueType.GRAPHICS);
+
+            // 1. NRI renders, releases the texture to the external family and signals 1.
+            var expected = TriangleTests.RenderTriangle(device, texture);
+            Assert.Equal(Width * Height * 4, expected.Length);
+            GpuWork.Run(device, cb => cb.Barrier(new NriTextureBarrier(texture, GpuWork.TextureCopySource, GpuWork.TextureCopySource, SrcQueue: queue, DstQueue: NriQueue.External)));
+            queue.Submit([], [], [new NriFenceSubmit(fence, 1)]);
+
+            // 2. CUDA imports the memory as a mipmapped array and the fence, waits for 1, copies level 0 out, signals 2.
+            using var textureHandle = texture.GetSharedHandle();
+            using var fenceHandle = fence.GetSharedHandle();
+            GpuWork.Record($"{backend}: importing {textureHandle} and {fenceHandle}");
+            var memoryDesc = new Cuda.ExternalMemoryHandleDesc
+            {
+                type = textureHandle.Type switch
+                {
+                    SharedHandleType.OPAQUE_WIN32 => Cuda.MemoryHandleOpaqueWin32,
+                    SharedHandleType.D3D12_RESOURCE => Cuda.MemoryHandleD3D12Resource,
+                    _ => throw new InvalidOperationException($"unexpected handle type {textureHandle.Type}"),
+                },
+                handle = textureHandle.Handle,
+                size = textureHandle.Size,
+                flags = Cuda.MemoryDedicated, // a dedicated allocation on both backends
+            };
+            nint externalMemory;
+            Cuda.Check(Cuda.cuImportExternalMemory(&externalMemory, &memoryDesc), "cuImportExternalMemory");
+            var semaphoreDesc = new Cuda.ExternalSemaphoreHandleDesc
+            {
+                type = fenceHandle.Type == SharedHandleType.D3D12_FENCE ? Cuda.SemaphoreHandleD3D12Fence : Cuda.SemaphoreHandleTimelineWin32,
+                handle = fenceHandle.Handle,
+            };
+            nint externalSemaphore;
+            Cuda.Check(Cuda.cuImportExternalSemaphore(&externalSemaphore, &semaphoreDesc), "cuImportExternalSemaphore");
+            try
+            {
+                var arrayDesc = new Cuda.ExternalMemoryMipmappedArrayDesc
+                {
+                    width = Width, height = Height, depth = 0, format = Cuda.ArrayFormatUnsignedInt8, numChannels = 4,
+                    flags = Cuda.Array3DColorAttachment, // the image was created as a colour attachment
+                    numLevels = 1,
+                };
+                nint mipmappedArray;
+                Cuda.Check(Cuda.cuExternalMemoryGetMappedMipmappedArray(&mipmappedArray, externalMemory, &arrayDesc), "cuExternalMemoryGetMappedMipmappedArray");
+                try
+                {
+                    nint level0;
+                    Cuda.Check(Cuda.cuMipmappedArrayGetLevel(&level0, mipmappedArray, 0), "cuMipmappedArrayGetLevel");
+
+                    var wait = new Cuda.ExternalSemaphoreWaitParams { value = 1 };
+                    Cuda.Check(Cuda.cuWaitExternalSemaphoresAsync(&externalSemaphore, &wait, 1, 0), "cuWaitExternalSemaphoresAsync");
+
+                    var seenByCuda = new byte[Width * Height * 4];
+                    fixed (byte* p = seenByCuda)
+                    {
+                        var copy = new Cuda.Memcpy2D
+                        {
+                            srcMemoryType = Cuda.MemoryTypeArray, srcArray = level0,
+                            dstMemoryType = Cuda.MemoryTypeHost, dstHost = p, dstPitch = Pitch,
+                            widthInBytes = Pitch, height = Height,
+                        };
+                        Cuda.Check(Cuda.cuMemcpy2D_v2(&copy), "cuMemcpy2D");
+                    }
+                    var signal = new Cuda.ExternalSemaphoreSignalParams { value = 2 };
+                    Cuda.Check(Cuda.cuSignalExternalSemaphoresAsync(&externalSemaphore, &signal, 1, 0), "cuSignalExternalSemaphoresAsync");
+
+                    var differing = 0;
+                    for (var i = 0; i < expected.Length; i++) if (expected[i] != seenByCuda[i]) differing++;
+                    GpuWork.Record($"{backend}: CUDA's copy of level 0: {seenByCuda.Length} bytes compared with NRI's readback, {differing} differ; NRI sha256 {Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(expected))}, CUDA sha256 {Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(seenByCuda))}");
+                    Assert.True(differing == 0, $"{differing} of {expected.Length} bytes differ between NRI's readback and CUDA's copy of the shared texture");
+
+                    // 3. NRI acquires the texture back on CUDA's 2 and signals 3.
+                    using var allocator = queue.CreateCommandAllocator();
+                    using var acquire = allocator.CreateCommandBuffer();
+                    acquire.Begin();
+                    acquire.Barrier(new NriTextureBarrier(texture, GpuWork.TextureCopySource, GpuWork.TextureCopySource, SrcQueue: NriQueue.External, DstQueue: queue));
+                    acquire.End();
+                    queue.Submit([acquire], [new NriFenceSubmit(fence, 2)], [new NriFenceSubmit(fence, 3)]);
+                    GpuWork.Wait(fence, 3);
+                    Assert.Equal(3UL, fence.Value);
+                }
+                finally
+                {
+                    Cuda.cuStreamSynchronize(0);
+                    Cuda.cuMipmappedArrayDestroy(mipmappedArray);
+                }
+            }
+            finally
+            {
+                Cuda.cuDestroyExternalSemaphore(externalSemaphore);
+                Cuda.cuDestroyExternalMemory(externalMemory);
+            }
+            device.WaitIdle();
+        }
+        finally
+        {
+            Cuda.cuCtxDestroy_v2(context);
+        }
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
     /// <summary>The CUDA driver API, as far as the proof needs it. Layouts and values from cuda.h 12.9 (x64).</summary>
     private static unsafe class Cuda
     {
@@ -170,6 +306,58 @@ public sealed class CudaInteropTests
         public const uint MemoryHandleOpaqueFd = 1, MemoryHandleOpaqueWin32 = 2, MemoryHandleD3D12Heap = 4, MemoryHandleD3D12Resource = 5;
         public const uint MemoryDedicated = 1;
         public const uint SemaphoreHandleOpaqueFd = 1, SemaphoreHandleOpaqueWin32 = 2, SemaphoreHandleD3D12Fence = 4, SemaphoreHandleTimelineFd = 9, SemaphoreHandleTimelineWin32 = 10;
+        public const uint ArrayFormatUnsignedInt8 = 1, Array3DColorAttachment = 0x20, MemoryTypeHost = 1, MemoryTypeArray = 3;
+
+        /// <summary>The CUDA device whose LUID is the adapter's (uid.low, high 0, on Windows), or -1.</summary>
+        public static int DeviceWithLuid(Uid_t uid)
+        {
+            int deviceCount;
+            Check(cuDeviceGetCount(&deviceCount), "cuDeviceGetCount");
+            for (var i = 0; i < deviceCount; i++)
+            {
+                int candidate;
+                Check(cuDeviceGet(&candidate, i), "cuDeviceGet");
+                ulong luid;
+                uint nodeMask;
+                if (cuDeviceGetLuid((byte*)&luid, &nodeMask, candidate) == 0 && uid.high == 0 && luid == uid.low)
+                    return candidate;
+            }
+            return -1;
+        }
+
+        [StructLayout(LayoutKind.Explicit, Size = 120)]
+        public struct ExternalMemoryMipmappedArrayDesc
+        {
+            [FieldOffset(0)] public ulong offset;
+            [FieldOffset(8)] public nuint width;
+            [FieldOffset(16)] public nuint height;
+            [FieldOffset(24)] public nuint depth;
+            [FieldOffset(32)] public uint format;
+            [FieldOffset(36)] public uint numChannels;
+            [FieldOffset(40)] public uint flags;
+            [FieldOffset(48)] public uint numLevels;
+        }
+
+        [StructLayout(LayoutKind.Explicit, Size = 128)]
+        public struct Memcpy2D
+        {
+            [FieldOffset(0)] public nuint srcXInBytes;
+            [FieldOffset(8)] public nuint srcY;
+            [FieldOffset(16)] public uint srcMemoryType;
+            [FieldOffset(24)] public void* srcHost;
+            [FieldOffset(32)] public ulong srcDevice;
+            [FieldOffset(40)] public nint srcArray;
+            [FieldOffset(48)] public nuint srcPitch;
+            [FieldOffset(56)] public nuint dstXInBytes;
+            [FieldOffset(64)] public nuint dstY;
+            [FieldOffset(72)] public uint dstMemoryType;
+            [FieldOffset(80)] public void* dstHost;
+            [FieldOffset(88)] public ulong dstDevice;
+            [FieldOffset(96)] public nint dstArray;
+            [FieldOffset(104)] public nuint dstPitch;
+            [FieldOffset(112)] public nuint widthInBytes;
+            [FieldOffset(120)] public nuint height;
+        }
 
         [StructLayout(LayoutKind.Explicit, Size = 104)]
         public struct ExternalMemoryHandleDesc
@@ -241,5 +429,9 @@ public sealed class CudaInteropTests
         [DllImport(Library, CallingConvention = CallingConvention.StdCall)] public static extern int cuStreamSynchronize(nint stream);
         [DllImport(Library, CallingConvention = CallingConvention.StdCall)] public static extern int cuMemFree_v2(ulong devicePointer);
         [DllImport(Library, CallingConvention = CallingConvention.StdCall)] public static extern int cuGetErrorName(int error, byte** name);
+        [DllImport(Library, CallingConvention = CallingConvention.StdCall)] public static extern int cuExternalMemoryGetMappedMipmappedArray(nint* mipmappedArray, nint externalMemory, ExternalMemoryMipmappedArrayDesc* desc);
+        [DllImport(Library, CallingConvention = CallingConvention.StdCall)] public static extern int cuMipmappedArrayGetLevel(nint* level, nint mipmappedArray, uint levelIndex);
+        [DllImport(Library, CallingConvention = CallingConvention.StdCall)] public static extern int cuMipmappedArrayDestroy(nint mipmappedArray);
+        [DllImport(Library, CallingConvention = CallingConvention.StdCall)] public static extern int cuMemcpy2D_v2(Memcpy2D* copy);
     }
 }
