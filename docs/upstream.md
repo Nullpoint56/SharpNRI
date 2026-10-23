@@ -74,7 +74,7 @@ question; the draft states the shape and offers the PR.
 | 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | filed 2026-10-19 against main 8ee40ca, [#282](https://github.com/NVIDIA-RTX/NRI/issues/282); fixed 2026-10-20 in 1163658, ours verbatim; dropped on `next` |
 | 0022 D3D12 copy layouts refused in copy command lists | bug | filed 2026-10-19 against main 8ee40ca, [#283](https://github.com/NVIDIA-RTX/NRI/issues/283); fixed 2026-10-20 in 732f737, ours without the sentinel guard, which 0002 now carries; dropped on `next` |
 | 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | filed 2026-10-19 against main 8ee40ca, [#284](https://github.com/NVIDIA-RTX/NRI/issues/284); fixed 2026-10-20 in 2603edc, the sharing mode recorded at creation; dropped on `next`, 0002 keeps the external family |
-| 0002 shared buffers, textures and fences | proposal, PR | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs; re-cut in that shape on `next` 2026-10-23 (section below); the PR from the owner's fork is the next step, with the `FenceDesc` question in its body |
+| 0002 shared buffers, textures and fences | proposal, PR | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs; re-cut in that shape on `next` 2026-10-23 (section below); filed 2026-10-24 as [PR #294](https://github.com/NVIDIA-RTX/NRI/pull/294) from the owner's fork (`Nullpoint56:shared-handles`, main 72f5f46 + 0002), the `FenceDesc` question asked in a [comment on #49](https://github.com/NVIDIA-RTX/NRI/issues/49) that links it |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2, drafted 2026-10-19, not filed; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2, drafted 2026-10-19 as a question, not filed: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
 | 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2, drafted 2026-10-19, not filed; the uncapped order is his and stays |
@@ -268,7 +268,7 @@ which only the NRI-created path offers. Patch attached, 1 header line and ~20 li
 
 **Title:** Core: shared buffers, textures and fences (export to another device, API or process), the #49 request
 
-**Status 2026-10-23.** Re-cut in the shape the maintainer asked for on #49: no extension, fields
+**Status 2026-10-24.** Filed as PR #294 from the owner's fork, the `FenceDesc` question in a comment on #49. Re-cut in the shape the maintainer asked for on #49: no extension, fields
 on the existing descs, the getters in Core. What the PR adds, against main 72f5f46:
 
 - `BufferDesc::shared`, `TextureDesc::shared`: a committed resource in `DEVICE` memory with a
