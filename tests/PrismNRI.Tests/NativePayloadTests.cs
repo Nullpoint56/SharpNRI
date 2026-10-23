@@ -137,23 +137,56 @@ public sealed class NativePayloadTests
     [AgilityFact]
     public void Agility_is_exactly_the_contract() => AssertExactly(Dir("runtimes-agility"), Agility[Rid]);
 
-    // Neither NRI.dll may need a vendor runtime to load: a load-time import of one would make the
-    // whole library fail to load on a machine without it. libxess.dll is delay-loaded in Upscalers.
+    // What each NRI.dll loads with it: the system, the VC++ runtime (required, not shipped) and the
+    // UCRT, nothing else. A load-time import of a vendor runtime would make the whole library fail
+    // to load on a machine without it. d3d12.dll and dxgi.dll are delay-loaded in both variants
+    // (tools/cmake/delayload.cmake), so a Vulkan-only process never loads them
+    // (AdapterEnumerationTests); libxess.dll is delay-loaded in Upscalers.
+    static readonly string[] LoadTimeImports =
+    [
+        "KERNEL32.dll",
+        "USER32.dll",
+        "MSVCP140.dll",
+        "VCRUNTIME140.dll",
+        "VCRUNTIME140_1.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "api-ms-win-crt-heap-l1-1-0.dll",
+        "api-ms-win-crt-utility-l1-1-0.dll",
+        "api-ms-win-crt-environment-l1-1-0.dll",
+        "api-ms-win-crt-convert-l1-1-0.dll",
+        "api-ms-win-crt-stdio-l1-1-0.dll",
+        "api-ms-win-crt-math-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+    ];
+
+    static readonly string[] BaseDelayLoaded = ["d3d12.dll", "dxgi.dll"];
+
     [BaseFact]
-    public void Base_NRI_imports_no_vendor_runtime()
+    public void Base_NRI_imports_exactly_the_contract_and_delay_loads_D3D()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "PE imports are a Windows question");
         var (imports, delayed) = ReadImports(Path.Combine(Dir("runtimes"), "NRI.dll"));
+        AssertSameNames(LoadTimeImports, imports, "load-time imports");
+        AssertSameNames(BaseDelayLoaded, delayed, "delay-loaded imports");
         Assert.DoesNotContain(imports.Concat(delayed), IsVendorRuntime);
     }
 
     [UpscalersFact]
-    public void Upscalers_NRI_delay_loads_libxess_and_imports_no_vendor_runtime()
+    public void Upscalers_NRI_imports_exactly_the_contract_and_delay_loads_D3D_and_libxess()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "PE imports are a Windows question");
         var (imports, delayed) = ReadImports(Path.Combine(Dir("runtimes-upscalers"), "NRI.dll"));
+        AssertSameNames(LoadTimeImports, imports, "load-time imports");
+        AssertSameNames([.. BaseDelayLoaded, "libxess.dll"], delayed, "delay-loaded imports");
         Assert.DoesNotContain(imports, IsVendorRuntime);
-        Assert.Contains("libxess.dll", delayed, StringComparer.OrdinalIgnoreCase);
+    }
+
+    static void AssertSameNames(string[] expected, List<string> actual, string what)
+    {
+        var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).ToList();
+        var extra = actual.Except(expected, StringComparer.OrdinalIgnoreCase).ToList();
+        Assert.True(missing.Count == 0 && extra.Count == 0,
+            $"NRI.dll {what}: missing {string.Join(", ", missing)}; not in the contract {string.Join(", ", extra)} (all: {string.Join(", ", actual)})");
     }
 
     static bool IsVendorRuntime(string dll) => VendorRuntimePrefixes.Any(p => dll.StartsWith(p, StringComparison.OrdinalIgnoreCase));
