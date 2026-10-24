@@ -101,6 +101,21 @@ public sealed class NriDeviceOptions
     public IReadOnlyList<string> VkInstanceExtensions { get; init; } = [];
     public IReadOnlyList<string> VkDeviceExtensions { get; init; } = [];
 
+    /// <summary>
+    /// Vulkan: the head of a <c>pNext</c> chain of Vulkan structures that NRI appends to
+    /// <c>VkInstanceCreateInfo::pNext</c> when it creates the instance
+    /// (<c>vkInstanceCreateInfoNext</c>, patches/0038), after its own
+    /// <c>VkDebugUtilsMessengerCreateInfoEXT</c> and, with <see cref="EnableGraphicsApiValidation"/>,
+    /// <c>VkValidationFeaturesEXT</c>, which the chain must not repeat. The usual one is
+    /// <c>VkLayerSettingsCreateInfoEXT</c> (<c>VK_EXT_layer_settings</c>): validation-layer settings
+    /// for this device's instance only, where the layer's environment variables apply to the whole
+    /// process and are not seen on Linux or macOS when set from .NET. The caller owns the memory,
+    /// which must stay valid until <see cref="NriDevice.Create"/> returns. Zero for none. Ignored by
+    /// the other backends and by <see cref="NriDevice.CreateFromVulkan"/>, whose instance is the
+    /// caller's.
+    /// </summary>
+    public nint VkInstanceCreateInfoNext { get; init; }
+
     /// <summary>NRI's embedded validation. Checks NRI's own rules, both backends.</summary>
     public bool EnableNriValidation { get; init; }
 

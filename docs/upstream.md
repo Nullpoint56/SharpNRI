@@ -47,6 +47,8 @@ on 2026-10-22, after the split; their status here is as of that day.
 | 0015 Khronos message id name not forwarded | reporting | not filed: a format he changed on purpose in 59d0785 |
 | 0035 The memory helper's alignment sort leaves out the last buffer and the last texture (N11) | bug (packing) | not filed: packing only, so not phase 1 by the rules; owner's judgment |
 | 0036 D3D12 attachment resolve into a non-zero mip or layer, and of a layered view | backport | nothing to file: fixed on NRI main in 48d4a33; dropped with the tag that carries it |
+| 0037 Vulkan swap chain without `VkSwapchainPresentModesCreateInfoKHR` | layer warning | not filed: one present mode is what Vulkan assumes without the structure; the best-practices warning is cosmetic (drafted 2026-10-24, section below) |
+| 0038 `vkInstanceCreateInfoNext`: a caller's chain for `VkInstanceCreateInfo` | proposal | phase 2, drafted 2026-10-24, not filed (section below) |
 
 The texts as filed, and the audit that preceded them (every claim re-verified against the unpatched
 tree by reviewers given the patches but not these conclusions), are the sections below; the filed
@@ -502,6 +504,64 @@ D3D devices keep the full enumeration, because for an adapter both passes list t
 pass's (queue counts 16, 8, 2 on NVIDIA where the D3D pass says 4, 4, 4) and a D3D-only
 enumeration would change it. Patch attached
 (`patches/0024-enumerate-adapters-by-graphics-api.patch`), twenty-one lines.
+
+## 0037 — The Vulkan swap chain is created without `VkSwapchainPresentModesCreateInfoKHR`
+
+Status: not filed, a layer warning (like 0013): one present mode is what Vulkan assumes without the
+structure, so nothing behaves differently.
+
+**Title:** VK: `VkSwapchainPresentModesCreateInfoKHR` is not chained with `swapchainMaintenance1`
+
+`SwapChainVK::Create` (`Source/VK/SwapChainVK.hpp:368-374` at 72f5f46, `:363-369` at v190) chains
+`VkSwapchainPresentScalingCreateInfoKHR` when the device has `swapchainMaintenance1`, but not
+`VkSwapchainPresentModesCreateInfoKHR`, and the Khronos best-practices checks report
+`BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every
+swap chain: "No VkSwapchainPresentModesCreateInfoKHR was provided to VkCreateSwapchainKHR. When
+VK_KHR_swapchain_maintenance1 is enabled, a VkSwapchainPresentModesCreateInfoKHR should be provided
+to inform the implementation that the application is aware of the new features in a backward
+compatible way." Measured on main 72f5f46 and on v190 + 0001-0036 (2026-10-24), NVIDIA, layer 1.4.341. Fix: chain it with the chosen
+`presentMode` as the only entry (NRI never switches modes on present, and one entry is what Vulkan
+assumes without the structure):
+
+```cpp
+VkSwapchainPresentModesCreateInfoKHR presentModesInfo = {VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_KHR};
+presentModesInfo.presentModeCount = 1;
+presentModesInfo.pPresentModes = &presentMode;
+
+if (m_Device.m_IsSupported.swapChainMaintenance1)
+    PNEXTCHAIN_APPEND_STRUCT(presentModesInfo);
+```
+
+Patch attached (`patches/0037-vulkan-swapchain-present-modes-info.patch`), eight lines.
+
+## 0038 — `DeviceCreationDesc::vkInstanceCreateInfoNext` (proposal, phase 2)
+
+Status: phase 2 proposal, drafted 2026-10-24, not filed.
+
+**Title:** `DeviceCreationDesc`: let the caller chain structures into `VkInstanceCreateInfo`
+
+NRI creates the Vulkan instance itself (`DeviceVK::CreateInstance`, `Source/VK/DeviceVK.hpp:2069`
+at 72f5f46, `:2051` at v190) and chains only its own `VkDebugUtilsMessengerCreateInfoEXT` and, with
+`enableGraphicsAPIValidation`, `VkValidationFeaturesEXT`. So `VkLayerSettingsCreateInfoEXT`
+(`VK_EXT_layer_settings`) cannot be used, and the validation layer can be configured only
+through `VK_KHRONOS_VALIDATION_*` environment variables or `vk_layer_settings.txt`. Both apply to
+every instance in the process, and the environment is read at instance creation, so two devices
+cannot differ and a host that sets them at run time must do it before NRI creates the instance.
+Measured on main 72f5f46 and on v190 + 0001-0036 (2026-10-24), NVIDIA, layer 1.4.341: with the field below, a
+`VkLayerSettingsCreateInfoEXT` setting `validate_best_practices` switches the best-practices checks
+on for that device only (the 64 KiB committed buffer's
+`BestPractices-vkBindBufferMemory-small-dedicated-allocation` appears, and not on a device created
+without it). Proposal, next to `vkExtensions`:
+
+```cpp
+NriOptional const void* vkInstanceCreateInfoNext; // appended to "VkInstanceCreateInfo::pNext" after NRI's "VkDebugUtilsMessengerCreateInfoEXT" and "VkValidationFeaturesEXT" (i.e. "VkLayerSettingsCreateInfoEXT")
+```
+
+and in `CreateInstance`, after NRI's own structures: `*_tail = instanceCreateInfoNext;`. It goes
+last because the chain is the caller's and stays `const`. Ignored by the wrapper path (the instance
+is the caller's) and by the other backends. Patch attached
+(`patches/0038-vulkan-instance-create-info-next.patch`), one header line, three source lines added and three changed.
+A question for him: whether he prefers a generic chain or a typed `VKLayerSettings` desc.
 
 ---
 

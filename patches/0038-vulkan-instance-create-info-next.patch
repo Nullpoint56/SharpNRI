@@ -1,0 +1,73 @@
+DeviceCreationDesc: "vkInstanceCreateInfoNext", a caller's chain for "VkInstanceCreateInfo::pNext".
+
+NRI creates the Vulkan instance itself, and the only structures it chains into
+VkInstanceCreateInfo are its own (VkDebugUtilsMessengerCreateInfoEXT, and VkValidationFeaturesEXT
+with "enableGraphicsAPIValidation"). So a caller cannot pass VkLayerSettingsCreateInfoEXT
+(VK_EXT_layer_settings) and has to configure the Khronos layer through environment variables or
+vk_layer_settings.txt, which apply to every instance in the process, are read from the process
+environment at instance creation (a managed host on Linux or macOS does not update it), and cannot
+differ between two devices.
+
+This adds "vkInstanceCreateInfoNext" next to "vkExtensions": a caller's pNext chain, appended after
+NRI's own structures (the chain is the caller's and stays const, so it goes last). Ignored by the
+wrapper path, whose instance is the caller's, and by the other backends. Measured on NRI main
+72f5f46, NVIDIA, layer 1.4.341: a VkLayerSettingsCreateInfoEXT setting "validate_best_practices"
+switches the best-practices checks on for that device only.
+
+diff --git a/Include/Extensions/NRIDeviceCreation.h b/Include/Extensions/NRIDeviceCreation.h
+index 3b37e72e..6575e62f 100644
+--- a/Include/Extensions/NRIDeviceCreation.h
++++ b/Include/Extensions/NRIDeviceCreation.h
+@@ -83,6 +83,7 @@ NriStruct(DeviceCreationDesc) {
+     // Vulkan specific
+     Nri(VKBindingOffsets) vkBindingOffsets;
+     NriOptional Nri(VKExtensions) vkExtensions; // to enable
++    NriOptional const void* vkInstanceCreateInfoNext; // appended to "VkInstanceCreateInfo::pNext" after NRI's "VkDebugUtilsMessengerCreateInfoEXT" and "VkValidationFeaturesEXT" (i.e. "VkLayerSettingsCreateInfoEXT")
+ 
+     // Switches (disabled by default)
+     bool enableNRIValidation;                   // embedded validation layer, checks for NRI specifics
+diff --git a/Source/VK/DeviceVK.h b/Source/VK/DeviceVK.h
+index 1d428358..31b264d6 100644
+--- a/Source/VK/DeviceVK.h
++++ b/Source/VK/DeviceVK.h
+@@ -307,7 +307,7 @@ private:
+     void ProcessInstanceExtensions(Vector<const char*>& desiredInstanceExts);
+     void ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, bool disableRayTracing, DeviceLostInfoLevel deviceLostInfoLevel);
+     void ReportMemoryTypes();
+-    Result CreateInstance(bool enableGraphicsAPIValidation, const Vector<const char*>& desiredInstanceExts);
++    Result CreateInstance(bool enableGraphicsAPIValidation, const Vector<const char*>& desiredInstanceExts, const void* instanceCreateInfoNext);
+     Result ResolvePreInstanceDispatchTable();
+     Result ResolveInstanceDispatchTable(const Vector<const char*>& desiredInstanceExts);
+     Result ResolveDispatchTable(const Vector<const char*>& desiredDeviceExts);
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index 191f7bfb..dd3a0bfe 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -754,7 +754,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+         if (!isWrapper) {
+             ProcessInstanceExtensions(desiredInstanceExts);
+ 
+-            res = CreateInstance(desc.enableGraphicsAPIValidation, desiredInstanceExts);
++            res = CreateInstance(desc.enableGraphicsAPIValidation, desiredInstanceExts, desc.vkInstanceCreateInfoNext);
+             if (res != Result::SUCCESS)
+                 return res;
+         }
+@@ -2066,7 +2066,7 @@ void DeviceVK::GetMicromapBuildSizesInfo(const MicromapDesc& micromapDesc, VkMic
+     vk.GetMicromapBuildSizesEXT(m_Device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &buildInfo, &sizesInfo);
+ }
+ 
+-Result DeviceVK::CreateInstance(bool enableGraphicsAPIValidation, const Vector<const char*>& desiredInstanceExts) {
++Result DeviceVK::CreateInstance(bool enableGraphicsAPIValidation, const Vector<const char*>& desiredInstanceExts, const void* instanceCreateInfoNext) {
+     Vector<const char*> layers(GetStdAllocator());
+     if (enableGraphicsAPIValidation)
+         layers.push_back("VK_LAYER_KHRONOS_validation");
+@@ -2119,6 +2119,9 @@ Result DeviceVK::CreateInstance(bool enableGraphicsAPIValidation, const Vector<c
+     if (enableGraphicsAPIValidation)
+         PNEXTCHAIN_APPEND_STRUCT(validationFeatures);
+ 
++    // Caller's structures go last
++    *_tail = instanceCreateInfoNext;
++
+     vkResult = m_VK.CreateInstance(&instanceCreateInfo, m_AllocationCallbackPtr, &m_Instance);
+     NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkCreateInstance");
+ 
