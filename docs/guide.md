@@ -100,6 +100,7 @@ ref readonly DeviceDesc caps = ref device.Desc;
 | `D3D12AgilitySdkPath` | null: the `AgilitySDK` directory beside the assembly when present (`NriDevice.DefaultAgilitySdkPath`), else inbox. `""`: force inbox |
 | `VkBindingOffsets` | see [Descriptors and layouts](#descriptors-and-layouts) |
 | `VkEnumeratePhysicalDevicesAfterCreation` | Vulkan, default true: one `vkEnumeratePhysicalDevices` on NRI's instance right after creation, results discarded, so implicit layers that map physical devices from that call (RivaTuner's) know NRI's device; false skips it. Not on `CreateFromVulkan` (the instance is yours) |
+| `VkInstanceCreateInfoNext` | Vulkan: a pointer to your own `pNext` chain, which NRI appends to `VkInstanceCreateInfo` after its `VkDebugUtilsMessengerCreateInfoEXT` and (with `EnableGraphicsApiValidation`) `VkValidationFeaturesEXT`; do not repeat those two (patch 0038). The use is `VkLayerSettingsCreateInfoEXT`: validation-layer settings (`validate_best_practices`, `validate_sync`, ...) for this device's instance only, where `VK_KHRONOS_VALIDATION_*` environment variables apply to the whole process and, set from .NET at run time, are not seen by native code on Linux or macOS. Your memory; it must stay valid until `Create` returns. Not on `CreateFromVulkan` (the instance is yours) |
 | `Robustness`, `DeviceLostInfoLevel`, `EnableD3D12RayTracingValidation`, `EnableD3D12GpuBasedValidation` | only on `NriDevice.Create`, not on the wrapped routes (a wrapped D3D12 device has the debug layer its creator gave it, and NRI sets no break on it) |
 
 Caveats:
