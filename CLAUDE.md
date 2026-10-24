@@ -46,7 +46,7 @@ read; nothing is pushed to it from here until an upstream PR is planned.
 | `next` | a commit of NRI's main, held by the submodule pointer and moved on purpose | the patches still needed on that commit | integration: testing against current NRI, upstream reports and PRs written against what the maintainer reads |
 
 - **Now.** `next` pins NRI main 72f5f46 (2026-10-23, "Quality of life improvements and API
-  simplifications", still `NRI_VERSION 190`) and carries twenty-two patches; master pins v190
+  simplifications", still `NRI_VERSION 190`) and carries twenty-four patches; master pins v190
   with thirty-five.
 - **Direction.** Binding work that does not depend on the NRI version lands on master and is
   merged forward into `next` often (`git merge master` on `next`). After a forward merge,
@@ -411,6 +411,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | 0031 d3d12-acceleration-structure-alignment | `GetAccelerationStructureMemoryDesc2` and `AccelerationStructureD3D12::GetMemoryDesc` raise the alignment to `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT` (`ImplD3D12.cpp:1023`, `AccelerationStructureD3D12.hpp:52`, 2 lines added); micromaps keep their 128 | since 3371cdb the desc is a plain buffer's, 128 under tight alignment, which NRI validation accepts for a placement and the acceleration-structure SRV refuses (31) (N7, Ray tracing) |
 | 0034 allocation-failure-out-of-memory | every unchecked `Allocate` in the VK, D3D12, validation and shared paths answers `OUT_OF_MEMORY` and destroys what the call made: `CreateImplementation`, device creation, command allocators, swap chains (D3D12's texture is also destroyed when its `Create` fails), Imgui, Streamer, Upscaler and its parts, the validation wrappers (14 files, 413 lines added, 53 removed; the two shared-handle wrappers are in 0002) | upstream used the null as the object: an access violation in the call (N10, Device creation and callbacks). NRI's containers (`StdAllocator`, `noexcept`) are unchanged and still cannot report a null |
 | 0035 helper-sort-every-resource | `GroupByMemoryType` sorts `[0, bufferNum)` and `[0, textureNum)` (`HelperInterface.hpp:559`, `:571`, 2 lines) | upstream ended the range at the last element, which `std::sort` excludes, so the last resource of each kind was packed unsorted and the packing depended on the order passed (N11, Memory and resources) |
+| 0037 vulkan-swapchain-present-modes-info | `SwapChainVK::Create` chains `VkSwapchainPresentModesCreateInfoKHR` listing the chosen `presentMode` only, when the device has `swapchainMaintenance1` (`SwapChainVK.hpp:376`, 8 lines) | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (Extensions); one mode is what Vulkan assumes without the structure, so nothing else changes |
+| 0038 vulkan-instance-create-info-next | `DeviceCreationDesc::vkInstanceCreateInfoNext` (`NriOptional const void*`, next to `vkExtensions`): a caller's chain `DeviceVK::CreateInstance` appends to `VkInstanceCreateInfo::pNext` after NRI's `VkDebugUtilsMessengerCreateInfoEXT` and `VkValidationFeaturesEXT` (`DeviceVK.hpp:2122`; 1 header line, 3 source lines added, 3 changed) | NRI creates the instance and chained only its own structures, so `VkLayerSettingsCreateInfoEXT` could not reach the layer and layer settings went through environment variables: process-wide, and unseen on Linux and macOS when set from .NET (Device creation and callbacks); a phase 2 proposal |
 
 - **On `next` (NRI main 72f5f46, 2026-10-23) thirteen of master's patches are gone, fixed upstream**:
   0003 (7915eca, which also refuses `HAS_BUFFER` at build time), 0004 (a4e562e, another shape:
@@ -428,7 +430,9 @@ configured per machine: the adapter named is whichever one the suite picked on t
   only for a VK device). 0029 and 0034 are re-cut over main's `textureViewDescFixed` (72f5f46)
   and the creation rollback of #292 (0fade6e, 16f56f7). Their rows and the history are on master.
   The twenty-two apply in order onto 72f5f46, each also alone, and each passes the scripts' `-C0`
-  reverse check (measured 2026-10-23). 0036 (the D3D12 resolve backport) is dropped here, main
+  reverse check (measured 2026-10-23). 0037 and 0038 (2026-10-24) are `next`'s own, cut from a
+  scratch clone at 72f5f46 with the twenty-two committed; all twenty-four apply in order onto
+  72f5f46, 0037 and 0038 also alone, and pass the `-C0` reverse check (measured 2026-10-24). 0036 (the D3D12 resolve backport) is dropped here, main
   has 48d4a33. 0002 carries the null-wrapper checks 0034 cannot add.
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
@@ -441,9 +445,9 @@ configured per machine: the adapter named is whichever one the suite picked on t
   `git diff --cached HEAD`); on master 0003-0021 and 0024-0036 each also apply alone onto the bare tag (0022 and 0023 do not: their context is 0020's and 0002's lines); on `next` all but 0034 do (72f5f46, 2026-10-23: 0034's `CreateFence` hunk sits on 0002's lines). 0002 was re-cut once more on `next` (a scratch clone at 2f7a49f with 0001 committed, the old 0002 applied with `--3way`, the conflict and two stale spots fixed, `git diff --cached HEAD`), and again on 2026-10-22 for the null-wrapper checks that 0034 cannot add, and rewritten on 2026-10-23 in the maintainer's shape (a scratch clone at 72f5f46 with 0001 committed, the shape written in place, `git diff` against that commit; 0034 re-cut over it, with the `-C0` rule shaping `DeviceVal::CreateFence`, see Shared handles): a later patch must not change lines an earlier patch adds (the earlier one's `-C0` reverse check then fails and the scripts refuse the tree). Patches to a
   file an earlier patch touches (0012-0035 all are, or are cut the same way) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit; 0025-0035 are master's cuts over v190 + 0001-0024, which applied onto 2f7a49f with line offsets (2026-10-22); on 72f5f46 0029 and 0034 are re-cut (2026-10-23). There is no 0011: it corrected
-- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,876 offsets, 56 fixed
-  buffers and 95 enums on `next` at 72f5f46 (main's video descs, `DescriptorSetBits` gone, 0002's
-  `shared` fields, `FenceDesc` and feature bits; 2026-10-23); 273 structs, 1,844 offsets, 55 fixed buffers and 96 enums on master at v190
+- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,877 offsets, 56 fixed
+  buffers and 95 enums on `next` at bf88835 (main's video descs, `DescriptorSetBits` gone, 0002's
+  `shared` fields, `FenceDesc` and feature bits; 1,876 before 0038's `vkInstanceCreateInfoNext`); 273 structs, 1,844 offsets, 55 fixed buffers and 96 enums on master at v190
   (1,840 offsets before patches 0017-0019 and 0033 added a field each); 4 bitfields (exact bytes
   written),
   237 function-pointer fields on `next` (238 on master: the extension table), 19 `DllImport`s on
@@ -461,6 +465,23 @@ configured per machine: the adapter named is whichever one the suite picked on t
 
 ### Device creation and callbacks
 
+- **Layer settings for one instance (patch 0038).** NRI creates the Vulkan instance in
+  `DeviceVK::CreateInstance` and chained only its own `VkDebugUtilsMessengerCreateInfoEXT` and,
+  with `enableGraphicsAPIValidation`, `VkValidationFeaturesEXT` (debug printf), so the Khronos
+  layer could be configured only through its environment variables (process-wide; read from the
+  process environment at instance creation, which .NET on Linux and macOS does not update, hence
+  the tests that skip there) or `vk_layer_settings.txt`. `DeviceCreationDesc::vkInstanceCreateInfoNext`
+  is a caller's chain appended after NRI's structures: last, not first, because the chain is the
+  caller's and NRI cannot write into its tail. It must not repeat NRI's two structures
+  (VUID-VkInstanceCreateInfo-sType-unique). Binding: `NriDeviceOptions.VkInstanceCreateInfoNext`,
+  a raw pointer the caller owns until `NriDevice.Create` returns; `CreateFromVulkan` has no such
+  option (the instance is the caller's). Measured at bf88835 (`LayerSettingsTests`; NVIDIA RTX
+  4070 SUPER, layer 1.4.341, Windows; lavapipe, layer 1.4.363, WSL): a `VkLayerSettingsCreateInfoEXT`
+  with `VK_LAYER_KHRONOS_validation` / `validate_best_practices` = `VK_TRUE` gives the committed
+  64 KiB buffer's `BestPractices-vkBindBufferMemory-small-dedicated-allocation` warning, a device
+  created just before without it does not, no ERROR either way and no `VK_EXT_layer_settings`
+  in the enabled extensions needed. With the header but `CreateInstance` unpatched the setting is
+  ignored and the test fails. So unlike the environment-variable tests this one runs on Linux.
 - **Null `AbortExecution` kills the process.** NRI's `CheckAndSetDefaultCallbacks` installs a
   handler that calls `DebugBreak()`; `ReportMessage` calls it for every report whose result is
   positive (`FAILURE`, `INVALID_ARGUMENT`, ..., `SharedExternal.hpp:927`), which is every ERROR
@@ -1675,6 +1696,30 @@ extensions.
   machine (RTX 4070 SUPER, 165 Hz, self-paced to one frame per refresh) the SM clock settling
   600-800 MHz higher and 3-8 W more under MAILBOX than under FIFO or FIFO_LATEST_READY; theirs, not
   verified here, and not the patch's justification.
+- **Swap chain present modes (patch 0037).** With `swapchainMaintenance1` (NRI enables
+  `VK_EXT_swapchain_maintenance1`, `features.resizableSwapChain`), `SwapChainVK::Create` chains
+  `VkSwapchainPresentScalingCreateInfoKHR` but not `VkSwapchainPresentModesCreateInfoKHR`
+  (`SwapChainVK.hpp:368-374` at 72f5f46). Without it Vulkan treats the swap chain as listing its
+  `presentMode` only, which is all NRI uses (it never switches modes on present), but the
+  Khronos best-practices checks report it once per swap chain. Measured at 204c09c (`next`
+  without the patch; NVIDIA RTX 4070 SUPER, layer 1.4.341,
+  `SwapChainResizeTests.A_Vulkan_swap_chain_with_present_scaling_lists_its_present_modes`, a
+  child process with `VK_KHRONOS_VALIDATION_VALIDATE_BEST_PRACTICES=true` in its environment and
+  the 64 KiB buffer marker): "[2429328340]
+  BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided:
+  vkCreateSwapchainKHR(): No VkSwapchainPresentModesCreateInfoKHR was provided to
+  VkCreateSwapchainKHR. When VK_KHR_swapchain_maintenance1 is enabled, a
+  VkSwapchainPresentModesCreateInfoKHR should be provided to inform the implementation that the
+  application is aware of the new features in a backward compatible way." The patch chains it
+  with the chosen mode alone; at 66c123c the warning is gone and both frames present. The same
+  run also showed "BestPractices-vkCreateSwapchainKHR-suboptimal-swapchain-image-count" (the
+  test's `TextureNum = 2`, the caller's choice) and, only with implicit layers on, two
+  "BestPractices-ImageBarrierAccessLayout: vkCmdPipelineBarrier(): ... accessMask is
+  VK_ACCESS_2_MEMORY_READ_BIT, but for layout VK_IMAGE_LAYOUT_PRESENT_SRC_KHR expected accessMask
+  are VkAccessFlags2(0)" on the swap chain images: NRI records `vkCmdPipelineBarrier2` only and
+  maps `AccessBits::NONE` to 0, and with `VK_LOADER_LAYERS_DISABLE=~implicit~` both are gone, so
+  that barrier is an implicit layer's (an overlay), not NRI's. The test fails only on the
+  present-modes warning and on errors.
 - SwapChain / Streamer tests on NONE only prove the marshalling: NONE has no validation, nothing
   says the calls are legal.
 - **Video**: H.265 Annex-B writing returns `UNSUPPORTED` for short/long-term reference sets, VUI,

@@ -103,6 +103,7 @@ public sealed unsafe partial class NriDevice : NriObject
                         deviceExtensions = deviceExtensions.Pointer,
                         deviceExtensionNum = deviceExtensions.Count,
                     },
+                    vkInstanceCreateInfoNext = (void*)options.VkInstanceCreateInfoNext,
                     enableNRIValidation = Bool(options.EnableNriValidation),
                     enableGraphicsAPIValidation = Bool(options.EnableGraphicsApiValidation),
                     enableD3D12RayTracingValidation = Bool(options.EnableD3D12RayTracingValidation),

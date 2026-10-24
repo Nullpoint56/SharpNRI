@@ -13,7 +13,8 @@ This is the `next` branch's set, against NRI main 72f5f46 rather than a tag (`CL
 Thirteen of master's patches are gone because NRI main carries the fix: 0003, 0004, 0005, 0008,
 0010, 0014, 0020, 0021, 0022, 0023, 0032, 0033 and the `nriEnumerateAdapters2` of 0024 (two lines
 of it stay). 0002 is re-cut in the shape the maintainer asked for on #49 (2026-10-23: fields on the descs, the
-getters in Core); 0029 and 0034 over 72f5f46, 0034 over the new 0002 too, so it does not apply alone.
+getters in Core); 0029 and 0034 over 72f5f46, 0034 over the new 0002 too, so it does not apply alone. 0037 and 0038 are `next`'s own (2026-10-24), not on
+master: a layer warning and a phase 2 proposal.
 
 | Patch | What | Why |
 |---|---|---|
@@ -39,3 +40,5 @@ getters in Core); 0029 and 0034 over 72f5f46, 0034 over the new 0002 too, so it 
 | `0031-d3d12-acceleration-structure-alignment` | D3D12 reports acceleration-structure memory aligned to at least `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT` (256) | upstream bug: sized as a plain buffer, tight alignment reported 128, which NRI validation accepts and the acceleration-structure descriptor refuses (31) (CLAUDE.md: Ray tracing) |
 | `0034-allocation-failure-out-of-memory` | every NRI object allocation that comes back null fails its creation with `OUT_OF_MEMORY` and releases what the call made, on Vulkan, D3D12, validation and the shared parts | upstream bug: the null was used as the object, an access violation in the call; NRI's containers still cannot report a null (CLAUDE.md: Device creation and callbacks) |
 | `0035-helper-sort-every-resource` | `AllocateAndBindMemory` sorts the whole buffer and texture ranges before packing | upstream bug: the sort's end excluded the last resource of each kind, so the packing depended on the order passed and could take a second allocation (CLAUDE.md: Memory and resources) |
+| `0037-vulkan-swapchain-present-modes-info` | with `swapchainMaintenance1`, the Vulkan swap chain is created with `VkSwapchainPresentModesCreateInfoKHR` listing its present mode | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (CLAUDE.md: Extensions) |
+| `0038-vulkan-instance-create-info-next` | `DeviceCreationDesc::vkInstanceCreateInfoNext`, a caller's chain appended to `VkInstanceCreateInfo::pNext` after NRI's own structures | NRI creates the instance and chains only its own structures, so `VkLayerSettingsCreateInfoEXT` cannot reach the validation layer and its settings go through process-wide environment variables (CLAUDE.md: Device creation and callbacks) |
