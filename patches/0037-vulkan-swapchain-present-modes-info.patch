@@ -1,0 +1,32 @@
+VK: list the swap chain's present mode in VkSwapchainPresentModesCreateInfoKHR.
+
+SwapChainVK::Create chains VkSwapchainPresentScalingCreateInfoKHR when the device has
+swapchainMaintenance1, but not VkSwapchainPresentModesCreateInfoKHR. Without it the swap chain
+behaves as if only "presentMode" were listed, and the Khronos best-practices checks report
+BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided ("No
+VkSwapchainPresentModesCreateInfoKHR was provided to VkCreateSwapchainKHR. When
+VK_KHR_swapchain_maintenance1 is enabled, a VkSwapchainPresentModesCreateInfoKHR should be provided
+to inform the implementation that the application is aware of the new features in a backward
+compatible way.") for every swap chain. Measured on NRI main 72f5f46, NVIDIA, layer 1.4.341.
+
+This chains it with the chosen present mode only, so the swap chain behaves as before.
+
+diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
+index a1fca4b4..d2ce47d8 100644
+--- a/Source/VK/SwapChainVK.hpp
++++ b/Source/VK/SwapChainVK.hpp
+@@ -373,6 +373,14 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
+             PNEXTCHAIN_APPEND_STRUCT(scalingInfo);
+         }
+ 
++        // "swapchainMaintenance1": list the present modes the swap chain may switch to (only "presentMode", NRI never switches)
++        VkSwapchainPresentModesCreateInfoKHR presentModesInfo = {VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_MODES_CREATE_INFO_KHR};
++        presentModesInfo.presentModeCount = 1;
++        presentModesInfo.pPresentModes = &presentMode;
++
++        if (m_Device.m_IsSupported.swapChainMaintenance1)
++            PNEXTCHAIN_APPEND_STRUCT(presentModesInfo);
++
+         // Mutable formats
+         VkFormat mutableFormats[2];
+         uint32_t mutableFormatNum = 0;
