@@ -33,6 +33,7 @@ public sealed class NriTestDeviceOptions
     public VKBindingOffsets VkBindingOffsets { get; set; }
     public IReadOnlyList<string> VkInstanceExtensions { get; set; } = [];
     public IReadOnlyList<string> VkDeviceExtensions { get; set; } = [];
+    public nint VkInstanceCreateInfoNext { get; set; }
     public string? D3D12AgilitySdkPath { get; set; }
 
     /// <summary>Called for every message in addition to the device's own record.</summary>
@@ -146,6 +147,7 @@ public sealed class NriTestDevice : IDisposable
             VkBindingOffsets = options.VkBindingOffsets,
             VkInstanceExtensions = options.VkInstanceExtensions,
             VkDeviceExtensions = options.VkDeviceExtensions,
+            VkInstanceCreateInfoNext = options.VkInstanceCreateInfoNext,
             D3D12AgilitySdkPath = options.D3D12AgilitySdkPath,
             MessageHandler = (in NriMessage m) =>
             {

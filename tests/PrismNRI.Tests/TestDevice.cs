@@ -84,4 +84,5 @@ public sealed class NriDeviceOptionsBuilder(NriTestDeviceOptions inner)
     public bool ForwardAllocatorToThirdParty { get => inner.ForwardAllocatorToThirdParty; set => inner.ForwardAllocatorToThirdParty = value; }
     public IReadOnlyList<NriQueueFamily> QueueFamilies { get => inner.QueueFamilies; set => inner.QueueFamilies = value; }
     public VKBindingOffsets VkBindingOffsets { get => inner.VkBindingOffsets; set => inner.VkBindingOffsets = value; }
+    public nint VkInstanceCreateInfoNext { get => inner.VkInstanceCreateInfoNext; set => inner.VkInstanceCreateInfoNext = value; }
 }
