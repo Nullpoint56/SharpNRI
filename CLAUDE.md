@@ -388,7 +388,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
   clipping-primitive counter asserted as its known bug (Multisampling, copies and queries). With
   patches 0025-0036 and their tests (7cee27f): Windows 516 tests, 11 skipped, lines 98.0%,
   branches 81.5%, 251 of 253, fields 1,610 of 1,611 (`keyFrame` added); lavapipe 515, 285
-  skipped, 0 failed. The committed report is measured where its header says; CI does not run it.
+  skipped, 0 failed. With `d3d12.dll` and `dxgi.dll` delay-loaded (5271921): Windows 516, 11
+  skipped, lines 98.0%, branches 81.5%, 251 of 253; lavapipe 515, 285 skipped, 0 failed. The committed report is measured where its header says; CI does not run it.
 
 ---
 
