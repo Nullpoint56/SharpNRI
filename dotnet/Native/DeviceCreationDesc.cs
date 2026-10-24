@@ -41,6 +41,9 @@ public unsafe partial struct DeviceCreationDesc
     [NativeTypeName("nri::VKExtensions")]
     public VKExtensions vkExtensions;
 
+    [NativeTypeName("const void *")]
+    public void* vkInstanceCreateInfoNext;
+
     [NativeTypeName("bool")]
     public byte enableNRIValidation;
 
