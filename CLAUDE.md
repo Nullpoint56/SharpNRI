@@ -433,6 +433,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | 0035 helper-sort-every-resource | `GroupByMemoryType` sorts `[0, bufferNum)` and `[0, textureNum)` (`HelperInterface.hpp:559`, `:571`, 2 lines) | upstream ended the range at the last element, which `std::sort` excludes, so the last resource of each kind was packed unsorted and the packing depended on the order passed (N11, Memory and resources) |
 | 0036 d3d12-attachment-resolve-mip-and-layers | `EndRendering` indexes the resolve destination with its `MipLevels` and resolves each layer of the view (`CommandBufferD3D12.hpp:1959-1961`, 6 lines added, 2 removed): the part of NRI main's 48d4a33 that fixes them, backported | v190 used the array size as the mip count and resolved the first layer only: a resolve into a non-zero mip or layer landed in another subresource or failed `Close` (877), and a layered view resolved one layer (Multisampling, copies and queries). Dropped with the tag that carries 48d4a33 |
 
+| 0037 vulkan-swapchain-present-modes-info | `SwapChainVK::Create` chains `VkSwapchainPresentModesCreateInfoKHR` listing the chosen `presentMode` only, when the device has `swapchainMaintenance1` (`SwapChainVK.hpp:372` at v190, `:376` on NRI main, 8 lines) | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (Extensions); one mode is what Vulkan assumes without the structure, so nothing else changes |
+| 0038 vulkan-instance-create-info-next | `DeviceCreationDesc::vkInstanceCreateInfoNext` (`NriOptional const void*`, next to `vkExtensions`): a caller's chain `DeviceVK::CreateInstance` appends to `VkInstanceCreateInfo::pNext` after NRI's `VkDebugUtilsMessengerCreateInfoEXT` and `VkValidationFeaturesEXT` (`DeviceVK.hpp:2104` at v190, `:2122` on NRI main; 1 header line, 3 source lines added, 3 changed) | NRI creates the instance and chained only its own structures, so `VkLayerSettingsCreateInfoEXT` could not reach the layer and layer settings went through environment variables: process-wide, and unseen on Linux and macOS when set from .NET (Device creation and callbacks); a phase 2 proposal |
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
   because a later patch may change a line inside an earlier patch's context, and with full
@@ -441,8 +443,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag (0022 does not: its context is 0020's lines and it names 0002's `EXTERNAL_QUEUE`; nor does 0023: its context in `CommandBufferVK.hpp` and `TextureVK.h` is 0002's lines; 0024 does, though it is cut over 0001-0023, and so do 0025-0036, cut over 0001-0024 and each other). Patches to a
-  file an earlier patch touches (0012-0036 all are, or are cut the same way) are cut from a scratch clone at the tag with
+  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag (0022 does not: its context is 0020's lines and it names 0002's `EXTERNAL_QUEUE`; nor does 0023: its context in `CommandBufferVK.hpp` and `TextureVK.h` is 0002's lines; 0024 does, though it is cut over 0001-0023, and so do 0025-0036, cut over 0001-0024 and each other, and 0037 and 0038, cut on `next` over NRI main 72f5f46 and its patches: both apply onto v190 + 0001-0036 and alone onto the bare tag, measured 2026-10-24). Patches to a
+  file an earlier patch touches (0012-0038 all are, or are cut the same way) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit. A later patch must not change
   lines an earlier patch adds (the `-C0` reverse check of the earlier one then fails and the
   scripts refuse the tree): 0034's checks for the two shared-handle validation wrappers are in
@@ -523,10 +525,10 @@ configured per machine: the adapter named is whichever one the suite picked on t
   errors, types gone.)
 - NRI's headers have zero C++ default member initializers (`NriDefault` unused), so generator-dropped
   defaults cannot happen here. C `bool` is `byte` with `[NativeTypeName("bool")]`.
-- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 273 structs, 1,844 offsets (1,840 before
-  patches 0017-0019 and 0033 added a field each), 55 fixed buffers, 96 enums, 4 bitfields (exact
+- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 273 structs, 1,845 offsets (1,844 before
+  patch 0038 added a field; 1,840 before patches 0017-0019 and 0033 added one each), 55 fixed buffers, 96 enums, 4 bitfields (exact
   bytes written), 238 function-pointer fields, 20 `DllImport`s (19 before patch 0024); zero
-  mismatches on x64 (win-x64 at 1,844, 2026-10-22) and arm64 (the macOS CI job, last run before
+  mismatches on x64 (win-x64 at 1,845, 2026-10-24) and arm64 (the macOS CI job, last run before
   patch 0017). Blind to calling convention, `const`, reference vs pointer,
   `bool` vs `uint8_t`. The anonymous union in `BottomLevelGeometryDesc` is checked as outer offsets.
 - **`nriGetInterface` checks the table size itself**: mismatch = `INVALID_ARGUMENT` after both sizes
@@ -540,6 +542,23 @@ configured per machine: the adapter named is whichever one the suite picked on t
 
 ### Device creation and callbacks
 
+- **Layer settings for one instance (patch 0038).** NRI creates the Vulkan instance in
+  `DeviceVK::CreateInstance` and chained only its own `VkDebugUtilsMessengerCreateInfoEXT` and,
+  with `enableGraphicsAPIValidation`, `VkValidationFeaturesEXT` (debug printf), so the Khronos
+  layer could be configured only through its environment variables (process-wide; read from the
+  process environment at instance creation, which .NET on Linux and macOS does not update, hence
+  the tests that skip there) or `vk_layer_settings.txt`. `DeviceCreationDesc::vkInstanceCreateInfoNext`
+  is a caller's chain appended after NRI's structures: last, not first, because the chain is the
+  caller's and NRI cannot write into its tail. It must not repeat NRI's two structures
+  (VUID-VkInstanceCreateInfo-sType-unique). Binding: `NriDeviceOptions.VkInstanceCreateInfoNext`,
+  a raw pointer the caller owns until `NriDevice.Create` returns; `CreateFromVulkan` has no such
+  option (the instance is the caller's). Measured at bf88835 on `next` and on master at v190 + 0001-0036 (2026-10-24;
+  `LayerSettingsTests`; NVIDIA RTX 4070 SUPER, layer 1.4.341, Windows; lavapipe, layer 1.4.363, WSL): a `VkLayerSettingsCreateInfoEXT`
+  with `VK_LAYER_KHRONOS_validation` / `validate_best_practices` = `VK_TRUE` gives the committed
+  64 KiB buffer's `BestPractices-vkBindBufferMemory-small-dedicated-allocation` warning, a device
+  created just before without it does not, no ERROR either way and no `VK_EXT_layer_settings`
+  in the enabled extensions needed. With the header but `CreateInstance` unpatched the setting is
+  ignored and the test fails, on NRI main and on v190 alike. So unlike the environment-variable tests this one runs on Linux.
 - **Null `AbortExecution` kills the process.** NRI's `CheckAndSetDefaultCallbacks` installs a
   handler that calls `DebugBreak()`; `ReportMessage` calls it for every report whose result is
   positive (`FAILURE`, `INVALID_ARGUMENT`, ..., `SharedExternal.hpp:927`), which is every ERROR
@@ -1677,6 +1696,30 @@ extensions.
   machine (RTX 4070 SUPER, 165 Hz, self-paced to one frame per refresh) the SM clock settling
   600-800 MHz higher and 3-8 W more under MAILBOX than under FIFO or FIFO_LATEST_READY; theirs, not
   verified here, and not the patch's justification.
+- **Swap chain present modes (patch 0037).** With `swapchainMaintenance1` (NRI enables
+  `VK_EXT_swapchain_maintenance1`, `features.resizableSwapChain`), `SwapChainVK::Create` chains
+  `VkSwapchainPresentScalingCreateInfoKHR` but not `VkSwapchainPresentModesCreateInfoKHR`
+  (`SwapChainVK.hpp:363-369` at v190, `:368-374` at 72f5f46). Without it Vulkan treats the swap chain as listing its
+  `presentMode` only, which is all NRI uses (it never switches modes on present), but the
+  Khronos best-practices checks report it once per swap chain. Measured at 204c09c (`next`
+  without the patch) and on master at v190 + 0001-0036 without it (2026-10-24, the same text; NVIDIA RTX 4070 SUPER, layer 1.4.341,
+  `SwapChainResizeTests.A_Vulkan_swap_chain_with_present_scaling_lists_its_present_modes`, a
+  child process with `VK_KHRONOS_VALIDATION_VALIDATE_BEST_PRACTICES=true` in its environment and
+  the 64 KiB buffer marker): "[2429328340]
+  BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided:
+  vkCreateSwapchainKHR(): No VkSwapchainPresentModesCreateInfoKHR was provided to
+  VkCreateSwapchainKHR. When VK_KHR_swapchain_maintenance1 is enabled, a
+  VkSwapchainPresentModesCreateInfoKHR should be provided to inform the implementation that the
+  application is aware of the new features in a backward compatible way." The patch chains it
+  with the chosen mode alone; with it (66c123c on `next`, master 2026-10-24) the warning is gone and both frames present. The same
+  run also showed "BestPractices-vkCreateSwapchainKHR-suboptimal-swapchain-image-count" (the
+  test's `TextureNum = 2`, the caller's choice) and, only with implicit layers on, two
+  "BestPractices-ImageBarrierAccessLayout: vkCmdPipelineBarrier(): ... accessMask is
+  VK_ACCESS_2_MEMORY_READ_BIT, but for layout VK_IMAGE_LAYOUT_PRESENT_SRC_KHR expected accessMask
+  are VkAccessFlags2(0)" on the swap chain images: NRI records `vkCmdPipelineBarrier2` only and
+  maps `AccessBits::NONE` to 0, and with `VK_LOADER_LAYERS_DISABLE=~implicit~` both are gone, so
+  that barrier is an implicit layer's (an overlay), not NRI's. The test fails only on the
+  present-modes warning and on errors.
 - SwapChain / Streamer tests on NONE only prove the marshalling: NONE has no validation, nothing
   says the calls are legal.
 - **Video**: H.265 Annex-B writing returns `UNSUPPORTED` for short/long-term reference sets, VUI,
