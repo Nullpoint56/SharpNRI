@@ -406,8 +406,10 @@ configured per machine: the adapter named is whichever one the suite picked on t
   skipped, 0 failed. With `d3d12.dll` and `dxgi.dll` delay-loaded (5271921): Windows 516, 11
   skipped, lines 98.0%, branches 81.5%, 251 of 253; lavapipe 515, 285 skipped, 0 failed. With patches 0037 and 0038 and their tests (58b0e7f):
   Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields 1,611 of 1,612
-  (`vkInstanceCreateInfoNext` added); lavapipe 517, 286 skipped, 0 failed. The committed report is
-  measured where its header says; CI does not run it.
+  (`vkInstanceCreateInfoNext` added); lavapipe 517, 286 skipped, 0 failed. With 0029's D3D12 backend
+  half dropped (4e074ef): Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields
+  1,611 of 1,612; lavapipe 517, 286 skipped, 0 failed. The committed report is measured where its
+  header says; CI does not run it.
 
 ---
 
