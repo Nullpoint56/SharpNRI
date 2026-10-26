@@ -139,7 +139,9 @@ Caveats:
   adapter and creates real inbox D3D12 devices for adapters Vulkan did not list, which loads
   `D3D12Core.dll` for the rest of the process. `NriAdapter.Enumerate(GraphicsAPI.VK)` (NRI main's
   `nriEnumerateAdapters` with a backend mask, 962615b; patch 0024 on master) runs only the Vulkan pass: measured on NVIDIA 5 ms against 69 ms warm,
-  and no D3D12 runtime in the process. A filtered adapter carries only the asked API's bits in
+  and no D3D12 runtime in the process (`NRI.dll` delay-loads `d3d12.dll` and `dxgi.dll`, so a
+  Vulkan-only process loads neither through NRI; the Windows Vulkan loader loads `dxgi.dll` itself).
+  A filtered adapter carries only the asked API's bits in
   `SupportedGraphicsApis` (plus `NONE`), so pass it only to that API's device. Each call is one
   native call with a 32-entry buffer. `NriDevice.Create` with `Adapter` null lets NRI enumerate
   once more: for Vulkan the Vulkan pass only (same adapter as the first of
@@ -859,7 +861,8 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 - D3D12 on the Agility SDK needs `PrismNRI.Native.Agility` (or your own `AgilitySDK` directory and
   `D3D12AgilitySdkPath`).
 - Visual C++ 2015-2022 runtime required, not shipped.
-- `libxess.dll` is delay-loaded by the Upscalers `NRI.dll`: absent is fine until XeSS is created.
+- `NRI.dll` delay-loads `d3d12.dll` and `dxgi.dll` (both packages), resolved at the first D3D12 or
+  DXGI call, and the Upscalers `NRI.dll` also `libxess.dll`: absent is fine until XeSS is created.
 - WARP: D3D12 software adapter, `Architecture.SOFTWARE`; runs the whole suite including ray
   tracing (BLAS 65,536 B).
 - RenderDoc 1.44 captures NRI's D3D12 device on the inbox runtime only: with the Agility SDK

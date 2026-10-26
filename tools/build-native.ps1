@@ -216,10 +216,13 @@ if ($Clean -and (Test-Path $build)) { Remove-Item $build -Recurse -Force -Confir
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 
 $fwd = { param($p) $p -replace '\\', '/' }
-# XeSS: libxess.lib makes libxess.dll a load-time import of NRI.dll. A CMake fragment injected
-# after NRI's project() adds /DELAYLOAD for the NRI target only, so NRI.dll loads without it.
-$delayLoad = $targetWindows -and (& $on NRI_ENABLE_XESS_SDK)
-$delayLoadFragment = Join-Path $PSScriptRoot "cmake" "xess-delayload.cmake"
+# Windows: d3d12.lib and dxgi.lib make d3d12.dll and dxgi.dll load-time imports of NRI.dll, so every
+# process that loads NRI.dll loads them, a Vulkan-only one included; with XeSS, libxess.lib does the
+# same for libxess.dll, without which NRI.dll would not load at all. A CMake fragment injected after
+# NRI's project() adds /DELAYLOAD for the NRI target only (CLAUDE.md: Native packages).
+$delayLoad = $targetWindows
+$delayLoadDlls = @(if (& $on NRI_ENABLE_D3D12_SUPPORT) { "d3d12.dll", "dxgi.dll" }) + @(if (& $on NRI_ENABLE_XESS_SDK) { "libxess.dll" })
+$delayLoadFragment = Join-Path $PSScriptRoot "cmake" "delayload.cmake"
 
 $optString = ($opt.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ";"
 # NRI_VERSION alone does not identify the sources: NRI's main moves its dependency pins (VMA, D3D12MA)
@@ -271,7 +274,7 @@ foreach ($kv in $opt.GetEnumerator()) { $cmakeArgs += "-D$($kv.Key)=$($kv.Value)
 
 Write-Host "==> configure -> $build$(if ($offline) { ' (deps cached, offline)' })"
 foreach ($kv in $opt.GetEnumerator()) { Write-Host ("    {0,-40} {1}" -f $kv.Key, $kv.Value) }
-if ($delayLoad) { Write-Host "    /DELAYLOAD:libxess.dll                   (tools/cmake/xess-delayload.cmake)" }
+if ($delayLoad) { Write-Host ("    {0,-40} {1}" -f "/DELAYLOAD:$($delayLoadDlls -join ',')", "(tools/cmake/delayload.cmake)") }
 if ($dlssDir)   { Write-Host "    FETCHCONTENT_SOURCE_DIR_NGX              $dlssDir" }
 Invoke-Native "cmake configure" { cmake @cmakeArgs }
 New-Item -ItemType Directory -Force -Path $deps | Out-Null
@@ -318,7 +321,8 @@ $nriStatus = git -C $nri status --porcelain
 if ($nriStatus -and $patches.Count -eq 0) { Write-Warning "nri/ is not clean after the build:`n$($nriStatus -join "`n")" }
 
 # Load-time imports of NRI.dll: no vendor runtime may be among them (a missing one would make the
-# whole library fail to load). Read with dumpbin when Visual Studio provides one.
+# whole library fail to load), and every DLL the fragment delay-loads must have left them for the
+# delay-load table. Read with dumpbin when Visual Studio provides one.
 if ($targetWindows) {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio" "Installer" "vswhere.exe"
     $dumpbin = if (Test-Path $vswhere) {
@@ -337,7 +341,10 @@ if ($targetWindows) {
         if ($delayed) { Write-Host "    delay-loaded:    $($delayed -join ', ')" }
         $vendor = @($loadTime | Where-Object { $_ -match '^(libxess|nvngx|amd_fidelityfx|amd_ags|D3D12Core)' })
         if ($vendor) { throw "NRI.dll has a load-time import of a vendor runtime: $($vendor -join ', ')" }
-        if ($delayLoad -and $delayed -notcontains "libxess.dll") { throw "libxess.dll is not delay-loaded by NRI.dll" }
+        foreach ($dll in $delayLoadDlls) {
+            if ($delayed -notcontains $dll) { throw "$dll is not delay-loaded by NRI.dll" }
+            if ($loadTime -contains $dll) { throw "$dll is still a load-time import of NRI.dll" }
+        }
     } else {
         Write-Warning "dumpbin not found; NRI.dll's imports were not checked"
     }

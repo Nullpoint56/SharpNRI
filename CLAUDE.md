@@ -132,13 +132,23 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 | Package | Staging | win-x64 contents | Built with |
 |---|---|---|---|
 | `PrismNRI` (Base) | `runtimes/<rid>/native/` | `NRI.dll` (1.4 MB), `amd_ags_x64.dll`, licences; 14 files, 1.8 MB | NGX, FFX, XeSS, NIS all OFF explicitly |
-| `PrismNRI.Native.Upscalers` | `runtimes-upscalers/<rid>/native/` | `NRI.dll` (2.7 MB), AGS, licences; 20 files, 3.1 MB | NIS, FFX, XeSS ON, NGX OFF; `libxess.dll` delay-loaded |
+| `PrismNRI.Native.Upscalers` | `runtimes-upscalers/<rid>/native/` | `NRI.dll` (2.7 MB), AGS, licences; 20 files, 3.1 MB | NIS, FFX, XeSS ON, NGX OFF; `libxess.dll` delay-loaded too |
 | `PrismNRI.Native.Agility` | `runtimes-agility/<rid>/native/AgilitySDK/` | `D3D12Core.dll`, `d3d12SDKLayers.dll`, licence; 3 files, 9.6 MB | staged by either variant on Windows |
 | (`-WithDlss`, never packed) | `runtimes-upscalers-dlss/<rid>/native/` | 21 files, 3.2 MB; NGX static, imports `ADVAPI32.dll` too | NGX ON from `FETCHCONTENT_SOURCE_DIR_NGX` |
 
 - Both NRI builds: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI (static), AGS, debug names,
   compiled against the Agility headers (`NRI_ENABLE_AGILITY_SDK_SUPPORT=ON`), Agility runtime not
   inside. D3D11, Metal, WebGPU passed OFF explicitly.
+- **Delay-loaded imports** (`tools/cmake/delayload.cmake`): `build-native.ps1` injects it on every
+  Windows build as `CMAKE_PROJECT_NRI_INCLUDE`, so nothing under `nri/` is edited; it runs after
+  NRI's `project()`, defers itself with `cmake_language(DEFER)`, and adds `/DELAYLOAD` +
+  `delayimp.lib` to the NRI target only: `d3d12.dll` and `dxgi.dll` in both variants, `libxess.dll`
+  with XeSS. The script reads the result with dumpbin and throws when a listed DLL is still a
+  load-time import. So both `NRI.dll`s load with the system, the VC++ runtime (required, not
+  shipped) and the UCRT only, and a process that never calls D3D12 or DXGI never loads either
+  (Device creation and callbacks). The first D3D12 call resolves the delay-load: on NRI's own
+  creation path that is patch 0001's `D3D12GetInterface`, before any other D3D12 call, so the
+  Agility SDK still loads (`AgilityTests`, the suite's D3D12 devices).
 - osx-arm64: Base only, `libNRI.dylib` (about 1.07 MB, 8 files, 1.2 MB), Vulkan + NONE.
 - Base and Upscalers both contain `NRI.dll` at the same package path; NuGet's resolution between
   two packages' same-named native assets is not to be relied on, so a consumer takes exactly one
@@ -167,7 +177,9 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   ```
   Portable build loads `bin/.../runtimes/win-x64/native/NRI.dll` through the deps.json; `-r`
   loads the flat `NRI.dll`. Delete `tools/consume/obj` after re-packing the same version.
-- `NativePayloadTests` hold the staged files to an allowlist and read the PE import tables.
+- `NativePayloadTests` hold the staged files to an allowlist and read the PE import and delay-import
+  tables against exact lists (load-time: `KERNEL32`, `USER32`, `MSVCP140`, `VCRUNTIME140[_1]`, eight
+  UCRT `api-ms-win-crt-*` sets; delay-loaded: `d3d12`, `dxgi`, plus `libxess` in Upscalers).
   `NativeExportTests` resolve every `NriApi` `DllImport` with `NativeLibrary.TryGetExport`.
 - Licence facts that shaped the split: NGX terms attach to `NRI.dll` itself when NGX is linked
   (static), require downstream terms "at least as protective" and forbid stand-alone
@@ -381,7 +393,11 @@ configured per machine: the adapter named is whichever one the suite picked on t
   clipping-primitive counter asserted as its known bug (Multisampling, copies and queries). With
   patches 0025-0036 and their tests (7cee27f): Windows 516 tests, 11 skipped, lines 98.0%,
   branches 81.5%, 251 of 253, fields 1,610 of 1,611 (`keyFrame` added); lavapipe 515, 285
-  skipped, 0 failed. The committed report is measured where its header says; CI does not run it.
+  skipped, 0 failed. With `d3d12.dll` and `dxgi.dll` delay-loaded (5271921): Windows 516, 11
+  skipped, lines 98.0%, branches 81.5%, 251 of 253; lavapipe 515, 285 skipped, 0 failed. With patches 0037 and 0038 and their tests (58b0e7f):
+  Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields 1,611 of 1,612
+  (`vkInstanceCreateInfoNext` added); lavapipe 517, 286 skipped, 0 failed. The committed report is
+  measured where its header says; CI does not run it.
 
 ---
 
@@ -445,6 +461,81 @@ configured per machine: the adapter named is whichever one the suite picked on t
   `git diff --cached HEAD`); on master 0003-0021 and 0024-0036 each also apply alone onto the bare tag (0022 and 0023 do not: their context is 0020's and 0002's lines); on `next` all but 0034 do (72f5f46, 2026-10-23: 0034's `CreateFence` hunk sits on 0002's lines). 0002 was re-cut once more on `next` (a scratch clone at 2f7a49f with 0001 committed, the old 0002 applied with `--3way`, the conflict and two stale spots fixed, `git diff --cached HEAD`), and again on 2026-10-22 for the null-wrapper checks that 0034 cannot add, and rewritten on 2026-10-23 in the maintainer's shape (a scratch clone at 72f5f46 with 0001 committed, the shape written in place, `git diff` against that commit; 0034 re-cut over it, with the `-C0` rule shaping `DeviceVal::CreateFence`, see Shared handles): a later patch must not change lines an earlier patch adds (the earlier one's `-C0` reverse check then fails and the scripts refuse the tree). Patches to a
   file an earlier patch touches (0012-0035 all are, or are cut the same way) are cut from a scratch clone at the tag with
   the earlier patches committed, `git diff` against that commit; 0025-0035 are master's cuts over v190 + 0001-0024, which applied onto 2f7a49f with line offsets (2026-10-22); on 72f5f46 0029 and 0034 are re-cut (2026-10-23). There is no 0011: it corrected
+  the `queuedFrameNum` header comment only, and a comment is knowledge, not a patch (owner,
+  2026-10-16); the fact lives below under Extensions and in the binding's docs.
+- Patch 0007 inserts three lines at `CMakeLists.txt:126`; upstream line numbers past that are three
+  lower than the patched tree's.
+- 0001 stays even though the wrapped-device route also loads Agility (see D3D12 and the Agility
+  SDK): the patch keeps `Robustness`, `DeviceLostInfoLevel`, D3D12 RT validation and debug-layer
+  filtering on NRI's own creation path, 20 lines against about 150 lines of COM in the binding.
+- `docs/upstream.md` holds the report text and filing order. Do not file.
+
+---
+
+## Decisions
+
+- **Pure managed, no C++ of our own.** NRI has no prebuilt releases; the library is built from the
+  submodule. The repo's native content is the patch set.
+- **L0 in C++ mode, not C mode.** C mode (`NRI_FORCE_C`) erases every enum to an integer typedef:
+  enum fields and parameters come out `byte`/`ushort`, `Result` as `sbyte`; fixing it would be ~95
+  hand remaps, the silent-layout-corruption class of edit. C++ mode keeps `enum class Format : byte`
+  and typed bitfields.
+- **No finalizers; a device refuses to die before its children.** GC finalization order is
+  arbitrary; a finalizer calling `Destroy*` could free a buffer after its device (heap corruption).
+  Each wrapper references its device, the device counts children, `NriDevice.Dispose` throws while
+  any remain. A forgotten `Dispose` leaks until exit; shutdown disposal is skipped.
+- **Callbacks opt-in; allocator does not forward by default.** NRI's allocator is the default.
+  `ForwardAllocatorToThirdParty` routes VMA/D3D12MA too; off because it is chatty and the usual reason
+  to supply one is accounting NRI's own use.
+- **Agility by path, through a patch.** Calling the SDK configuration from C# would put a D3D12 COM
+  sequence in the binding that NRI owns, and AGS on AMD creates the device inside NRI.
+- **Packages: Base / Upscalers / Agility, no vendor runtimes, DLSS as a build switch.** Licence
+  exposure (NGX static terms, Agility terms), payload size (225.6 MB unsplit vs 1.8 MB Base), users
+  swap vendor DLLs.
+- **Oracles, not self-description**:
+
+  | Claim | Oracle |
+  |---|---|
+  | L0 bytes match the header | `NativeAbiTests`: C++ probe compiled against the pinned, patched headers |
+  | table layouts match the library | `nriGetInterface`'s own size check on every acquisition |
+  | the pin is what runs | `DeviceDesc.nriVersion` vs `Directory.Build.props` (`DeviceTests`) |
+  | L1/L2 do what NRI says | NRI validation + backend layers on every test device; any error fails |
+  | whole stack, both backends | `TriangleTests`: offscreen, read back, pixel-checked |
+  | recording allocates nothing | `AllocationTests` on NONE with `NriCountingAllocator` + GC counters |
+  | payload complete | `NativePayloadTests` vs the staging allowlist |
+  | every `DllImport` exported | `NativeExportTests` |
+
+- **NONE is for lifetime and allocation tests only**: a real device that validates and allocates
+  nothing; wrong for anything that asks a question.
+- **Name- and backend-keyed skips are allowed only for measured defects with no capability bit**:
+  Apple Paravirtual `HOST_TRANSFER` crash, paravirtual timestamps (both via
+  `TestDevice.IsAppleParavirtualVK`), Reflex on VK, H.264 and AV1 encode on VK, the Vulkan
+  driver's micromap-size query pools, and lavapipe's
+  clipping-primitive counter (a known bug the test asserts as still present). A failing job on every push hides everything else; a physical Mac is not covered by the name skips.
+- **macOS deployment target 15.0**: NRI pins none, so the dylib inherited the runner's 26.0;
+  MoltenVK needs 12.0; .NET 11 supports 15+; 15.0 is the lowest that can matter.
+- **Sampler bias test** asks `min(0.5, samplerLodBiasMax)` and records both.
+- **Shared D3D12 textures stay TYPELESS** like every NRI texture; D3D11 import refusal is a recorded
+  limitation, not a patch.
+- **Software ray tracer answers are asserted like any other** (owner, 2026-10-14, reversing the
+  earlier record-and-skip): a wrong hit map fails on every adapter. The intermittent lavapipe
+  "miss" was a test reading back after NRI's 5 s fence-wait timeout (CI runners and flakes, item 1);
+  tests wait with `GpuWork.Wait`, not `NriFence.Wait`, before reading GPU results.
+
+---
+
+## Oddities and caveats
+
+### Generator and ABI
+
+- **ClangSharp 21.1.8.4, C++ mode**: 373 files, 7,661 lines, 152 errors as generated, all one cause:
+  `NriBits` operator overloads (`~ & | &= |=`, five per enum, 38 enums) become static helpers that do
+  not compile. Removed. Second rule: `NriBit(n)` = `(1u << n)` does not convert inside byte/ushort
+  enums; `U` suffix dropped for those only. Third: `[Flags]` added to every `NriBits` enum, read
+  from the headers. All in `tools/generate-native.ps1` and nowhere else. (C mode: 6,352 lines, 8
+  errors, types gone.)
+- NRI's headers have zero C++ default member initializers (`NriDefault` unused), so generator-dropped
+  defaults cannot happen here. C `bool` is `byte` with `[NativeTypeName("bool")]`.
 - **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,877 offsets, 56 fixed
   buffers and 95 enums on `next` at bf88835 (main's video descs, `DescriptorSetBits` gone, 0002's
   `shared` fields, `FenceDesc` and feature bits; 1,876 before 0038's `vkInstanceCreateInfoNext`); 273 structs, 1,844 offsets, 55 fixed buffers and 96 enums on master at v190
@@ -515,8 +606,9 @@ configured per machine: the adapter named is whichever one the suite picked on t
   `nriEnumerateAdapters` itself the backends to probe (`GraphicsAPI::ALL` by default), and
   `next`'s 0024 is the two lines left: `nriCreateDevice` with a null desc probes VK only for a VK
   device and everything otherwise (a D3D-only enumeration would change the D3D12 desc above). Measured here (`AdapterEnumerationTests`, NVIDIA RTX 4070
-  SUPER, Windows, children of the test executable): `d3d12.dll` and `dxgi.dll` are loaded as soon
-  as NRI.dll is (load-time imports, before any enumeration); a VK-only enumeration (1 adapter)
+  SUPER, Windows, children of the test executable): `d3d12.dll` and `dxgi.dll` were loaded as soon
+  as NRI.dll was (load-time imports, before any enumeration; delay-loaded since 54e3637, see
+  "NRI.dll loads no D3D module" below); a VK-only enumeration (1 adapter)
   took 67.0 ms the first call and 5.3 ms the second, and left `D3D12Core.dll` unloaded, as did
   creating a Vulkan device with no adapter afterwards (104.5 ms, `supportedGraphicsAPIs` NONE | VK:
   the D3D bits are absent from a filtered desc); an unfiltered enumeration (2 adapters, NVIDIA and
@@ -554,6 +646,19 @@ configured per machine: the adapter named is whichever one the suite picked on t
   consumer's first wording, that the layer "latches the first instance", was wrong; their later
   diagnosis, groups versus devices, was right. Not patched in NRI: a workaround for a third-party
   layer, neither NRI-shaped nor an NRI bug, which the maintainer would decline.
+- **NRI.dll loads no D3D module by itself; the Vulkan loader loads `dxgi.dll`.** Since 54e3637
+  `d3d12.dll` and `dxgi.dll` are delay-loaded (Native packages). Measured at 54e3637
+  (`AdapterEnumerationTests.A_Vulkan_only_enumeration_and_device_load_no_D3D_module_of_NRI`,
+  NVIDIA RTX 4070 SUPER, Windows, children of the test executable): with NRI.dll loaded and no
+  enumeration, none of `d3d12.dll`, `dxgi.dll`, `D3D12Core.dll`; after a VK-only enumeration and a
+  Vulkan device with no adapter, `dxgi.dll` only; after an unfiltered enumeration all three. The
+  `dxgi.dll` is the Khronos loader's (`vulkan-1.dll` 1.4.341.0): a bare `vkCreateInstance` with no
+  NRI in the process loads it (the test's third child), and so it did with every driver and
+  implicit layer disabled (`VK_LOADER_DRIVERS_DISABLE='*'`, `VK_LOADER_LAYERS_DISABLE=~implicit~`;
+  the creation then fails with `VK_ERROR_INCOMPATIBLE_DRIVER`, `dxgi.dll` loaded anyway; a
+  PowerShell probe, same machine). So the test holds NRI to adding nothing to what a bare Vulkan
+  instance loads, not to an empty list. Before 54e3637 the baseline was `d3d12.dll, dxgi.dll` and
+  the test was red on it.
 - **Khronos messages carry the id name (patch 0015)**: `[1809909096] BestPractices-vkCreateImage-sharing-mode-exclusive: vkCreateImage(): ...`.
   Upstream forwards `"[%u] %s"` (number, `pMessage`); the SDK 1.4.3xx layer's `pMessage` no
   longer starts with "Validation Warning: [ name ]", so the name was lost. Messages with id 0
@@ -1500,10 +1605,10 @@ extensions.
   `AppContext.BaseDirectory`, so NRI's bare-name load finds the loaded module. After that FSR (D3D12,
   VK), XeSS, DLSR (D3D12), DLRR (VK) create under `dotnet`.
 - `libxess.dll` was a load-time import of `NRI.dll` (NRI would not load without it). Now
-  `/DELAYLOAD:libxess.dll` + `delayimp.lib` on the NRI target only, via
-  `tools/cmake/xess-delayload.cmake`, passed as `CMAKE_PROJECT_NRI_INCLUDE`, deferring itself with
-  `cmake_language(DEFER)`. No patch needed. Packaged `NRI.dll`s import only `d3d12`, `dxgi`,
-  `KERNEL32`, `USER32`, `MSVCP140`, `VCRUNTIME140[_1]`, UCRT. VC++ runtime is required, not shipped.
+  `/DELAYLOAD:libxess.dll` + `delayimp.lib` on the NRI target only, through
+  `tools/cmake/delayload.cmake` (Native packages: it also delay-loads `d3d12` and `dxgi`). No patch
+  needed. Packaged `NRI.dll`s import only `KERNEL32`, `USER32`, `MSVCP140`, `VCRUNTIME140[_1]` and
+  UCRT at load time. VC++ runtime is required, not shipped.
 - Positive controls: FSR D3D12 (provider 3.1.5), VK (3.1.4), XeSS D3D12 create on NVIDIA. `-WithDlss`
   reports NIS, FSR, XESS, DLSR, DLRR on D3D12 (NIS, FSR, DLSR, DLRR on VK); raw DLSR without
   `nvngx_dlss*.dll` is a clean `FAILURE`.

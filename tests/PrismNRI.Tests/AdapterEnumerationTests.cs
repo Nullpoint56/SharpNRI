@@ -9,11 +9,13 @@
 // the module half runs in child processes (this test executable started again with
 // PRISMNRI_TEST_CHILD set; the module initializer below runs the case and exits before xunit
 // starts): one enumerates Vulkan only and then creates a Vulkan device with no adapter, the control
-// enumerates everything.
+// enumerates everything, and on Windows a third creates one Vulkan instance through the loader
+// with no NRI call at all, to tell what the Vulkan loader loads by itself from what NRI loads.
 
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using PrismNRI.Native;
 using Xunit;
 
@@ -24,18 +26,21 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
     private const string ChildVariable = "PRISMNRI_TEST_CHILD";
     private const string ChildVulkanOnly = "adapters-vk-only";
     private const string ChildAll = "adapters-all";
+    private const string ChildLoader = "adapters-vk-loader";
     private static readonly string[] D3DModules = ["d3d12.dll", "dxgi.dll", "D3D12Core.dll"];
-    private const string Runtime = "D3D12Core.dll";
 
     /// <summary>
-    /// A Vulkan-only enumeration and a Vulkan device created with no adapter leave the D3D12
-    /// runtime, D3D12Core.dll, unloaded; an unfiltered enumeration loads it (the control).
-    /// d3d12.dll and dxgi.dll are load-time imports of NRI.dll, so they are in every process that
-    /// has called NRI, before any enumeration (recorded as the baseline). Both children print how long their first and second enumeration took. The module
-    /// half is Windows-only (the names are Windows DLLs); the timings are recorded everywhere.
+    /// Loading NRI.dll loads none of the D3D modules: d3d12.dll and dxgi.dll are delay-loaded
+    /// (tools/cmake/delayload.cmake). A Vulkan-only enumeration and a Vulkan device created with no
+    /// adapter then load neither d3d12.dll nor the D3D12 runtime, D3D12Core.dll; dxgi.dll they load
+    /// exactly when a bare Vulkan instance does, with no NRI in the process (the Windows Vulkan
+    /// loader loads it itself to order the adapters: measured with every driver and implicit layer
+    /// disabled). An unfiltered enumeration loads all three (the control). The children print how
+    /// long their first and second enumeration took. The module half is Windows-only (the names
+    /// are Windows DLLs); the timings are recorded everywhere.
     /// </summary>
     [Fact]
-    public void A_Vulkan_only_enumeration_and_device_load_no_D3D12_runtime()
+    public void A_Vulkan_only_enumeration_and_device_load_no_D3D_module_of_NRI()
     {
         TestDevice.RequireAvailable(new Backend(GraphicsAPI.VK));
         var vulkanOnly = RunChild(ChildVulkanOnly);
@@ -44,14 +49,26 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
         Assert.Contains(vulkanOnly, l => l.StartsWith("RESULT Vulkan device created", StringComparison.Ordinal));
 
         Assert.SkipUnless(OperatingSystem.IsWindows(), "the D3D12 runtime modules (d3d12.dll, dxgi.dll, D3D12Core.dll) are Windows DLLs; the timings above are the measurement here");
-        static bool HasRuntime(string[] lines, string after) =>
-            lines.Single(l => l.StartsWith("RESULT modules " + after + ": ", StringComparison.Ordinal)).Contains(Runtime, StringComparison.OrdinalIgnoreCase);
-        Assert.False(HasRuntime(vulkanOnly, "after the Vulkan-only enumeration"), "D3D12Core.dll is loaded after a Vulkan-only enumeration");
-        Assert.False(HasRuntime(vulkanOnly, "after creating the Vulkan device with no adapter"), "D3D12Core.dll is loaded after creating a Vulkan device with no adapter");
-        Assert.False(HasRuntime(all, "before any enumeration"), "D3D12Core.dll is loaded before any enumeration");
-        Assert.True(HasRuntime(all, "after the unfiltered enumeration"), "D3D12Core.dll is not loaded after an unfiltered enumeration: the control does not show the difference");
+        var loader = RunChild(ChildLoader);
+        foreach (var line in loader.Where(l => l.StartsWith("RESULT ", StringComparison.Ordinal))) GpuWork.Record(line);
+        static bool Has(string[] lines, string after, string module) =>
+            lines.Single(l => l.StartsWith("RESULT modules " + after + ": ", StringComparison.Ordinal))[("RESULT modules ".Length + after.Length + 2)..]
+                .Split(", ").Contains(module, StringComparer.OrdinalIgnoreCase);
+        foreach (var module in D3DModules)
+        {
+            Assert.False(Has(vulkanOnly, "before any enumeration", module), $"{module} is loaded once NRI.dll is, before any enumeration (Vulkan-only child)");
+            Assert.False(Has(all, "before any enumeration", module), $"{module} is loaded once NRI.dll is, before any enumeration (unfiltered child)");
+            Assert.True(Has(all, "after the unfiltered enumeration", module), $"{module} is not loaded after an unfiltered enumeration: the control does not show the difference");
+            // What a bare Vulkan instance loads is the loader's; NRI must add nothing to it.
+            var byLoader = Has(loader, "after a Vulkan instance with no NRI", module);
+            Assert.True(byLoader == Has(vulkanOnly, "after the Vulkan-only enumeration", module),
+                $"{module} after a Vulkan-only enumeration: loaded {!byLoader}, while a bare Vulkan instance leaves it {(byLoader ? "loaded" : "unloaded")}");
+            Assert.True(byLoader == Has(vulkanOnly, "after creating the Vulkan device with no adapter", module),
+                $"{module} after creating a Vulkan device with no adapter: loaded {!byLoader}, while a bare Vulkan instance leaves it {(byLoader ? "loaded" : "unloaded")}");
+        }
+        Assert.False(Has(loader, "after a Vulkan instance with no NRI", "d3d12.dll"), "a bare Vulkan instance loads d3d12.dll: the Vulkan-only child cannot show that NRI does not");
+        Assert.False(Has(loader, "after a Vulkan instance with no NRI", "D3D12Core.dll"), "a bare Vulkan instance loads D3D12Core.dll: the Vulkan-only child cannot show that NRI does not");
     }
-
     /// <summary>
     /// The adapter NRI picks for a device created with no adapter is the first adapter of the
     /// filtered enumeration that supports the API, and the first of the unfiltered one: the filter
@@ -129,11 +146,11 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
     internal static void RunChildIfAsked()
     {
         var name = Environment.GetEnvironmentVariable(ChildVariable);
-        if (name is not (ChildVulkanOnly or ChildAll)) return;
+        if (name is not (ChildVulkanOnly or ChildAll or ChildLoader)) return;
         int code;
         try
         {
-            code = name == ChildVulkanOnly ? VulkanOnly() : All();
+            code = name switch { ChildVulkanOnly => VulkanOnly(), ChildAll => All(), _ => LoaderOnly() };
         }
         catch (Exception e)
         {
@@ -149,7 +166,7 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
         using var process = Process.GetCurrentProcess();
         var loaded = process.Modules.Cast<ProcessModule>().Select(m => m.ModuleName)
             .Where(n => D3DModules.Contains(n, StringComparer.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        return loaded.Count == 0 ? "none of " + string.Join(", ", D3DModules) : string.Join(", ", loaded);
+        return loaded.Count == 0 ? "none" : string.Join(", ", loaded);
     }
 
     /// <summary>The modules once NRI.dll is loaded (a flat export that enumerates nothing), before any enumeration.</summary>
@@ -199,5 +216,34 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
         Console.WriteLine($"RESULT unfiltered enumeration: {first.Count} adapter(s), first call {first.Milliseconds:0.0} ms, second {second.Milliseconds:0.0} ms");
         Console.WriteLine($"RESULT modules after the unfiltered enumeration: {LoadedD3DModules()}");
         return 0;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct VkInstanceCreateInfo
+    {
+        public int sType;
+        public nint pNext;
+        public uint flags;
+        public nint pApplicationInfo;
+        public uint enabledLayerCount;
+        public nint ppEnabledLayerNames;
+        public uint enabledExtensionCount;
+        public nint ppEnabledExtensionNames;
+    }
+
+    [DllImport("vulkan-1", ExactSpelling = true)]
+    private static extern int vkCreateInstance(in VkInstanceCreateInfo createInfo, nint allocator, out nint instance);
+
+    [DllImport("vulkan-1", ExactSpelling = true)]
+    private static extern void vkDestroyInstance(nint instance, nint allocator);
+
+    /// <summary>One Vulkan 1.0 instance through the loader, created and destroyed, NRI never called.</summary>
+    private static int LoaderOnly()
+    {
+        var result = vkCreateInstance(new VkInstanceCreateInfo { sType = 1 /* VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO */ }, 0, out var instance);
+        if (result == 0) vkDestroyInstance(instance, 0);
+        Console.WriteLine($"RESULT bare Vulkan instance: vkCreateInstance {result}");
+        Console.WriteLine($"RESULT modules after a Vulkan instance with no NRI: {LoadedD3DModules()}");
+        return result == 0 ? 0 : 1;
     }
 }
