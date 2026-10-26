@@ -48,7 +48,7 @@ read; nothing is pushed to it from here until an upstream PR is planned.
 - **Now.** `next` pins NRI main 83fd010 (2026-10-26, "NGX: fixed cleanup after failed
   initialization", still `NRI_VERSION 190`) and carries seventeen patches; master pins v190
   with thirty-seven. Verified at 9fa9e14 (2026-10-26): Windows (NVIDIA RTX 4070 SUPER, VK and
-  D3D12) 531 tests, 0 failed, 13 skipped; lavapipe in WSL (layer 1.4.363) 530 tests, 0 failed, 290 skipped; the same counts at 412d5b19 with the PR #294 review fixes in 0002 (2026-10-26).
+  D3D12) 531 tests, 0 failed, 13 skipped; lavapipe in WSL (layer 1.4.363) 530 tests, 0 failed, 290 skipped; the same counts at 412d5b19 and 11cd6405 with the PR #294 review fixes in 0002 (2026-10-26).
 - **Direction.** Binding work that does not depend on the NRI version lands on master and is
   merged forward into `next` often (`git merge master` on `next`). After a forward merge,
   regenerate L0 on `next` instead of resolving conflicts in `dotnet/Native` by hand. NRI-side work
@@ -207,7 +207,22 @@ From the owner. Do not relitigate.
   exact text.
 - **A patch is NRI-shaped**: a field on an existing desc, a new desc, or a new interface struct in
   NRI's style, comment in NRI's voice; or a bug fix. Never a semantic change to an existing call.
-  Every patch must apply cleanly to the next upstream tag.
+  Every patch must apply cleanly to the next upstream tag. **And it follows NRI's own standard**
+  (`nri/.agents/skills/nri-coding-standard/SKILL.md`, since main 83fd010; the maintainer pointed at
+  it on PR #294, 2026-10-26; his review bot reads `nri-review/SKILL.md` beside it). The parts that
+  decide a patch's shape: public-input checks live in `Source/Validation` only (`NRI_RETURN_ON_FAILURE`
+  there; a backend assumes validated descriptors and keeps native work, native-result macros and
+  capability answers; debug-only `NRI_CHECK` for impossible states), Validation never checks device
+  ownership, a new public function updates the table, `FillFunctionTable`, Validation, every backend,
+  the Creation glue and the capabilities together; file-local helpers are `static inline` in the
+  helper section at the top of the file; `Scratch<T>` for variable-sized temporaries; no hidden
+  barriers, synchronization, allocation or caching; an empty line before `return`, `if`, `for`,
+  `while`, `switch` in touched code; compound `?:` conditions parenthesized; a single-sentence
+  comment has no trailing period; `Include/` files are edited by hand, never clang-formatted;
+  `git diff --check` clean, the repository's line endings kept. Measured consequence: 0029 carries
+  the same `layerOffset` refusal in `DescriptorD3D12` and in Validation, and the backend half is
+  against the standard (owner's call whether to drop it on both branches); 0002's Vulkan
+  `features.shared*` early-outs were dropped for it (fork 0a7f3b2b).
 - **Every NRI defect found is patched on master, test first** (decided 2026-10-22). The test
   asserts the right answer and is run red against the unpatched build; the patch makes it green.
   Never a test shaped around the defect, a workaround or a skip with a "to fix" note. Master stays
