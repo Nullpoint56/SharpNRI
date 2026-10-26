@@ -9,12 +9,17 @@ a header changes the L0 layer and the ABI oracle measures the patched header. Bo
 that is already applied, so the submodule working tree normally sits with every patch applied and
 `git -C nri status` shows the patched files as modified. Listed and explained in `CLAUDE.md` (Patches).
 
-This is the `next` branch's set, against NRI main 72f5f46 rather than a tag (`CLAUDE.md`: Branches).
-Thirteen of master's patches are gone because NRI main carries the fix: 0003, 0004, 0005, 0008,
-0010, 0014, 0020, 0021, 0022, 0023, 0032, 0033 and the `nriEnumerateAdapters2` of 0024 (two lines
-of it stay). 0002 is re-cut in the shape the maintainer asked for on #49 (2026-10-23: fields on the descs, the
-getters in Core); 0029 and 0034 over 72f5f46, 0034 over the new 0002 too, so it does not apply alone. 0037 and 0038 are `next`'s own (2026-10-24), not on
-master: a layer warning and a phase 2 proposal.
+This is the `next` branch's set, against NRI main 83fd010 (2026-10-26) rather than a tag (`CLAUDE.md`: Branches).
+Twenty of master's patches are gone because NRI main carries the fix: 0003, 0004, 0005, 0008,
+0010, 0014, 0020, 0021, 0022, 0023, 0032, 0033, 0036 (48d4a33), and since 83fd010 the seven filed
+reports: 0025 (0593d91, #295), 0026 (8a8fc2b, #296), 0027 (909a139, #297), 0028 (c8fe3b2, #298),
+0030 (1dc13b2, #299), 0031 (561e2be, #300) and 0034 (9d276c3 and aa23763, #301), each test passing
+on 83fd010 without the patch. Of 0024 only the two lines main did not take stay (main's 962615b
+gave `nriEnumerateAdapters` the backends to probe). 0002 is
+re-cut in the shape the maintainer asked for on #49 (2026-10-23: fields on the descs, the getters in
+Core), and over 83fd010 (2026-10-26) for the Vulkan latency fence, which main now creates through
+`CreateImplementation`. All seventeen apply in order onto 83fd010 and each also alone. 0037 and 0038
+are `next`'s own (2026-10-24), not on master: a layer warning and a phase 2 proposal.
 
 | Patch | What | Why |
 |---|---|---|
@@ -31,14 +36,7 @@ master: a layer warning and a phase 2 proposal.
 | `0018-d3d12-break-on-error-switch` | `DeviceCreationDesc::disableD3D12BreakOnError` skips `ID3D12InfoQueue::SetBreakOnSeverity` for ERROR and CORRUPTION; the messages still reach `CallbackInterface` | upstream sets the break with every debug-layer device, so in a process without a debugger the first D3D12 error is a breakpoint exception out of the NRI call before the caller sees the message (CLAUDE.md: D3D12 and the Agility SDK) |
 | `0019-d3d12-gpu-based-validation-switch` | `DeviceCreationDesc::enableD3D12GpuBasedValidation` calls `ID3D12Debug1::SetEnableGPUBasedValidation` after `EnableDebugLayer` | upstream has no way to ask for GPU-based validation, which must be enabled before the device is created; the alternative is D3D12 COM in the caller (CLAUDE.md: D3D12 and the Agility SDK) |
 | `0024-enumerate-adapters-by-graphics-api` | `nriCreateDevice` with no adapter probes only the Vulkan backend for a Vulkan device (NRI main's `nriEnumerateAdapters` takes the backends to probe since 962615b, which master's 0024 did as `nriEnumerateAdapters2`) | upstream gap: the device creation still probes every backend, so a Vulkan device created a DXGI factory and D3D12 devices and loaded `D3D12Core.dll` for the process (CLAUDE.md: Device creation and callbacks) |
-| `0025-vulkan-vertex-attribute-binding-slot` | Vulkan binds a vertex attribute to its stream's `bindingSlot`, as D3D12 does; validation refuses an attribute whose `streamIndex` names no stream | upstream bug: the attribute's binding was its stream's index, so streams declared out of slot order drew nothing on Vulkan (VUID-vkCmdBindVertexBuffers2-pStrides-06209) and right on D3D12 (CLAUDE.md: Draws, render state and attachments) |
-| `0026-vulkan-empty-vertex-input-no-dynamic-stride` | Vulkan makes the vertex binding stride dynamic only for a vertex input with streams | upstream bug: any non-null vertex input made it dynamic, so every draw with an empty one reported VUID-vkCmdDraw-pStrides-04913 (CLAUDE.md: Draws, render state and attachments) |
-| `0027-d3d12-clear-attachments-stencil-only-pass` | D3D12 `ClearAttachments` takes the depth-stencil view from the stencil attachment when the pass has no depth attachment | upstream bug: it dereferenced the null depth attachment of a stencil-only pass, an access violation (CLAUDE.md: Draws, render state and attachments) |
-| `0028-d3d12-depth-attachment-clears-stencil` | D3D12 clears the stencil of a depth-stencil view passed as `depth` alone, with that attachment's load op and clear value | upstream bug: the stencil clear came from `RenderingDesc::stencil` only, so D3D12 kept the stencil Vulkan cleared (CLAUDE.md: Draws, render state and attachments) |
 | `0029-non-array-texture-view-layer-offset` | a non-array texture view (`TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE`, `TEXTURE_CUBE`) of a layer other than the first is refused, by NRI validation on every backend and by the D3D12 backend itself | upstream bug: D3D12's non-array views have no array slice and dropped `layerOffset` silently, so such a view addressed the first layer on D3D12 and the asked one on Vulkan (CLAUDE.md: Multisampling, copies and queries) |
-| `0030-d3d12-micromap-write-barrier-sync` | D3D12 adds no `EMIT_POSTBUILD_INFO` sync to a barrier side whose access is `MICROMAP_WRITE` | upstream bug: only `ACCELERATION_STRUCTURE_WRITE` was excluded, though `MICROMAP_WRITE` maps to the same D3D12 write; the debug layer refuses the pair (1331) and `Close` fails after a micromap build (CLAUDE.md: Ray tracing) |
-| `0031-d3d12-acceleration-structure-alignment` | D3D12 reports acceleration-structure memory aligned to at least `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT` (256) | upstream bug: sized as a plain buffer, tight alignment reported 128, which NRI validation accepts and the acceleration-structure descriptor refuses (31) (CLAUDE.md: Ray tracing) |
-| `0034-allocation-failure-out-of-memory` | every NRI object allocation that comes back null fails its creation with `OUT_OF_MEMORY` and releases what the call made, on Vulkan, D3D12, validation and the shared parts | upstream bug: the null was used as the object, an access violation in the call; NRI's containers still cannot report a null (CLAUDE.md: Device creation and callbacks) |
 | `0035-helper-sort-every-resource` | `AllocateAndBindMemory` sorts the whole buffer and texture ranges before packing | upstream bug: the sort's end excluded the last resource of each kind, so the packing depended on the order passed and could take a second allocation (CLAUDE.md: Memory and resources) |
 | `0037-vulkan-swapchain-present-modes-info` | with `swapchainMaintenance1`, the Vulkan swap chain is created with `VkSwapchainPresentModesCreateInfoKHR` listing its present mode | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (CLAUDE.md: Extensions) |
 | `0038-vulkan-instance-create-info-next` | `DeviceCreationDesc::vkInstanceCreateInfoNext`, a caller's chain appended to `VkInstanceCreateInfo::pNext` after NRI's own structures | NRI creates the instance and chains only its own structures, so `VkLayerSettingsCreateInfoEXT` cannot reach the validation layer and its settings go through process-wide environment variables (CLAUDE.md: Device creation and callbacks) |
