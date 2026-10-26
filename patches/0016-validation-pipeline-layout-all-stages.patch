@@ -11,10 +11,10 @@ Measured on v190, Vulkan and D3D12.
 This maps ALL to ALL_SHADERS in both checks, as the D3D12 backend does.
 
 diff --git a/Source/Validation/DeviceVal.hpp b/Source/Validation/DeviceVal.hpp
-index 77958e8..0bb2a05 100644
+index 45d19769..5cf190c0 100644
 --- a/Source/Validation/DeviceVal.hpp
 +++ b/Source/Validation/DeviceVal.hpp
-@@ -467,7 +467,8 @@ NRI_INLINE Result DeviceVal::CreatePipelineLayout(const PipelineLayoutDesc& pipe
+@@ -551,7 +551,8 @@ NRI_INLINE Result DeviceVal::CreatePipelineLayout(const PipelineLayoutDesc& pipe
              NRI_RETURN_ON_FAILURE(this, !(range.flags & DescriptorRangeBits::VARIABLE_SIZED_ARRAY) || deviceDesc.tiers.bindless != 0, Result::INVALID_ARGUMENT, "'descriptorSets[%u].ranges[%u].flags' has 'VARIABLE_SIZED_ARRAY', but 'tiers.bindless' is 0", i, j);
              NRI_RETURN_ON_FAILURE(this, !(range.flags & DescriptorRangeBits::VARIABLE_SIZED_ARRAY) || deviceDesc.tiers.resourceBinding >= 2, Result::INVALID_ARGUMENT, "'descriptorSets[%u].ranges[%u].flags' has 'VARIABLE_SIZED_ARRAY', but 'tiers.resourceBinding' is less than 2", i, j);
              if (range.shaderStages != StageBits::ALL) {
@@ -24,7 +24,7 @@ index 77958e8..0bb2a05 100644
  
                  NRI_RETURN_ON_FAILURE(this, (uint32_t)range.shaderStages == filteredVisibilityMask, Result::INVALID_ARGUMENT, "'descriptorSets[%u].ranges[%u].shaderStages' is not compatible with 'shaderStages'", i, j);
              }
-@@ -661,7 +662,8 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const GraphicsPipelineDesc& graphics
+@@ -748,7 +749,8 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const GraphicsPipelineDesc& graphics
      }
  
      const PipelineLayoutVal& pipelineLayout = *(PipelineLayoutVal*)graphicsPipelineDesc.pipelineLayout;

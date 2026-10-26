@@ -27,10 +27,10 @@ index 3b37e72e..6575e62f 100644
      // Switches (disabled by default)
      bool enableNRIValidation;                   // embedded validation layer, checks for NRI specifics
 diff --git a/Source/VK/DeviceVK.h b/Source/VK/DeviceVK.h
-index 1d428358..31b264d6 100644
+index 1ba9d13a..4491582a 100644
 --- a/Source/VK/DeviceVK.h
 +++ b/Source/VK/DeviceVK.h
-@@ -307,7 +307,7 @@ private:
+@@ -294,7 +294,7 @@ private:
      void ProcessInstanceExtensions(Vector<const char*>& desiredInstanceExts);
      void ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, bool disableRayTracing, DeviceLostInfoLevel deviceLostInfoLevel);
      void ReportMemoryTypes();
@@ -40,7 +40,7 @@ index 1d428358..31b264d6 100644
      Result ResolveInstanceDispatchTable(const Vector<const char*>& desiredInstanceExts);
      Result ResolveDispatchTable(const Vector<const char*>& desiredDeviceExts);
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index 191f7bfb..dd3a0bfe 100644
+index 9dd4e4d6..603a73ee 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
 @@ -754,7 +754,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe

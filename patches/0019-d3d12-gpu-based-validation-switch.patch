@@ -16,7 +16,7 @@ Uninitialized descriptor accessed: ... Descriptor Heap Index FromTableStart: [1]
 CallbackInterface with the switch, and nothing without it.
 
 diff --git a/Include/Extensions/NRIDeviceCreation.h b/Include/Extensions/NRIDeviceCreation.h
-index 572ba81..dea6fc0 100644
+index 7e425e8e..3b37e72e 100644
 --- a/Include/Extensions/NRIDeviceCreation.h
 +++ b/Include/Extensions/NRIDeviceCreation.h
 @@ -89,6 +89,7 @@ NriStruct(DeviceCreationDesc) {
@@ -28,10 +28,10 @@ index 572ba81..dea6fc0 100644
  
      // Switches (enabled by default)
 diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
-index accdf27..a59b983 100644
+index c6f1dd5f..f5c5ecec 100644
 --- a/Source/D3D12/DeviceD3D12.hpp
 +++ b/Source/D3D12/DeviceD3D12.hpp
-@@ -512,8 +512,15 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
+@@ -515,8 +515,15 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
      // IMPORTANT: Must be called before the D3D12 device is created, or the D3D12 runtime removes the device
      if (desc.enableGraphicsAPIValidation) {
          ComPtr<ID3D12Debug> debugController;

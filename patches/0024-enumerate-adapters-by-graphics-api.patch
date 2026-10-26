@@ -16,10 +16,10 @@ with no adapter afterwards (104.5 ms); an unfiltered enumeration took 125.1 ms a
 loaded D3D12Core.dll.
 
 diff --git a/Source/Creation/Creation.cpp b/Source/Creation/Creation.cpp
-index e6e71b63..20187fbc 100644
+index 81b90fc6..c92fbb3b 100644
 --- a/Source/Creation/Creation.cpp
 +++ b/Source/Creation/Creation.cpp
-@@ -915,7 +915,9 @@ NRI_API Result NRI_CALL nriCreateDevice(const DeviceCreationDesc& deviceCreation
+@@ -911,7 +911,9 @@ NRI_API Result NRI_CALL nriCreateDevice(const DeviceCreationDesc& deviceCreation
      std::array<AdapterDesc, ADAPTER_MAX_NUM> adapterDescs = {};
      AdapterDesc adapterDesc = {};
      if (!modifiedDeviceCreationDesc.adapterDesc) {

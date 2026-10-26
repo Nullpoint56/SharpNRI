@@ -18,7 +18,7 @@ extends past the end of the destination resource"; with the switch the call retu
 message arrives through CallbackInterface and EndCommandBuffer fails Close with E_INVALIDARG.
 
 diff --git a/Include/Extensions/NRIDeviceCreation.h b/Include/Extensions/NRIDeviceCreation.h
-index a8ad7b5..572ba81 100644
+index b6fcdcff..7e425e8e 100644
 --- a/Include/Extensions/NRIDeviceCreation.h
 +++ b/Include/Extensions/NRIDeviceCreation.h
 @@ -94,6 +94,7 @@ NriStruct(DeviceCreationDesc) {
@@ -30,10 +30,10 @@ index a8ad7b5..572ba81 100644
  
  // if "adapterDescs == NULL", then "adapterDescNum" is set to the number of adapters
 diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
-index 855c521..accdf27 100644
+index 7c35757e..c6f1dd5f 100644
 --- a/Source/D3D12/DeviceD3D12.hpp
 +++ b/Source/D3D12/DeviceD3D12.hpp
-@@ -608,11 +608,13 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
+@@ -611,11 +611,13 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
          HRESULT hr = m_Device->QueryInterface(&pInfoQueue);
  
          if (SUCCEEDED(hr)) {

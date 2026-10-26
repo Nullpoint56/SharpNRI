@@ -14,10 +14,10 @@ needed two in the 4 orders that put a 4 KiB one last. With the change every orde
 allocation, on both backends.
 
 diff --git a/Source/Shared/HelperInterface.hpp b/Source/Shared/HelperInterface.hpp
-index f367500..126faad 100644
+index 40c633e0..a991c208 100644
 --- a/Source/Shared/HelperInterface.hpp
 +++ b/Source/Shared/HelperInterface.hpp
-@@ -557,7 +557,7 @@ void HelperDeviceMemoryAllocator::GroupByMemoryType(MemoryLocation memoryLocatio
+@@ -553,7 +553,7 @@ void HelperDeviceMemoryAllocator::GroupByMemoryType(MemoryLocation memoryLocatio
  
      // Sort by "alignment"
      if (resourceGroupDesc.bufferNum > 1) {
@@ -26,7 +26,7 @@ index f367500..126faad 100644
              [](const BufferAndMemoryDesc& a, const BufferAndMemoryDesc& b) -> bool {
                  // Primary key: group by type
                  if (a.memoryDesc.type != b.memoryDesc.type)
-@@ -569,7 +569,7 @@ void HelperDeviceMemoryAllocator::GroupByMemoryType(MemoryLocation memoryLocatio
+@@ -565,7 +565,7 @@ void HelperDeviceMemoryAllocator::GroupByMemoryType(MemoryLocation memoryLocatio
      }
  
      if (resourceGroupDesc.textureNum > 1) {

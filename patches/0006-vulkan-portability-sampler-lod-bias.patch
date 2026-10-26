@@ -14,10 +14,10 @@ when the feature is absent. No other platform is affected.
 Applies on top of NRI v190 with patches 0001 to 0005.
 
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index cc92d62..0bf9234 100644
+index 4c4d760f..3cb4ecbd 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
-@@ -1542,6 +1542,12 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+@@ -1534,6 +1534,12 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
          m_Desc.other.timestampFrequencyHz = uint64_t(1e9 / double(limits.timestampPeriod) + 0.5);
          m_Desc.other.drawIndirectMaxNum = limits.maxDrawIndirectCount;
          m_Desc.other.samplerLodBiasMax = limits.maxSamplerLodBias;

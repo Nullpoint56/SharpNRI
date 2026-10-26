@@ -35,10 +35,10 @@ index edb17bb9..a257c8ae 100644
      m_ViewDesc.texture.layerOffset = textureViewDescFixed.layerOffset;
      m_ViewDesc.texture.layerNum = layerNum;
 diff --git a/Source/Validation/DeviceVal.hpp b/Source/Validation/DeviceVal.hpp
-index b41fb9cd..28285503 100644
+index 5cf190c0..133431a4 100644
 --- a/Source/Validation/DeviceVal.hpp
 +++ b/Source/Validation/DeviceVal.hpp
-@@ -456,6 +456,10 @@ NRI_INLINE Result DeviceVal::CreateDescriptor(const TextureViewDesc& textureView
+@@ -478,6 +478,10 @@ NRI_INLINE Result DeviceVal::CreateDescriptor(const TextureViewDesc& textureView
      NRI_RETURN_ON_FAILURE(this, textureViewDescFixed.layerOffset + layerNum <= textureDesc.layerNum, Result::INVALID_ARGUMENT,
          "'layerOffset=%u' + 'layerNum=%u' must be <= texture 'layerNum=%u'", textureViewDescFixed.layerOffset, layerNum, textureDesc.layerNum);
  

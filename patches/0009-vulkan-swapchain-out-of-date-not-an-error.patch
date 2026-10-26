@@ -18,10 +18,10 @@ report of its own, and D3D12 never returns OUT_OF_DATE from these calls, so noth
 Applies on top of NRI v190, independent of the other patches.
 
 diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
-index 6a18efc..25df1c0 100644
+index a879cb7e..d37cd106 100644
 --- a/Source/VK/SwapChainVK.hpp
 +++ b/Source/VK/SwapChainVK.hpp
-@@ -470,6 +470,11 @@ NRI_INLINE Result SwapChainVK::AcquireNextTexture(FenceVK& acquireSemaphore, uin
+@@ -479,6 +479,11 @@ NRI_INLINE Result SwapChainVK::AcquireNextTexture(FenceVK& acquireSemaphore, uin
  
      const auto& vk = m_Device.GetDispatchTable();
      VkResult vkResult = vk.AcquireNextImage2KHR(m_Device, &acquireInfo, &m_TextureIndex);
@@ -33,7 +33,7 @@ index 6a18efc..25df1c0 100644
      NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "AcquireNextImage2KHR");
  
      textureIndex = m_TextureIndex;
-@@ -517,6 +522,10 @@ NRI_INLINE Result SwapChainVK::Present(FenceVK& releaseSemaphore, uint64_t prese
+@@ -526,6 +531,10 @@ NRI_INLINE Result SwapChainVK::Present(FenceVK& releaseSemaphore, uint64_t prese
      if ((m_Flags & SwapChainBits::ALLOW_LOW_LATENCY) && presentIdValue != 0)
          SetLatencyMarker(presentIdValue, (LatencyMarker)VK_LATENCY_MARKER_PRESENT_END_NV);
  

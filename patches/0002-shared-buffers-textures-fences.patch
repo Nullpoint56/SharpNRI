@@ -25,7 +25,7 @@ The Vulkan backend enables VK_KHR_external_memory_win32/fd and VK_KHR_external_s
 when the device has them. Validation refuses "shared" outside CreateCommitted* and outside DEVICE
 memory, a getter on an object that is not shared, and a shared object on a device without the
 feature. NONE returns zero handles. D3D11, WGPU and Metal answer UNSUPPORTED. Applies on top of NRI
-main 72f5f46 and patch 0001.
+main 83fd010 and patch 0001.
 
 diff --git a/Include/Extensions/NRISwapChain.h b/Include/Extensions/NRISwapChain.h
 index e9e0e4b7..153fb433 100644
@@ -159,10 +159,10 @@ index f3dfc334..8321ac66 100644
          bool textureCompressionBC;                                // all "BC" texture formats are supported
          bool textureCompressionETC2;                              // all "ETC2" texture formats are supported
 diff --git a/Source/D3D11/ImplD3D11.cpp b/Source/D3D11/ImplD3D11.cpp
-index 4f3e46d3..4a698d92 100644
+index 6c3fe88c..936f7490 100644
 --- a/Source/D3D11/ImplD3D11.cpp
 +++ b/Source/D3D11/ImplD3D11.cpp
-@@ -93,8 +93,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+@@ -84,8 +84,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
      return ((CommandAllocatorD3D11&)commandAllocator).CreateCommandBuffer(commandBuffer);
  }
  
@@ -176,7 +176,7 @@ index 4f3e46d3..4a698d92 100644
  }
  
  static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
-@@ -743,6 +746,24 @@ static void* NRI_CALL EmuGetCommandBufferNativeObject(const CommandBuffer* comma
+@@ -734,6 +737,24 @@ static void* NRI_CALL EmuGetCommandBufferNativeObject(const CommandBuffer* comma
      return commandBufferBase->GetNativeObject();
  }
  
@@ -201,7 +201,7 @@ index 4f3e46d3..4a698d92 100644
  Result DeviceD3D11::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -815,6 +836,9 @@ Result DeviceD3D11::FillFunctionTable(CoreInterface& table) const {
+@@ -806,6 +827,9 @@ Result DeviceD3D11::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
@@ -263,7 +263,7 @@ index 960deb88..cfaec659 100644
      // Priority
      D3D12_RESIDENCY_PRIORITY residencyPriority = (D3D12_RESIDENCY_PRIORITY)ConvertPriority(priority);
 diff --git a/Source/D3D12/CommandBufferD3D12.hpp b/Source/D3D12/CommandBufferD3D12.hpp
-index ca43f02e..dac12345 100644
+index d131e3ea..2e924235 100644
 --- a/Source/D3D12/CommandBufferD3D12.hpp
 +++ b/Source/D3D12/CommandBufferD3D12.hpp
 @@ -300,7 +300,7 @@ constexpr std::array<D3D12_BARRIER_LAYOUT, (size_t)Layout::MAX_NUM> g_BarrierLay
@@ -276,7 +276,7 @@ index ca43f02e..dac12345 100644
  
  static inline D3D12_BARRIER_LAYOUT GetBarrierLayout(Layout layout, AccessBits accessBits, bool isCopyQueue) {
 diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
-index 6d841dd9..3f2cf16d 100644
+index c8738c17..7c35757e 100644
 --- a/Source/D3D12/DeviceD3D12.hpp
 +++ b/Source/D3D12/DeviceD3D12.hpp
 @@ -1231,6 +1231,8 @@ void DeviceD3D12::FillDesc(bool disableD3D12EnhancedBarrier) {
@@ -358,10 +358,10 @@ index 24903196..d3b17037 100644
      return m_Fence ? m_Fence->GetCompletedValue() : 0;
  }
 diff --git a/Source/D3D12/ImplD3D12.cpp b/Source/D3D12/ImplD3D12.cpp
-index 75d4916f..177fc6d9 100644
+index d08206ce..3c3d545c 100644
 --- a/Source/D3D12/ImplD3D12.cpp
 +++ b/Source/D3D12/ImplD3D12.cpp
-@@ -104,8 +104,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+@@ -95,8 +95,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
      return ((CommandAllocatorD3D12&)commandAllocator).CreateCommandBuffer(commandBuffer);
  }
  
@@ -372,7 +372,7 @@ index 75d4916f..177fc6d9 100644
  }
  
  static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
-@@ -602,6 +602,18 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+@@ -593,6 +593,18 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
      return uint64_t(((DescriptorD3D12*)descriptor)->GetDescriptorHandleCPU());
  }
  
@@ -391,7 +391,7 @@ index 75d4916f..177fc6d9 100644
  Result DeviceD3D12::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -717,6 +729,9 @@ Result DeviceD3D12::FillFunctionTable(CoreInterface& table) const {
+@@ -708,6 +720,9 @@ Result DeviceD3D12::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
@@ -478,7 +478,7 @@ index a8bc29e7..23c7ab72 100644
      if (result == Result::SUCCESS)
          result = m_Device.CreateImplementation<CommandAllocatorD3D12>(m_CommandAllocator, (Queue&)queue);
 diff --git a/Source/Metal/ImplMetal.cpp b/Source/Metal/ImplMetal.cpp
-index 80349e45..73dfbf1a 100644
+index ee7aa639..ad7200be 100644
 --- a/Source/Metal/ImplMetal.cpp
 +++ b/Source/Metal/ImplMetal.cpp
 @@ -116,8 +116,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
@@ -531,10 +531,10 @@ index 80349e45..73dfbf1a 100644
      return Result::SUCCESS;
  }
 diff --git a/Source/NONE/ImplNONE.cpp b/Source/NONE/ImplNONE.cpp
-index c1c69ed4..c984395f 100644
+index 07cb14fa..0938b52f 100644
 --- a/Source/NONE/ImplNONE.cpp
 +++ b/Source/NONE/ImplNONE.cpp
-@@ -281,7 +281,7 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator&, CommandBuffer*& co
+@@ -274,7 +274,7 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator&, CommandBuffer*& co
      return Result::SUCCESS;
  }
  
@@ -543,7 +543,7 @@ index c1c69ed4..c984395f 100644
      fence = DummyObject<Fence>();
  
      return Result::SUCCESS;
-@@ -686,6 +686,24 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor*) {
+@@ -679,6 +679,24 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor*) {
      return 0;
  }
  
@@ -568,7 +568,7 @@ index c1c69ed4..c984395f 100644
  Result DeviceNONE::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -801,6 +819,9 @@ Result DeviceNONE::FillFunctionTable(CoreInterface& table) const {
+@@ -794,6 +812,9 @@ Result DeviceNONE::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
@@ -593,10 +593,10 @@ index 822e7ecc..40c633e0 100644
          if (result == Result::SUCCESS)
              result = m_iCore.CreateCommandAllocator(m_Queue, m_CommandAllocator);
 diff --git a/Source/Shared/UpscalerInterface.hpp b/Source/Shared/UpscalerInterface.hpp
-index 34110998..63b3978b 100644
+index 039767d4..863fd1fb 100644
 --- a/Source/Shared/UpscalerInterface.hpp
 +++ b/Source/Shared/UpscalerInterface.hpp
-@@ -1305,8 +1305,10 @@ Result UpscalerImpl::Create(const UpscalerDesc& upscalerDesc) {
+@@ -1340,8 +1340,10 @@ Result UpscalerImpl::Create(const UpscalerDesc& upscalerDesc) {
                  result = m_iCore.CreateCommandAllocator(*graphicsQueue, commandAllocator);
              if (result == Result::SUCCESS)
                  result = m_iCore.CreateCommandBuffer(*commandAllocator, commandBuffer);
@@ -708,10 +708,10 @@ index 078721c7..732c47a6 100644
      constexpr uint32_t videoUsageMask = (uint32_t)BufferUsageBits::VIDEO_DECODE | (uint32_t)BufferUsageBits::VIDEO_ENCODE;
      const uint32_t usageMask = (uint32_t)m_Desc.usage;
 diff --git a/Source/VK/CommandBufferVK.hpp b/Source/VK/CommandBufferVK.hpp
-index b428efd4..ccc552f0 100644
+index a0fcdf8b..b0296d7b 100644
 --- a/Source/VK/CommandBufferVK.hpp
 +++ b/Source/VK/CommandBufferVK.hpp
-@@ -2676,8 +2676,9 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
+@@ -2683,8 +2683,9 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
          out.dstAccessMask = GetAccessFlags(in.after.access);
          out.oldLayout = GetImageLayout(in.before.layout);
          out.newLayout = GetImageLayout(in.after.layout);
@@ -724,10 +724,10 @@ index b428efd4..ccc552f0 100644
          out.subresourceRange = {
              aspectFlags,
 diff --git a/Source/VK/DeviceVK.h b/Source/VK/DeviceVK.h
-index a6c31012..0218624b 100644
+index d50b366b..1ba9d13a 100644
 --- a/Source/VK/DeviceVK.h
 +++ b/Source/VK/DeviceVK.h
-@@ -220,6 +220,8 @@ struct DeviceVK final : public DeviceBase {
+@@ -211,6 +211,8 @@ struct DeviceVK final : public DeviceBase {
      VkRenderPass GetOrCreateRenderPass(const RenderPassDesc& desc);
      VkFramebuffer GetOrCreateFramebuffer(const FramebufferDesc& desc);
      void FillCreateInfo(const BufferDesc& bufferDesc, VkBufferCreateInfo& info) const;
@@ -737,7 +737,7 @@ index a6c31012..0218624b 100644
      void AppendVideoProfileList(const TextureDesc& textureDesc, VkImageCreateInfo& info, VideoResourceProfileListVK& videoProfiles) const; // "videoProfiles" must outlive "info"
      void FillCreateInfo(const SamplerDesc& samplerDesc, VkSamplerCreateInfo& info, VkSamplerReductionModeCreateInfo& reductionModeInfo, VkSamplerCustomBorderColorCreateInfoEXT& borderColorInfo) const;
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index 5a0f1e14..669f7a84 100644
+index 83149beb..4c4d760f 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
 @@ -595,6 +595,15 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
@@ -975,10 +975,10 @@ index 11c9dd07..97a928f6 100644
      m_Device.SetDebugNameToTrivialObject(VK_OBJECT_TYPE_SEMAPHORE, (uint64_t)m_Handle, name);
  }
 diff --git a/Source/VK/ImplVK.cpp b/Source/VK/ImplVK.cpp
-index ff77c32b..4bff573d 100644
+index 73af5fbd..d527a09e 100644
 --- a/Source/VK/ImplVK.cpp
 +++ b/Source/VK/ImplVK.cpp
-@@ -105,8 +105,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+@@ -96,8 +96,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
      return ((CommandAllocatorVK&)commandAllocator).CreateCommandBuffer(commandBuffer);
  }
  
@@ -989,7 +989,7 @@ index ff77c32b..4bff573d 100644
  }
  
  static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
-@@ -622,6 +622,18 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+@@ -613,6 +613,18 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
      return handle;
  }
  
@@ -1008,7 +1008,7 @@ index ff77c32b..4bff573d 100644
  Result DeviceVK::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -737,6 +749,9 @@ Result DeviceVK::FillFunctionTable(CoreInterface& table) const {
+@@ -728,6 +740,9 @@ Result DeviceVK::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
@@ -1039,19 +1039,19 @@ index 1ef5c449..9007a5f8 100644
  
  #include "DeviceVK.h"
 diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
-index da0cff26..4a234ae2 100644
+index 2ffdc83d..a879cb7e 100644
 --- a/Source/VK/SwapChainVK.hpp
 +++ b/Source/VK/SwapChainVK.hpp
-@@ -441,7 +441,8 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
+@@ -439,7 +439,8 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
+ 
      // Latency fence
      if (allowLowLatency) {
-         m_LatencyFence = Allocate<FenceVK>(m_Device.GetAllocationCallbacks(), m_Device);
--        m_LatencyFence->Create(0);
+-        Result result = m_Device.CreateImplementation<FenceVK>(m_LatencyFence, 0);
 +        FenceDesc fenceDesc = {};
-+        m_LatencyFence->Create(fenceDesc);
++        Result result = m_Device.CreateImplementation<FenceVK>(m_LatencyFence, fenceDesc);
+         if (result != Result::SUCCESS)
+             return result;
      }
- 
-     // Finalize
 diff --git a/Source/VK/TextureVK.h b/Source/VK/TextureVK.h
 index a25f3084..07299a06 100644
 --- a/Source/VK/TextureVK.h
@@ -1158,10 +1158,10 @@ index 4033b2bd..64dc5203 100644
      if (result == Result::SUCCESS)
          result = m_Device.CreateImplementation<CommandAllocatorVK>(m_CommandAllocator, (Queue&)queue);
 diff --git a/Source/Validation/CommandBufferVal.hpp b/Source/Validation/CommandBufferVal.hpp
-index ea20d831..985d0252 100644
+index ff6fa810..ea997a44 100644
 --- a/Source/Validation/CommandBufferVal.hpp
 +++ b/Source/Validation/CommandBufferVal.hpp
-@@ -1237,8 +1237,8 @@ NRI_INLINE void CommandBufferVal::Barrier(const BarrierDesc& barrierDesc) {
+@@ -1239,8 +1239,8 @@ NRI_INLINE void CommandBufferVal::Barrier(const BarrierDesc& barrierDesc) {
          memcpy(textures, barrierDesc.textures, sizeof(TextureBarrierDesc) * barrierDesc.textureNum);
          for (uint32_t i = 0; i < barrierDesc.textureNum; i++) {
              textures[i].texture = NRI_GET_IMPL(Texture, barrierDesc.textures[i].texture);
@@ -1173,10 +1173,10 @@ index ea20d831..985d0252 100644
      }
  
 diff --git a/Source/Validation/DeviceVal.h b/Source/Validation/DeviceVal.h
-index 276ac863..4735a3c8 100644
+index ca865506..6e8742ee 100644
 --- a/Source/Validation/DeviceVal.h
 +++ b/Source/Validation/DeviceVal.h
-@@ -136,7 +136,7 @@ struct DeviceVal final : public DeviceBase {
+@@ -134,7 +134,7 @@ struct DeviceVal final : public DeviceBase {
      // NRI
      //================================================================================================================
  
@@ -1186,10 +1186,10 @@ index 276ac863..4735a3c8 100644
      Result CreateFence(const FenceD3D12Desc& fenceD3D12Desc, Fence*& fence);
      Result CreateFence(const FenceMetalDesc& fenceMetalDesc, Fence*& fence);
 diff --git a/Source/Validation/DeviceVal.hpp b/Source/Validation/DeviceVal.hpp
-index fda122cc..29e4e298 100644
+index f6b6fb72..45d19769 100644
 --- a/Source/Validation/DeviceVal.hpp
 +++ b/Source/Validation/DeviceVal.hpp
-@@ -333,6 +333,7 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolDesc& desc
+@@ -354,6 +354,7 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolDesc& desc
  }
  
  NRI_INLINE Result DeviceVal::CreateBuffer(const BufferDesc& bufferDesc, Buffer*& buffer) {
@@ -1197,7 +1197,7 @@ index fda122cc..29e4e298 100644
      NRI_RETURN_ON_FAILURE(this, bufferDesc.size != 0, Result::INVALID_ARGUMENT, "'size' is 0");
  
      Buffer* bufferImpl = nullptr;
-@@ -346,6 +347,7 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferDesc& bufferDesc, Buffer*&
+@@ -367,6 +368,7 @@ NRI_INLINE Result DeviceVal::CreateBuffer(const BufferDesc& bufferDesc, Buffer*&
  }
  
  NRI_INLINE Result DeviceVal::CreateTexture(const TextureDesc& textureDesc, Texture*& texture) {
@@ -1205,7 +1205,7 @@ index fda122cc..29e4e298 100644
      NRI_RETURN_ON_FAILURE(this, textureDesc.type < TextureType::MAX_NUM, Result::INVALID_ARGUMENT, "'type' is invalid");
      NRI_RETURN_ON_FAILURE(this, textureDesc.format > Format::UNKNOWN && textureDesc.format < Format::MAX_NUM, Result::INVALID_ARGUMENT, "'format' is invalid");
      NRI_RETURN_ON_FAILURE(this, textureDesc.sharingMode < SharingMode::MAX_NUM, Result::INVALID_ARGUMENT, "'sharingMode' is invalid");
-@@ -903,9 +905,12 @@ NRI_INLINE Result DeviceVal::CreateQueryPool(const QueryPoolDesc& queryPoolDesc,
+@@ -927,9 +929,12 @@ NRI_INLINE Result DeviceVal::CreateQueryPool(const QueryPoolDesc& queryPoolDesc,
      return result;
  }
  
@@ -1220,7 +1220,7 @@ index fda122cc..29e4e298 100644
  
      fence = nullptr;
      if (result == Result::SUCCESS)
-@@ -965,6 +970,8 @@ NRI_INLINE void DeviceVal::DestroyFence(Fence* fence) {
+@@ -989,6 +994,8 @@ NRI_INLINE void DeviceVal::DestroyFence(Fence* fence) {
  }
  
  NRI_INLINE Result DeviceVal::CreateCommittedBuffer(MemoryLocation memoryLocation, float priority, const BufferDesc& bufferDesc, Buffer*& buffer) {
@@ -1229,7 +1229,7 @@ index fda122cc..29e4e298 100644
      NRI_RETURN_ON_FAILURE(this, priority >= -1.0f && priority <= 1.0f, Result::INVALID_ARGUMENT, "'priority' outside of [-1; 1] range");
      NRI_RETURN_ON_FAILURE(this, bufferDesc.size != 0, Result::INVALID_ARGUMENT, "'size' is 0");
  
-@@ -982,6 +989,8 @@ NRI_INLINE Result DeviceVal::CreateCommittedBuffer(MemoryLocation memoryLocation
+@@ -1005,6 +1012,8 @@ NRI_INLINE Result DeviceVal::CreateCommittedBuffer(MemoryLocation memoryLocation
  }
  
  NRI_INLINE Result DeviceVal::CreateCommittedTexture(MemoryLocation memoryLocation, float priority, const TextureDesc& textureDesc, Texture*& texture) {
@@ -1238,7 +1238,7 @@ index fda122cc..29e4e298 100644
      NRI_RETURN_ON_FAILURE(this, priority >= -1.0f && priority <= 1.0f, Result::INVALID_ARGUMENT, "'priority' outside of [-1; 1] range");
      NRI_RETURN_ON_FAILURE(this, textureDesc.type < TextureType::MAX_NUM, Result::INVALID_ARGUMENT, "'type' is invalid");
      NRI_RETURN_ON_FAILURE(this, textureDesc.format > Format::UNKNOWN && textureDesc.format < Format::MAX_NUM, Result::INVALID_ARGUMENT, "'format' is invalid");
-@@ -1093,6 +1102,7 @@ NRI_INLINE Result DeviceVal::CreateCommittedAccelerationStructure(MemoryLocation
+@@ -1116,6 +1125,7 @@ NRI_INLINE Result DeviceVal::CreateCommittedAccelerationStructure(MemoryLocation
  }
  
  NRI_INLINE Result DeviceVal::CreatePlacedBuffer(Memory* memory, uint64_t offset, const BufferDesc& bufferDesc, Buffer*& buffer) {
@@ -1246,7 +1246,7 @@ index fda122cc..29e4e298 100644
      NRI_RETURN_ON_FAILURE(this, bufferDesc.size != 0, Result::INVALID_ARGUMENT, "'size' is 0");
  
      if (memory) {
-@@ -1135,6 +1145,7 @@ NRI_INLINE Result DeviceVal::CreatePlacedBuffer(Memory* memory, uint64_t offset,
+@@ -1157,6 +1167,7 @@ NRI_INLINE Result DeviceVal::CreatePlacedBuffer(Memory* memory, uint64_t offset,
  }
  
  NRI_INLINE Result DeviceVal::CreatePlacedTexture(Memory* memory, uint64_t offset, const TextureDesc& textureDesc, Texture*& texture) {
@@ -1255,10 +1255,10 @@ index fda122cc..29e4e298 100644
      NRI_RETURN_ON_FAILURE(this, textureDesc.format > Format::UNKNOWN && textureDesc.format < Format::MAX_NUM, Result::INVALID_ARGUMENT, "'format' is invalid");
      NRI_RETURN_ON_FAILURE(this, textureDesc.sharingMode < SharingMode::MAX_NUM, Result::INVALID_ARGUMENT, "'sharingMode' is invalid");
 diff --git a/Source/Validation/ImplVal.cpp b/Source/Validation/ImplVal.cpp
-index 0b1f85ef..f093f6c2 100644
+index e5ea84c3..ffc73462 100644
 --- a/Source/Validation/ImplVal.cpp
 +++ b/Source/Validation/ImplVal.cpp
-@@ -446,8 +446,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+@@ -447,8 +447,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
      return ((CommandAllocatorVal&)commandAllocator).CreateCommandBuffer(commandBuffer);
  }
  
@@ -1269,7 +1269,7 @@ index 0b1f85ef..f093f6c2 100644
  }
  
  static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
-@@ -1040,6 +1040,30 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+@@ -1041,6 +1041,30 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
      return ((DescriptorVal*)descriptor)->GetNativeObject();
  }
  
@@ -1300,7 +1300,7 @@ index 0b1f85ef..f093f6c2 100644
  Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -1155,6 +1179,9 @@ Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
+@@ -1156,6 +1180,9 @@ Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
@@ -1311,10 +1311,10 @@ index 0b1f85ef..f093f6c2 100644
      return Result::SUCCESS;
  }
 diff --git a/Source/WGPU/ImplWGPU.cpp b/Source/WGPU/ImplWGPU.cpp
-index a34aa583..5c120a9b 100644
+index 72b367ef..306aab55 100644
 --- a/Source/WGPU/ImplWGPU.cpp
 +++ b/Source/WGPU/ImplWGPU.cpp
-@@ -100,8 +100,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
+@@ -85,8 +85,11 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
      return ((CommandAllocatorWGPU&)commandAllocator).CreateCommandBuffer(commandBuffer);
  }
  
@@ -1328,7 +1328,7 @@ index a34aa583..5c120a9b 100644
  }
  
  static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
-@@ -628,6 +631,24 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+@@ -613,6 +616,24 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
      }
  }
  
@@ -1353,7 +1353,7 @@ index a34aa583..5c120a9b 100644
  Result DeviceWGPU::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -743,6 +764,9 @@ Result DeviceWGPU::FillFunctionTable(CoreInterface& table) const {
+@@ -728,6 +749,9 @@ Result DeviceWGPU::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;
