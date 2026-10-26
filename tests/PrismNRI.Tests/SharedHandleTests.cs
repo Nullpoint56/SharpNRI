@@ -91,11 +91,12 @@ public sealed class SharedHandleTests
         Assert.Equal(ExpectedResourceType(backend.Api), handle.Type);
         Assert.True(handle.Size >= 4096, $"size {handle.Size}");
 
-        // A second call also succeeds. Whether its value differs is the driver's business: NVIDIA's
-        // Vulkan driver returned the same NT handle value for the same memory on 2026-10-13
-        // (CLAUDE.md: Shared handles), so nothing here asserts on distinctness.
+        // Every export is a handle of its own: on Vulkan NRI exports once and hands out duplicates,
+        // because a repeated Win32 export returns the same handle (NRI PR #294 review, item 1); on
+        // D3D12 every CreateSharedHandle is new; FD exports are independent by nature.
         using var second = buffer.GetSharedHandle();
         Assert.True(second.IsValid);
+        Assert.NotEqual(handle.Handle, second.Handle);
 
         Assert.DoesNotContain(messages, m => m.IsError);
     }
@@ -121,6 +122,7 @@ public sealed class SharedHandleTests
 
         using var second = texture.GetSharedHandle();
         Assert.True(second.IsValid);
+        Assert.NotEqual(handle.Handle, second.Handle); // an independent export, as for the buffer
 
         Assert.DoesNotContain(messages, m => m.IsError);
     }
@@ -141,6 +143,10 @@ public sealed class SharedHandleTests
         Assert.True(handle.IsValid, $"handle is {handle.Handle}");
         Assert.Equal(ExpectedFenceType(backend.Api), handle.Type);
         Assert.Equal(0UL, handle.Size);
+
+        using var second = fence.GetSharedHandle();
+        Assert.True(second.IsValid);
+        Assert.NotEqual(handle.Handle, second.Handle); // an independent export, as for the buffer
 
         var queue = device.GetQueue(QueueType.GRAPHICS);
         using var allocator = queue.CreateCommandAllocator();

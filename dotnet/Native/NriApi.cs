@@ -19,8 +19,8 @@ public static unsafe partial class NriApi
     [NativeTypeName("const Dim_t")]
     public const ushort REMAINING = 0;
 
-    [NativeTypeName("const Queue *")]
-    public static Queue* EXTERNAL_QUEUE = (Queue*)(1);
+    [NativeTypeName("nri::Queue *")]
+    public static readonly Queue* EXTERNAL_QUEUE = (Queue*)(1);
 
     [DllImport("NRI", CallingConvention = CallingConvention.StdCall, ExactSpelling = true)]
     [return: NativeTypeName("nri::Result")]

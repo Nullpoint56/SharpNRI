@@ -74,6 +74,9 @@ public sealed class CudaInteropTests
             write.Begin();
             write.Barrier(new NriBufferBarrier(buffer, GpuWork.Nothing, GpuWork.CopyDestination));
             write.CopyBuffer(buffer, 0, upload, 0, Size);
+            // Release to the external queue family before CUDA takes the buffer (Vulkan needs the
+            // transfer even on a CONCURRENT buffer; D3D12 ignores the queues).
+            write.Barrier(new NriBufferBarrier(buffer, GpuWork.CopyDestination, GpuWork.CopyDestination, SrcQueue: queue, DstQueue: NriQueue.External));
             write.End();
             queue.Submit([write], [], [new NriFenceSubmit(fence, 1)]);
 
@@ -130,7 +133,8 @@ public sealed class CudaInteropTests
 
                     // 3. NRI's queue waits for CUDA's 2, copies the buffer out and signals 3.
                     read.Begin();
-                    read.Barrier(new NriBufferBarrier(buffer, GpuWork.CopyDestination, GpuWork.CopySource));
+                    // Acquire from the external queue family: the same hand-off the release named, then the copy.
+                    read.Barrier(new NriBufferBarrier(buffer, GpuWork.CopyDestination, GpuWork.CopySource, SrcQueue: NriQueue.External, DstQueue: queue));
                     read.CopyBuffer(readback, 0, buffer, 0, Size);
                     read.End();
                     queue.Submit([read], [new NriFenceSubmit(fence, 2)], [new NriFenceSubmit(fence, 3)]);

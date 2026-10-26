@@ -15,9 +15,21 @@ using Buffer = PrismNRI.Native.Buffer;
 namespace PrismNRI;
 
 /// <summary><c>BufferBarrierDesc</c> naming the wrapper.</summary>
-public readonly unsafe record struct NriBufferBarrier(NriBuffer Buffer, AccessStage Before, AccessStage After)
+/// <remarks>
+/// <see cref="SrcQueue"/> / <see cref="DstQueue"/>: NRI's buffers are <c>CONCURRENT</c>, so a queue family ownership
+/// transfer exists only to or from <see cref="NriQueue.External"/> (a shared buffer released before an
+/// export, or acquired after an import); any other queue on either side is ignored, and D3D12 ignores both.
+/// </remarks>
+public readonly unsafe record struct NriBufferBarrier(NriBuffer Buffer, AccessStage Before, AccessStage After, NriQueue? SrcQueue = null, NriQueue? DstQueue = null)
 {
-    internal BufferBarrierDesc ToNative() => new() { buffer = Buffer.Raw, before = Before, after = After };
+    internal BufferBarrierDesc ToNative() => new()
+    {
+        buffer = Buffer.Raw,
+        before = Before,
+        after = After,
+        srcQueue = SrcQueue is null ? null : SrcQueue.Raw,
+        dstQueue = DstQueue is null ? null : DstQueue.Raw,
+    };
 }
 
 /// <summary><c>TextureBarrierDesc</c> naming the wrapper. Defaults cover the whole texture.</summary>

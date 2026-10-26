@@ -214,9 +214,14 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         api.vkGetImageMemoryRequirements(image, &requirements);
 
         VkDeviceMemory memory;
+        // Two exports are independent: the first is closed before the second imports. A repeated
+        // Win32 export returns the same handle, so NRI exports once and duplicates (NRI PR #294 review, item 1).
+        var first = texture.GetSharedHandle();
         using (var handle = texture.GetSharedHandle())
         {
             Assert.Equal(SharedHandleType.OPAQUE_WIN32, handle.Type);
+            Assert.NotEqual(first.Handle, handle.Handle);
+            first.Dispose();
             output.WriteLine($"exported allocation {handle.Size} bytes; the importer's image needs {requirements.size} (alignment {requirements.alignment}, types 0x{requirements.memoryTypeBits:X})");
             Assert.True(handle.Size >= requirements.size, $"exported size {handle.Size} < required {requirements.size}");
 
@@ -319,9 +324,12 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         VkSemaphore semaphore;
         Check(api.vkCreateSemaphore(&semaphoreInfo, null, &semaphore), "vkCreateSemaphore");
 
+        var first = fence.GetSharedHandle(); // closed before the second imports, as in the texture test
         using (var handle = fence.GetSharedHandle())
         {
             Assert.Equal(SharedHandleType.OPAQUE_WIN32, handle.Type);
+            Assert.NotEqual(first.Handle, handle.Handle);
+            first.Dispose();
             var import = new VkImportSemaphoreWin32HandleInfoKHR
             {
                 semaphore = semaphore,

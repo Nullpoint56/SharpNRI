@@ -27,6 +27,13 @@ memory, a getter on an object that is not shared, and a shared object on a devic
 feature. NONE returns zero handles. D3D11, WGPU and Metal answer UNSUPPORTED. Applies on top of NRI
 main 83fd010 and patch 0001.
 
+Review of PR #294 (2026-10-26, four items): (1) VK exports one NT handle per object and hands each
+"GetSharedHandle" caller a "DuplicateHandle" it owns, closed with the object, first export under a
+device lock (FD exports stay per call); (2) "BufferBarrierDesc::srcQueue" / "dstQueue" for transfers
+to or from "EXTERNAL_QUEUE" ("VK_QUEUE_FAMILY_EXTERNAL"; buffers are "CONCURRENT", other queues
+ignored; D3D12 ignores the fields); (3) "EXTERNAL_QUEUE" is "NriPtr(Queue) const"; (4) the
+memory-location and shared-object checks live in Validation only ("FenceVal" tracks "shared").
+
 diff --git a/Include/Extensions/NRISwapChain.h b/Include/Extensions/NRISwapChain.h
 index e9e0e4b7..153fb433 100644
 --- a/Include/Extensions/NRISwapChain.h
@@ -75,22 +82,31 @@ index 64bb01a9..88b20d57 100644
  
  NriNamespaceEnd
 diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
-index f3dfc334..8321ac66 100644
+index f3dfc334..ac03ed12 100644
 --- a/Include/NRIDescs.h
 +++ b/Include/NRIDescs.h
-@@ -666,6 +666,11 @@ NriStruct(BufferBarrierDesc) {
+@@ -660,10 +660,20 @@ NriStruct(GlobalBarrierDesc) {
      Nri(AccessStage) after;
  };
  
-+// Marks a queue family ownership transfer to or from an external user of a shared texture (another device, API or process)
-+// VK: "VK_QUEUE_FAMILY_EXTERNAL" as "TextureBarrierDesc::srcQueue" (acquire after import) or "dstQueue" (release before export)
++// Marks a queue family ownership transfer to or from an external user of a shared buffer or texture (another device, API or process)
++// VK: "VK_QUEUE_FAMILY_EXTERNAL" as "srcQueue" (acquire after import) or "dstQueue" (release before export)
 +// D3D12: ignored (queue ownership does not exist)
-+static const NriPtr(Queue) NriConstant(EXTERNAL_QUEUE) = (NriPtr(Queue))1;
++static NriPtr(Queue) const NriConstant(EXTERNAL_QUEUE) = (NriPtr(Queue))1;
 +
+ NriStruct(BufferBarrierDesc) {
+     NriPtr(Buffer) buffer;  // use "GetAccelerationStructureBuffer" and "GetMicromapBuffer" for related barriers
+     Nri(AccessStage) before;
+     Nri(AccessStage) after;
++
++    // Source and destination queues of a cross-queue hand-off, same rules as for textures: a buffer is "VK_SHARING_MODE_CONCURRENT" with more than one
++    // active queue family (no transfer between the device's own queues) and "EXCLUSIVE" otherwise; a transfer to or from "EXTERNAL_QUEUE" applies to either
++    NriOptional NriPtr(Queue) srcQueue;
++    NriOptional NriPtr(Queue) dstQueue;
+ };
+ 
  NriStruct(TextureBarrierDesc) {
-     NriPtr(Texture) texture;
-     Nri(AccessLayoutStage) before;
-@@ -779,6 +784,7 @@ NriStruct(TextureDesc) {
+@@ -779,6 +789,7 @@ NriStruct(TextureDesc) {
      NriOptional Nri(VideoCodec) videoCodec;             // VK: required for video textures
      NriOptional bool videoAV1FilmGrain;                 // VK: AV1 decode textures of sessions with "VideoSessionDesc::av1FilmGrain"
      NriOptional Nri(ClearValue) optimizedClearValue;    // D3D12: not needed on desktop, since any HW can track many clear values
@@ -98,7 +114,7 @@ index f3dfc334..8321ac66 100644
  };
  
  // - VK: buffers are always created with sharing mode "CONCURRENT" to match D3D12 spec
-@@ -790,6 +796,7 @@ NriStruct(BufferDesc) {
+@@ -790,6 +801,7 @@ NriStruct(BufferDesc) {
      uint32_t structureStride;   // enable "STRUCTURED" views
      Nri(BufferUsageBits) usage;
      bool byteAddress;           // enable "BYTE_ADDRESS" views
@@ -106,7 +122,7 @@ index f3dfc334..8321ac66 100644
  };
  
  #pragma endregion
-@@ -856,6 +863,28 @@ NriStruct(BindTextureMemoryDesc) {
+@@ -856,6 +868,28 @@ NriStruct(BindTextureMemoryDesc) {
  
  #pragma endregion
  
@@ -135,7 +151,7 @@ index f3dfc334..8321ac66 100644
  //============================================================================================================================================================================================
  #pragma region [ Resource views and samplers (descriptors) ]
  //============================================================================================================================================================================================
-@@ -1861,6 +1890,11 @@ NriStruct(ReadbackTextureToHostMemoryDesc) {
+@@ -1861,6 +1895,11 @@ NriStruct(ReadbackTextureToHostMemoryDesc) {
      NriOptional uint32_t dstSlicePitch; // if slices are not tightly packed
  };
  
@@ -147,7 +163,7 @@ index f3dfc334..8321ac66 100644
  // Work submission
  NriStruct(FenceSubmitDesc) {
      NriPtr(Fence) fence;
-@@ -2258,6 +2292,10 @@ NriStruct(DeviceDesc) {
+@@ -2258,6 +2297,10 @@ NriStruct(DeviceDesc) {
          bool layerBasedMultiview;                                 // see "Multiview::LAYRED_BASED"
          bool viewportBasedMultiview;                              // see "Multiview::VIEWPORT_BASED"
  
@@ -224,29 +240,25 @@ index 1917b609..89627909 100644
      //================================================================================================================
      // DebugNameBase
 diff --git a/Source/D3D12/BufferD3D12.hpp b/Source/D3D12/BufferD3D12.hpp
-index 960deb88..cfaec659 100644
+index 960deb88..602a32c6 100644
 --- a/Source/D3D12/BufferD3D12.hpp
 +++ b/Source/D3D12/BufferD3D12.hpp
-@@ -28,6 +28,11 @@ Result BufferD3D12::Allocate(MemoryLocation memoryLocation, float priority, bool
+@@ -28,6 +28,9 @@ Result BufferD3D12::Allocate(MemoryLocation memoryLocation, float priority, bool
      if (deviceDesc.tiers.memory == 0)
          heapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_BUFFERS;
  
-+    if (m_Desc.shared) {
-+        NRI_RETURN_ON_FAILURE(&m_Device, m_Device.GetHeapType(memoryLocation) == D3D12_HEAP_TYPE_DEFAULT, Result::INVALID_ARGUMENT, "Shared buffers must be in 'DEVICE' memory");
++    if (m_Desc.shared)
 +        heapFlags |= D3D12_HEAP_FLAG_SHARED;
-+    }
 +
      D3D12MA::ALLOCATION_DESC allocationDesc = {};
      allocationDesc.HeapType = m_Device.GetHeapType(memoryLocation);
      allocationDesc.Flags = (D3D12MA::ALLOCATION_FLAGS)flags;
-@@ -132,6 +137,22 @@ Result BufferD3D12::BindMemory(const MemoryD3D12& memory, uint64_t offset) {
+@@ -132,6 +135,20 @@ Result BufferD3D12::BindMemory(const MemoryD3D12& memory, uint64_t offset) {
      return SetPriorityAndPersistentlyMap(memory.GetPriority(), isCommitted, heapDesc.Properties);
  }
  
 +Result BufferD3D12::GetSharedHandle(SharedHandle& sharedHandle) const {
 +    sharedHandle = {};
-+
-+    NRI_RETURN_ON_FAILURE(&m_Device, m_Desc.shared && m_Buffer, Result::INVALID_ARGUMENT, "'shared' is false");
 +
 +    HANDLE handle = nullptr;
 +    HRESULT hr = m_Device->CreateSharedHandle(m_Buffer.GetInterface(), nullptr, GENERIC_ALL, nullptr, &handle);
@@ -289,7 +301,7 @@ index c8738c17..7c35757e 100644
      m_Desc.features.lineSmoothing = true;
      m_Desc.features.pipelineStatistics = true;
 diff --git a/Source/D3D12/FenceD3D12.h b/Source/D3D12/FenceD3D12.h
-index b38f5583..70f48cdf 100644
+index b38f5583..af667e96 100644
 --- a/Source/D3D12/FenceD3D12.h
 +++ b/Source/D3D12/FenceD3D12.h
 @@ -18,8 +18,9 @@ struct FenceD3D12 final : public DebugNameBase {
@@ -303,19 +315,11 @@ index b38f5583..70f48cdf 100644
  
      //================================================================================================================
      // DebugNameBase
-@@ -42,6 +43,7 @@ private:
-     DeviceD3D12& m_Device;
-     ComPtr<ID3D12Fence> m_Fence;
-     HANDLE m_Event = 0;
-+    bool m_IsShared = false;
- };
- 
- } // namespace nri
 diff --git a/Source/D3D12/FenceD3D12.hpp b/Source/D3D12/FenceD3D12.hpp
-index 24903196..d3b17037 100644
+index 24903196..ce55a178 100644
 --- a/Source/D3D12/FenceD3D12.hpp
 +++ b/Source/D3D12/FenceD3D12.hpp
-@@ -1,12 +1,15 @@
+@@ -1,12 +1,14 @@
  // © 2021 NVIDIA Corporation
  
 -Result FenceD3D12::Create(uint64_t initialValue) {
@@ -329,20 +333,17 @@ index 24903196..d3b17037 100644
  
          m_Event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
 -    }
-+        m_IsShared = fenceDesc.shared;
 +    } else if (fenceDesc.shared)
 +        return Result::UNSUPPORTED; // no binary fences
  
      return Result::SUCCESS;
  }
-@@ -18,6 +21,21 @@ Result FenceD3D12::Create(const FenceD3D12Desc& fenceD3D12Desc) {
+@@ -18,6 +20,19 @@ Result FenceD3D12::Create(const FenceD3D12Desc& fenceD3D12Desc) {
      return Result::SUCCESS;
  }
  
 +Result FenceD3D12::GetSharedHandle(SharedHandle& sharedHandle) const {
 +    sharedHandle = {};
-+
-+    NRI_RETURN_ON_FAILURE(&m_Device, m_IsShared && m_Fence, Result::INVALID_ARGUMENT, "'shared' is false");
 +
 +    HANDLE handle = nullptr;
 +    HRESULT hr = m_Device->CreateSharedHandle(m_Fence.GetInterface(), nullptr, GENERIC_ALL, nullptr, &handle);
@@ -428,30 +429,26 @@ index 4eb5c3b4..051a1f42 100644
      //================================================================================================================
      // DebugNameBase
 diff --git a/Source/D3D12/TextureD3D12.hpp b/Source/D3D12/TextureD3D12.hpp
-index c53ab454..e9c31571 100644
+index c53ab454..006aed01 100644
 --- a/Source/D3D12/TextureD3D12.hpp
 +++ b/Source/D3D12/TextureD3D12.hpp
-@@ -43,6 +43,11 @@ Result TextureD3D12::Allocate(MemoryLocation memoryLocation, float priority, boo
+@@ -43,6 +43,9 @@ Result TextureD3D12::Allocate(MemoryLocation memoryLocation, float priority, boo
              heapFlags = D3D12_HEAP_FLAG_ALLOW_ONLY_NON_RT_DS_TEXTURES;
      }
  
-+    if (m_Desc.shared) {
-+        NRI_RETURN_ON_FAILURE(&m_Device, m_Device.GetHeapType(memoryLocation) == D3D12_HEAP_TYPE_DEFAULT, Result::INVALID_ARGUMENT, "Shared textures must be in 'DEVICE' memory");
++    if (m_Desc.shared)
 +        heapFlags |= D3D12_HEAP_FLAG_SHARED;
-+    }
 +
      D3D12MA::ALLOCATION_DESC allocationDesc = {};
      allocationDesc.HeapType = m_Device.GetHeapType(memoryLocation);
      allocationDesc.Flags = (D3D12MA::ALLOCATION_FLAGS)flags;
-@@ -143,3 +148,19 @@ Result TextureD3D12::BindMemory(const MemoryD3D12& memory, uint64_t offset) {
+@@ -143,3 +146,17 @@ Result TextureD3D12::BindMemory(const MemoryD3D12& memory, uint64_t offset) {
  
      return Result::SUCCESS;
  }
 +
 +Result TextureD3D12::GetSharedHandle(SharedHandle& sharedHandle) const {
 +    sharedHandle = {};
-+
-+    NRI_RETURN_ON_FAILURE(&m_Device, m_Desc.shared && m_Texture, Result::INVALID_ARGUMENT, "'shared' is false");
 +
 +    HANDLE handle = nullptr;
 +    HRESULT hr = m_Device->CreateSharedHandle(m_Texture.GetInterface(), nullptr, GENERIC_ALL, nullptr, &handle);
@@ -610,44 +607,57 @@ index 039767d4..863fd1fb 100644
                  result = m_iCore.BeginCommandBuffer(*commandBuffer, nullptr);
          }
 diff --git a/Source/VK/BufferVK.h b/Source/VK/BufferVK.h
-index 5788d766..c09acfc0 100644
+index 5788d766..830d03ed 100644
 --- a/Source/VK/BufferVK.h
 +++ b/Source/VK/BufferVK.h
-@@ -41,6 +41,7 @@ struct BufferVK final : public DebugNameBase {
+@@ -41,6 +41,11 @@ struct BufferVK final : public DebugNameBase {
      Result FlushMappedRange(uint64_t offset, uint64_t size);
      Result AllocateAndBindMemory(MemoryLocation memoryLocation, float priority, bool committed);
      Result BindMemory(MemoryVK& memory, uint64_t offset, bool bindMemory);
 +    Result GetSharedHandle(SharedHandle& sharedHandle) const;
++
++    inline bool IsConcurrent() const {
++        return m_IsConcurrent;
++    }
      void GetMemoryDesc(MemoryLocation memoryLocation, MemoryDesc& memoryDesc) const;
  
      //================================================================================================================
-@@ -71,6 +72,8 @@ private:
+@@ -71,9 +76,13 @@ private:
      uint64_t m_MappedMemoryRangeOffset = 0;
      BufferDesc m_Desc = {};
      VmaAllocation m_VmaAllocation = nullptr;
 +    VkDeviceMemory m_SharedMemory = VK_NULL_HANDLE;
 +    uint64_t m_SharedSize = 0;
++    mutable void* m_SharedHandle = nullptr; // Win32: the one export of "m_SharedMemory", duplicated for each "GetSharedHandle"
      uint64_t m_MemoryAlignment = 1;
      bool m_OwnsNativeObjects = true;
      bool m_IsDescriptorHeap = false;
++    bool m_IsConcurrent = false; // TODO: sharing mode is unknown for wrapped buffers
+ };
+ 
+ inline VkDeviceAddress GetBufferDeviceAddress(const Buffer* buffer, uint64_t offset) {
 diff --git a/Source/VK/BufferVK.hpp b/Source/VK/BufferVK.hpp
-index 078721c7..732c47a6 100644
+index 078721c7..38f55413 100644
 --- a/Source/VK/BufferVK.hpp
 +++ b/Source/VK/BufferVK.hpp
-@@ -8,6 +8,9 @@ BufferVK::~BufferVK() {
+@@ -8,6 +8,11 @@ BufferVK::~BufferVK() {
              vmaDestroyBuffer(m_Device.GetVma(), m_Handle, m_VmaAllocation);
          else
              vk.DestroyBuffer(m_Device, m_Handle, m_Device.GetVkAllocationCallbacks());
++
++        m_Device.CloseSharedHandle(m_SharedHandle);
 +
 +        if (m_SharedMemory)
 +            vk.FreeMemory(m_Device, m_SharedMemory, m_Device.GetVkAllocationCallbacks());
      }
  }
  
-@@ -20,6 +23,17 @@ Result BufferVK::Create(const BufferDesc& bufferDesc) {
+@@ -19,6 +24,18 @@ Result BufferVK::Create(const BufferDesc& bufferDesc) {
+ 
      VkBufferCreateInfo info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
      FillCreateInfo(info);
- 
++    m_IsConcurrent = info.sharingMode == VK_SHARING_MODE_CONCURRENT;
++
 +    VkExternalMemoryBufferCreateInfo externalInfo = {VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO};
 +    externalInfo.handleTypes = SHARED_MEMORY_HANDLE_TYPE;
 +
@@ -658,17 +668,14 @@ index 078721c7..732c47a6 100644
 +        externalInfo.pNext = info.pNext;
 +        info.pNext = &externalInfo;
 +    }
-+
+ 
      const auto& vk = m_Device.GetDispatchTable();
      VkBuffer handle = VK_NULL_HANDLE;
-     VkResult vkResult = vk.CreateBuffer(m_Device, &info, m_Device.GetVkAllocationCallbacks(), &handle);
-@@ -72,6 +86,33 @@ Result BufferVK::AllocateAndBindMemory(MemoryLocation memoryLocation, float prio
+@@ -72,6 +89,31 @@ Result BufferVK::AllocateAndBindMemory(MemoryLocation memoryLocation, float prio
      if (memoryTypeInfo.mustBeDedicated)
          committed = true;
  
 +    if (m_Desc.shared) {
-+        NRI_RETURN_ON_FAILURE(&m_Device, !IsHostVisibleMemory(memoryTypeInfo.location), Result::INVALID_ARGUMENT, "Shared buffers must be in 'DEVICE' memory");
-+
 +        Result result = m_Device.AllocateSharedMemory(memoryDesc, priority, m_Handle, VK_NULL_HANDLE, m_SharedMemory);
 +        if (result != Result::SUCCESS)
 +            return result;
@@ -696,22 +703,45 @@ index 078721c7..732c47a6 100644
      VkMemoryRequirements memoryRequirements = {};
      memoryRequirements.size = memoryDesc.size;
      memoryRequirements.alignment = memoryDesc.alignment; // can't use "vmaAllocateMemoryForBuffer" because of alignment (see "GetMemoryDesc")
-@@ -199,6 +240,10 @@ Result BufferVK::BindMemory(MemoryVK& memory, uint64_t offset, bool bindMemory)
+@@ -199,6 +241,10 @@ Result BufferVK::BindMemory(MemoryVK& memory, uint64_t offset, bool bindMemory)
      return Result::SUCCESS;
  }
  
 +Result BufferVK::GetSharedHandle(SharedHandle& sharedHandle) const {
-+    return m_Device.GetSharedMemoryHandle(m_SharedMemory, m_SharedSize, sharedHandle);
++    return m_Device.GetSharedMemoryHandle(m_SharedMemory, m_SharedSize, m_SharedHandle, sharedHandle);
 +}
 +
  bool BufferVK::IsVideoOnly() const {
      constexpr uint32_t videoUsageMask = (uint32_t)BufferUsageBits::VIDEO_DECODE | (uint32_t)BufferUsageBits::VIDEO_ENCODE;
      const uint32_t usageMask = (uint32_t)m_Desc.usage;
 diff --git a/Source/VK/CommandBufferVK.hpp b/Source/VK/CommandBufferVK.hpp
-index a0fcdf8b..b0296d7b 100644
+index a0fcdf8b..a4640595 100644
 --- a/Source/VK/CommandBufferVK.hpp
 +++ b/Source/VK/CommandBufferVK.hpp
-@@ -2683,8 +2683,9 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
+@@ -2649,6 +2649,9 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
+     for (uint32_t i = 0; i < barrierDesc.bufferNum; i++) {
+         const BufferBarrierDesc& in = barrierDesc.buffers[i];
+         const BufferVK& bufferVK = *(const BufferVK*)in.buffer;
++        const QueueVK* srcQueue = (QueueVK*)in.srcQueue;
++        const QueueVK* dstQueue = (QueueVK*)in.dstQueue;
++        const bool isConcurrent = bufferVK.IsConcurrent();
+ 
+         VkBufferMemoryBarrier2& out = bufferBarriers[i];
+         out = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+@@ -2656,8 +2659,10 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
+         out.srcAccessMask = GetAccessFlags(in.before.access);
+         out.dstStageMask = GetPipelineStageFlags(in.after.stages);
+         out.dstAccessMask = GetAccessFlags(in.after.access);
+-        out.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; // "VK_SHARING_MODE_CONCURRENT" is intentionally used for buffers to match D3D12 spec
+-        out.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
++        // Same rules as for textures: "VK_SHARING_MODE_CONCURRENT" (more than one active queue family) needs no transfer between the device's own queues,
++        // "EXCLUSIVE" (one active family) names it, and "EXTERNAL_QUEUE" is the external queue family for either sharing mode
++        out.srcQueueFamilyIndex = in.srcQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : ((in.srcQueue && !isConcurrent) ? srcQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
++        out.dstQueueFamilyIndex = in.dstQueue == EXTERNAL_QUEUE ? VK_QUEUE_FAMILY_EXTERNAL : ((in.dstQueue && !isConcurrent) ? dstQueue->GetFamilyIndex() : VK_QUEUE_FAMILY_IGNORED);
+         out.buffer = bufferVK.GetHandle();
+         out.offset = 0;
+         out.size = VK_WHOLE_SIZE;
+@@ -2683,8 +2688,9 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
          out.dstAccessMask = GetAccessFlags(in.after.access);
          out.oldLayout = GetImageLayout(in.before.layout);
          out.newLayout = GetImageLayout(in.after.layout);
@@ -724,20 +754,30 @@ index a0fcdf8b..b0296d7b 100644
          out.subresourceRange = {
              aspectFlags,
 diff --git a/Source/VK/DeviceVK.h b/Source/VK/DeviceVK.h
-index d50b366b..1ba9d13a 100644
+index d50b366b..8cecc104 100644
 --- a/Source/VK/DeviceVK.h
 +++ b/Source/VK/DeviceVK.h
-@@ -211,6 +211,8 @@ struct DeviceVK final : public DeviceBase {
+@@ -211,6 +211,10 @@ struct DeviceVK final : public DeviceBase {
      VkRenderPass GetOrCreateRenderPass(const RenderPassDesc& desc);
      VkFramebuffer GetOrCreateFramebuffer(const FramebufferDesc& desc);
      void FillCreateInfo(const BufferDesc& bufferDesc, VkBufferCreateInfo& info) const;
 +    Result AllocateSharedMemory(const MemoryDesc& memoryDesc, float priority, VkBuffer buffer, VkImage image, VkDeviceMemory& memory);
-+    Result GetSharedMemoryHandle(VkDeviceMemory memory, uint64_t size, SharedHandle& sharedHandle);
++    Result GetSharedMemoryHandle(VkDeviceMemory memory, uint64_t size, void*& exportedHandle, SharedHandle& sharedHandle);
++    Result GetSharedSemaphoreHandle(VkSemaphore semaphore, void*& exportedHandle, SharedHandle& sharedHandle);
++    void CloseSharedHandle(void*& exportedHandle);
      void FillCreateInfo(const TextureDesc& bufferDesc, VkImageCreateInfo& info) const;
      void AppendVideoProfileList(const TextureDesc& textureDesc, VkImageCreateInfo& info, VideoResourceProfileListVK& videoProfiles) const; // "videoProfiles" must outlive "info"
      void FillCreateInfo(const SamplerDesc& samplerDesc, VkSamplerCreateInfo& info, VkSamplerReductionModeCreateInfo& reductionModeInfo, VkSamplerCustomBorderColorCreateInfoEXT& borderColorInfo) const;
+@@ -337,6 +341,7 @@ private:
+     Lock m_Lock;
+     Lock m_TransferContextLock;
+     Lock m_DeviceLostLock;
++    Lock m_SharedHandleLock;
+ };
+ 
+ } // namespace nri
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index 83149beb..4c4d760f 100644
+index 83149beb..9a90bcf0 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
 @@ -595,6 +595,15 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
@@ -789,7 +829,7 @@ index 83149beb..4c4d760f 100644
      if (IsExtensionSupported(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, desiredDeviceExts)) {
          GET_DEVICE_FUNC(CreateAccelerationStructureKHR);
          GET_DEVICE_FUNC(DestroyAccelerationStructureKHR);
-@@ -2902,6 +2930,73 @@ NRI_INLINE void DeviceVK::DestroyFramebuffers(VkImageView imageView) {
+@@ -2902,6 +2930,145 @@ NRI_INLINE void DeviceVK::DestroyFramebuffers(VkImageView imageView) {
      }
  }
  
@@ -827,23 +867,48 @@ index 83149beb..4c4d760f 100644
 +    return Result::SUCCESS;
 +}
 +
-+Result DeviceVK::GetSharedMemoryHandle(VkDeviceMemory memory, uint64_t size, SharedHandle& sharedHandle) {
-+    sharedHandle = {};
-+
-+    NRI_RETURN_ON_FAILURE(this, memory != VK_NULL_HANDLE, Result::INVALID_ARGUMENT, "'shared' is false");
-+
 +#ifdef VK_USE_PLATFORM_WIN32_KHR
-+    VkMemoryGetWin32HandleInfoKHR getInfo = {VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR};
-+    getInfo.memory = memory;
-+    getInfo.handleType = SHARED_MEMORY_HANDLE_TYPE;
-+
++// VK exports one NT handle per object and handle type: a repeated export returns the same handle, which the first "CloseHandle" closes
++// for everyone (VUID-VkMemoryGetWin32HandleInfoKHR-handleType-00663, VUID-VkSemaphoreGetWin32HandleInfoKHR-handleType-01127).
++// So the export is done once, retained until the object is destroyed, and each caller gets a duplicate it owns
++static Result DuplicateSharedHandle(DeviceVK& device, void* exportedHandle, SharedHandle& sharedHandle) {
++    HANDLE process = GetCurrentProcess();
 +    HANDLE handle = nullptr;
-+    VkResult vkResult = m_VK.GetMemoryWin32HandleKHR(m_Device, &getInfo, &handle);
-+    NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkGetMemoryWin32HandleKHR");
++    if (!DuplicateHandle(process, (HANDLE)exportedHandle, process, &handle, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
++        NRI_REPORT_ERROR(&device, "DuplicateHandle() failed, error = %u", (uint32_t)GetLastError());
++        return Result::FAILURE;
++    }
 +
 +    sharedHandle.handle = handle;
 +    sharedHandle.type = SharedHandleType::OPAQUE_WIN32;
++
++    return Result::SUCCESS;
++}
++#endif
++
++Result DeviceVK::GetSharedMemoryHandle(VkDeviceMemory memory, uint64_t size, void*& exportedHandle, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++    sharedHandle.size = size;
++
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++    ExclusiveScope lock(m_SharedHandleLock);
++
++    if (!exportedHandle) {
++        VkMemoryGetWin32HandleInfoKHR getInfo = {VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR};
++        getInfo.memory = memory;
++        getInfo.handleType = SHARED_MEMORY_HANDLE_TYPE;
++
++        HANDLE handle = nullptr;
++        VkResult vkResult = m_VK.GetMemoryWin32HandleKHR(m_Device, &getInfo, &handle);
++        NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkGetMemoryWin32HandleKHR");
++
++        exportedHandle = handle;
++    }
++
++    return DuplicateSharedHandle(*this, exportedHandle, sharedHandle);
 +#else
++    MaybeUnused(exportedHandle); // each FD export is independent
++
 +    VkMemoryGetFdInfoKHR getInfo = {VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR};
 +    getInfo.memory = memory;
 +    getInfo.handleType = SHARED_MEMORY_HANDLE_TYPE;
@@ -854,10 +919,57 @@ index 83149beb..4c4d760f 100644
 +
 +    sharedHandle.handle = (void*)(intptr_t)fd;
 +    sharedHandle.type = SharedHandleType::OPAQUE_FD;
-+#endif
-+    sharedHandle.size = size;
 +
 +    return Result::SUCCESS;
++#endif
++}
++
++Result DeviceVK::GetSharedSemaphoreHandle(VkSemaphore semaphore, void*& exportedHandle, SharedHandle& sharedHandle) {
++    sharedHandle = {};
++
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++    ExclusiveScope lock(m_SharedHandleLock);
++
++    if (!exportedHandle) {
++        VkSemaphoreGetWin32HandleInfoKHR getInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR};
++        getInfo.semaphore = semaphore;
++        getInfo.handleType = SHARED_SEMAPHORE_HANDLE_TYPE;
++
++        HANDLE handle = nullptr;
++        VkResult vkResult = m_VK.GetSemaphoreWin32HandleKHR(m_Device, &getInfo, &handle);
++        NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkGetSemaphoreWin32HandleKHR");
++
++        exportedHandle = handle;
++    }
++
++    return DuplicateSharedHandle(*this, exportedHandle, sharedHandle);
++#else
++    MaybeUnused(exportedHandle); // each FD export is independent
++
++    VkSemaphoreGetFdInfoKHR getInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR};
++    getInfo.semaphore = semaphore;
++    getInfo.handleType = SHARED_SEMAPHORE_HANDLE_TYPE;
++
++    int fd = -1;
++    VkResult vkResult = m_VK.GetSemaphoreFdKHR(m_Device, &getInfo, &fd);
++    NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkGetSemaphoreFdKHR");
++
++    sharedHandle.handle = (void*)(intptr_t)fd;
++    sharedHandle.type = SharedHandleType::OPAQUE_FD;
++
++    return Result::SUCCESS;
++#endif
++}
++
++void DeviceVK::CloseSharedHandle(void*& exportedHandle) {
++#ifdef VK_USE_PLATFORM_WIN32_KHR
++    if (exportedHandle) {
++        CloseHandle((HANDLE)exportedHandle);
++        exportedHandle = nullptr;
++    }
++#else
++    MaybeUnused(exportedHandle);
++#endif
 +}
 +
  NRI_INLINE Result DeviceVK::CreateCommittedBuffer(MemoryLocation memoryLocation, float priority, const BufferDesc& bufferDesc, Buffer*& buffer) {
@@ -883,7 +995,7 @@ index e36064c4..4c925421 100644
                                                            // VK_KHR_acceleration_structure
      VK_FUNC(CreateAccelerationStructureKHR);              // + | +
 diff --git a/Source/VK/FenceVK.h b/Source/VK/FenceVK.h
-index 92217700..acbe8605 100644
+index 92217700..0a2a72b6 100644
 --- a/Source/VK/FenceVK.h
 +++ b/Source/VK/FenceVK.h
 @@ -19,8 +19,9 @@ struct FenceVK final : public DebugNameBase {
@@ -897,19 +1009,27 @@ index 92217700..acbe8605 100644
  
      //================================================================================================================
      // DebugNameBase
-@@ -39,6 +40,7 @@ private:
+@@ -38,6 +39,7 @@ struct FenceVK final : public DebugNameBase {
+ private:
      DeviceVK& m_Device;
      VkSemaphore m_Handle = VK_NULL_HANDLE;
++    mutable void* m_SharedHandle = nullptr; // Win32: the one export of "m_Handle", duplicated for each "GetSharedHandle"
      bool m_OwnsNativeObjects = true;
-+    bool m_IsShared = false;
  };
  
- } // namespace nri
 diff --git a/Source/VK/FenceVK.hpp b/Source/VK/FenceVK.hpp
-index 11c9dd07..97a928f6 100644
+index 11c9dd07..524004d0 100644
 --- a/Source/VK/FenceVK.hpp
 +++ b/Source/VK/FenceVK.hpp
-@@ -7,10 +7,21 @@ FenceVK::~FenceVK() {
+@@ -1,16 +1,28 @@
+ // © 2021 NVIDIA Corporation
+ 
+ FenceVK::~FenceVK() {
++    m_Device.CloseSharedHandle(m_SharedHandle);
++
+     if (m_OwnsNativeObjects && m_Handle) {
+         const auto& vk = m_Device.GetDispatchTable();
+         vk.DestroySemaphore(m_Device, m_Handle, m_Device.GetVkAllocationCallbacks());
      }
  }
  
@@ -929,46 +1049,16 @@ index 11c9dd07..97a928f6 100644
 +            return Result::UNSUPPORTED;
 +
 +        semaphoreTypeCreateInfo.pNext = &exportInfo;
-+        m_IsShared = true;
 +    }
  
      VkSemaphoreCreateInfo semaphoreCreateInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
      semaphoreCreateInfo.pNext = &semaphoreTypeCreateInfo;
-@@ -29,6 +40,39 @@ Result FenceVK::Create(const FenceVKDesc& fenceVKDesc) {
+@@ -29,6 +41,10 @@ Result FenceVK::Create(const FenceVKDesc& fenceVKDesc) {
      return Result::SUCCESS;
  }
  
 +Result FenceVK::GetSharedHandle(SharedHandle& sharedHandle) const {
-+    sharedHandle = {};
-+
-+    NRI_RETURN_ON_FAILURE(&m_Device, m_IsShared, Result::INVALID_ARGUMENT, "'shared' is false");
-+
-+    const auto& vk = m_Device.GetDispatchTable();
-+#ifdef VK_USE_PLATFORM_WIN32_KHR
-+    VkSemaphoreGetWin32HandleInfoKHR getInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR};
-+    getInfo.semaphore = m_Handle;
-+    getInfo.handleType = SHARED_SEMAPHORE_HANDLE_TYPE;
-+
-+    HANDLE handle = nullptr;
-+    VkResult vkResult = vk.GetSemaphoreWin32HandleKHR(m_Device, &getInfo, &handle);
-+    NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkGetSemaphoreWin32HandleKHR");
-+
-+    sharedHandle.handle = handle;
-+    sharedHandle.type = SharedHandleType::OPAQUE_WIN32;
-+#else
-+    VkSemaphoreGetFdInfoKHR getInfo = {VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR};
-+    getInfo.semaphore = m_Handle;
-+    getInfo.handleType = SHARED_SEMAPHORE_HANDLE_TYPE;
-+
-+    int fd = -1;
-+    VkResult vkResult = vk.GetSemaphoreFdKHR(m_Device, &getInfo, &fd);
-+    NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkGetSemaphoreFdKHR");
-+
-+    sharedHandle.handle = (void*)(intptr_t)fd;
-+    sharedHandle.type = SharedHandleType::OPAQUE_FD;
-+#endif
-+
-+    return Result::SUCCESS;
++    return m_Device.GetSharedSemaphoreHandle(m_Handle, m_SharedHandle, sharedHandle);
 +}
 +
  NRI_INLINE void FenceVK::SetDebugName(const char* name) {
@@ -1053,7 +1143,7 @@ index 2ffdc83d..a879cb7e 100644
              return result;
      }
 diff --git a/Source/VK/TextureVK.h b/Source/VK/TextureVK.h
-index a25f3084..07299a06 100644
+index a25f3084..04775ad9 100644
 --- a/Source/VK/TextureVK.h
 +++ b/Source/VK/TextureVK.h
 @@ -39,6 +39,7 @@ struct TextureVK final : public DebugNameBase {
@@ -1064,30 +1154,33 @@ index a25f3084..07299a06 100644
      void GetMemoryDesc(MemoryLocation memoryLocation, MemoryDesc& memoryDesc) const;
  
      //================================================================================================================
-@@ -52,6 +53,8 @@ private:
+@@ -52,6 +53,9 @@ private:
      VkImage m_Handle = VK_NULL_HANDLE;
      TextureDesc m_Desc = {};
      VmaAllocation m_VmaAllocation = nullptr;
 +    VkDeviceMemory m_SharedMemory = VK_NULL_HANDLE;
 +    uint64_t m_SharedSize = 0;
++    mutable void* m_SharedHandle = nullptr; // Win32: the one export of "m_SharedMemory", duplicated for each "GetSharedHandle"
      bool m_OwnsNativeObjects = true;
      bool m_IsConcurrent = false; // TODO: sharing mode is unknown for wrapped images
  };
 diff --git a/Source/VK/TextureVK.hpp b/Source/VK/TextureVK.hpp
-index ef1a005a..e228aaf3 100644
+index ef1a005a..3fbbd96c 100644
 --- a/Source/VK/TextureVK.hpp
 +++ b/Source/VK/TextureVK.hpp
-@@ -8,6 +8,9 @@ TextureVK::~TextureVK() {
+@@ -8,6 +8,11 @@ TextureVK::~TextureVK() {
              vmaDestroyImage(m_Device.GetVma(), m_Handle, m_VmaAllocation);
          else
              vk.DestroyImage(m_Device, m_Handle, m_Device.GetVkAllocationCallbacks());
++
++        m_Device.CloseSharedHandle(m_SharedHandle);
 +
 +        if (m_SharedMemory)
 +            vk.FreeMemory(m_Device, m_SharedMemory, m_Device.GetVkAllocationCallbacks());
      }
  }
  
-@@ -21,6 +24,17 @@ Result TextureVK::Create(const TextureDesc& textureDesc) {
+@@ -21,6 +26,17 @@ Result TextureVK::Create(const TextureDesc& textureDesc) {
      VideoResourceProfileListVK videoProfiles = {};
      m_Device.AppendVideoProfileList(m_Desc, info, videoProfiles);
  
@@ -1105,13 +1198,11 @@ index ef1a005a..e228aaf3 100644
      const auto& vk = m_Device.GetDispatchTable();
      VkImage handle = VK_NULL_HANDLE;
      VkResult vkResult = vk.CreateImage(m_Device, &info, m_Device.GetVkAllocationCallbacks(), &handle);
-@@ -97,6 +111,26 @@ Result TextureVK::AllocateAndBindMemory(MemoryLocation memoryLocation, float pri
+@@ -97,6 +113,24 @@ Result TextureVK::AllocateAndBindMemory(MemoryLocation memoryLocation, float pri
      if (memoryTypeInfo.mustBeDedicated)
          committed = true;
  
 +    if (m_Desc.shared) {
-+        NRI_RETURN_ON_FAILURE(&m_Device, !IsHostVisibleMemory(memoryTypeInfo.location), Result::INVALID_ARGUMENT, "Shared textures must be in 'DEVICE' memory");
-+
 +        Result result = m_Device.AllocateSharedMemory(memoryDesc, priority, VK_NULL_HANDLE, m_Handle, m_SharedMemory);
 +        if (result != Result::SUCCESS)
 +            return result;
@@ -1137,7 +1228,7 @@ index ef1a005a..e228aaf3 100644
  }
  
 +Result TextureVK::GetSharedHandle(SharedHandle& sharedHandle) const {
-+    return m_Device.GetSharedMemoryHandle(m_SharedMemory, m_SharedSize, sharedHandle);
++    return m_Device.GetSharedMemoryHandle(m_SharedMemory, m_SharedSize, m_SharedHandle, sharedHandle);
 +}
 +
  void TextureVK::GetMemoryDesc(MemoryLocation memoryLocation, MemoryDesc& memoryDesc) const {
@@ -1158,17 +1249,30 @@ index 4033b2bd..64dc5203 100644
      if (result == Result::SUCCESS)
          result = m_Device.CreateImplementation<CommandAllocatorVK>(m_CommandAllocator, (Queue&)queue);
 diff --git a/Source/Validation/CommandBufferVal.hpp b/Source/Validation/CommandBufferVal.hpp
-index ff6fa810..ea997a44 100644
+index ff6fa810..f3904a10 100644
 --- a/Source/Validation/CommandBufferVal.hpp
 +++ b/Source/Validation/CommandBufferVal.hpp
-@@ -1239,8 +1239,8 @@ NRI_INLINE void CommandBufferVal::Barrier(const BarrierDesc& barrierDesc) {
+@@ -1230,8 +1230,11 @@ NRI_INLINE void CommandBufferVal::Barrier(const BarrierDesc& barrierDesc) {
+     Scratch<BufferBarrierDesc> buffers = NRI_ALLOCATE_SCRATCH(m_Device, BufferBarrierDesc, barrierDesc.bufferNum);
+     if (barrierDesc.bufferNum > 0) {
+         memcpy(buffers, barrierDesc.buffers, sizeof(BufferBarrierDesc) * barrierDesc.bufferNum);
+-        for (uint32_t i = 0; i < barrierDesc.bufferNum; i++)
++        for (uint32_t i = 0; i < barrierDesc.bufferNum; i++) {
+             buffers[i].buffer = NRI_GET_IMPL(Buffer, barrierDesc.buffers[i].buffer);
++            buffers[i].srcQueue = barrierDesc.buffers[i].srcQueue == EXTERNAL_QUEUE ? EXTERNAL_QUEUE : NRI_GET_IMPL(Queue, barrierDesc.buffers[i].srcQueue);
++            buffers[i].dstQueue = barrierDesc.buffers[i].dstQueue == EXTERNAL_QUEUE ? EXTERNAL_QUEUE : NRI_GET_IMPL(Queue, barrierDesc.buffers[i].dstQueue);
++        }
+     }
+ 
+     Scratch<TextureBarrierDesc> textures = NRI_ALLOCATE_SCRATCH(m_Device, TextureBarrierDesc, barrierDesc.textureNum);
+@@ -1239,8 +1242,8 @@ NRI_INLINE void CommandBufferVal::Barrier(const BarrierDesc& barrierDesc) {
          memcpy(textures, barrierDesc.textures, sizeof(TextureBarrierDesc) * barrierDesc.textureNum);
          for (uint32_t i = 0; i < barrierDesc.textureNum; i++) {
              textures[i].texture = NRI_GET_IMPL(Texture, barrierDesc.textures[i].texture);
 -            textures[i].srcQueue = NRI_GET_IMPL(Queue, barrierDesc.textures[i].srcQueue);
 -            textures[i].dstQueue = NRI_GET_IMPL(Queue, barrierDesc.textures[i].dstQueue);
-+            textures[i].srcQueue = barrierDesc.textures[i].srcQueue == EXTERNAL_QUEUE ? (Queue*)EXTERNAL_QUEUE : NRI_GET_IMPL(Queue, barrierDesc.textures[i].srcQueue);
-+            textures[i].dstQueue = barrierDesc.textures[i].dstQueue == EXTERNAL_QUEUE ? (Queue*)EXTERNAL_QUEUE : NRI_GET_IMPL(Queue, barrierDesc.textures[i].dstQueue);
++            textures[i].srcQueue = barrierDesc.textures[i].srcQueue == EXTERNAL_QUEUE ? EXTERNAL_QUEUE : NRI_GET_IMPL(Queue, barrierDesc.textures[i].srcQueue);
++            textures[i].dstQueue = barrierDesc.textures[i].dstQueue == EXTERNAL_QUEUE ? EXTERNAL_QUEUE : NRI_GET_IMPL(Queue, barrierDesc.textures[i].dstQueue);
          }
      }
  
@@ -1186,7 +1290,7 @@ index ca865506..6e8742ee 100644
      Result CreateFence(const FenceD3D12Desc& fenceD3D12Desc, Fence*& fence);
      Result CreateFence(const FenceMetalDesc& fenceMetalDesc, Fence*& fence);
 diff --git a/Source/Validation/DeviceVal.hpp b/Source/Validation/DeviceVal.hpp
-index f6b6fb72..45d19769 100644
+index f6b6fb72..b481234c 100644
 --- a/Source/Validation/DeviceVal.hpp
 +++ b/Source/Validation/DeviceVal.hpp
 @@ -354,6 +354,7 @@ NRI_INLINE Result DeviceVal::CreateDescriptorPool(const DescriptorPoolDesc& desc
@@ -1205,7 +1309,7 @@ index f6b6fb72..45d19769 100644
      NRI_RETURN_ON_FAILURE(this, textureDesc.type < TextureType::MAX_NUM, Result::INVALID_ARGUMENT, "'type' is invalid");
      NRI_RETURN_ON_FAILURE(this, textureDesc.format > Format::UNKNOWN && textureDesc.format < Format::MAX_NUM, Result::INVALID_ARGUMENT, "'format' is invalid");
      NRI_RETURN_ON_FAILURE(this, textureDesc.sharingMode < SharingMode::MAX_NUM, Result::INVALID_ARGUMENT, "'sharingMode' is invalid");
-@@ -927,9 +929,12 @@ NRI_INLINE Result DeviceVal::CreateQueryPool(const QueryPoolDesc& queryPoolDesc,
+@@ -927,13 +929,16 @@ NRI_INLINE Result DeviceVal::CreateQueryPool(const QueryPoolDesc& queryPoolDesc,
      return result;
  }
  
@@ -1220,6 +1324,11 @@ index f6b6fb72..45d19769 100644
  
      fence = nullptr;
      if (result == Result::SUCCESS)
+-        result = WrapImplementation<FenceVal>(fence, fenceImpl, m_iCoreImpl.DestroyFence, initialValue == SWAPCHAIN_SEMAPHORE);
++        result = WrapImplementation<FenceVal>(fence, fenceImpl, m_iCoreImpl.DestroyFence, initialValue == SWAPCHAIN_SEMAPHORE, fenceDesc.shared);
+ 
+     return result;
+ }
 @@ -989,6 +994,8 @@ NRI_INLINE void DeviceVal::DestroyFence(Fence* fence) {
  }
  
@@ -1254,8 +1363,44 @@ index f6b6fb72..45d19769 100644
      NRI_RETURN_ON_FAILURE(this, textureDesc.type < TextureType::MAX_NUM, Result::INVALID_ARGUMENT, "'type' is invalid");
      NRI_RETURN_ON_FAILURE(this, textureDesc.format > Format::UNKNOWN && textureDesc.format < Format::MAX_NUM, Result::INVALID_ARGUMENT, "'format' is invalid");
      NRI_RETURN_ON_FAILURE(this, textureDesc.sharingMode < SharingMode::MAX_NUM, Result::INVALID_ARGUMENT, "'sharingMode' is invalid");
+diff --git a/Source/Validation/FenceVal.h b/Source/Validation/FenceVal.h
+index 26f544ce..64e2d685 100644
+--- a/Source/Validation/FenceVal.h
++++ b/Source/Validation/FenceVal.h
+@@ -5,9 +5,10 @@
+ namespace nri {
+ 
+ struct FenceVal final : public ObjectVal {
+-    inline FenceVal(DeviceVal& device, Fence* fence, bool isSwapChainSemaphore = false)
++    inline FenceVal(DeviceVal& device, Fence* fence, bool isSwapChainSemaphore = false, bool isShared = false)
+         : ObjectVal(device, fence)
+-        , m_IsSwapChainSemaphore(isSwapChainSemaphore) {
++        , m_IsSwapChainSemaphore(isSwapChainSemaphore)
++        , m_IsShared(isShared) {
+     }
+ 
+     inline ~FenceVal() {
+@@ -21,6 +22,10 @@ struct FenceVal final : public ObjectVal {
+         return m_IsSwapChainSemaphore;
+     }
+ 
++    inline bool IsShared() const {
++        return m_IsShared;
++    }
++
+     //================================================================================================================
+     // NRI
+     //================================================================================================================
+@@ -30,6 +35,7 @@ struct FenceVal final : public ObjectVal {
+ 
+ private:
+     bool m_IsSwapChainSemaphore = false;
++    bool m_IsShared = false;
+ };
+ 
+ } // namespace nri
 diff --git a/Source/Validation/ImplVal.cpp b/Source/Validation/ImplVal.cpp
-index e5ea84c3..ffc73462 100644
+index e5ea84c3..9f3ac34e 100644
 --- a/Source/Validation/ImplVal.cpp
 +++ b/Source/Validation/ImplVal.cpp
 @@ -447,8 +447,8 @@ static Result NRI_CALL CreateCommandBuffer(CommandAllocator& commandAllocator, C
@@ -1269,7 +1414,7 @@ index e5ea84c3..ffc73462 100644
  }
  
  static Result NRI_CALL CreateDescriptorPool(Device& device, const DescriptorPoolDesc& descriptorPoolDesc, DescriptorPool*& descriptorPool) {
-@@ -1041,6 +1041,30 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
+@@ -1041,6 +1041,33 @@ static uint64_t NRI_CALL GetDescriptorNativeObject(const Descriptor* descriptor)
      return ((DescriptorVal*)descriptor)->GetNativeObject();
  }
  
@@ -1293,6 +1438,9 @@ index e5ea84c3..ffc73462 100644
 +
 +static Result NRI_CALL GetFenceSharedHandle(const Fence& fence, SharedHandle& sharedHandle) {
 +    const FenceVal& fenceVal = (const FenceVal&)fence;
++    sharedHandle = {};
++
++    NRI_RETURN_ON_FAILURE(&fenceVal.GetDevice(), fenceVal.IsShared(), Result::INVALID_ARGUMENT, "'shared' is false");
 +
 +    return fenceVal.GetDevice().GetCoreInterfaceImpl().GetFenceSharedHandle(*fenceVal.GetImpl(), sharedHandle);
 +}
@@ -1300,7 +1448,7 @@ index e5ea84c3..ffc73462 100644
  Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
      table.GetDeviceDesc = ::GetDeviceDesc;
      table.GetBufferDesc = ::GetBufferDesc;
-@@ -1156,6 +1180,9 @@ Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
+@@ -1156,6 +1183,9 @@ Result DeviceVal::FillFunctionTable(CoreInterface& table) const {
      table.GetBufferNativeObject = ::GetBufferNativeObject;
      table.GetTextureNativeObject = ::GetTextureNativeObject;
      table.GetDescriptorNativeObject = ::GetDescriptorNativeObject;

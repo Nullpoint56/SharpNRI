@@ -355,6 +355,9 @@ public sealed partial class NativeAbiTests(ITestOutputHelper output)
             }
         }
 
+        // EXTERNAL_QUEUE must be assignable to the barrier descs' Queue* fields: as a pointer to a const
+        // Queue it was not (MSVC C2440; NRI PR #294 review, item 3).
+        cpp.AppendLine("  { Queue* externalQueue_ = EXTERNAL_QUEUE; (void)externalQueue_; }");
         cpp.AppendLine("  return 0;");
         cpp.AppendLine("}");
         return cpp.ToString();
