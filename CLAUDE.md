@@ -201,7 +201,22 @@ From the owner. Do not relitigate.
   exact text.
 - **A patch is NRI-shaped**: a field on an existing desc, a new desc, or a new interface struct in
   NRI's style, comment in NRI's voice; or a bug fix. Never a semantic change to an existing call.
-  Every patch must apply cleanly to the next upstream tag.
+  Every patch must apply cleanly to the next upstream tag. **And it follows NRI's own standard**
+  (`.agents/skills/nri-coding-standard/SKILL.md` on NRI main since 83fd010, not in v190; the
+  maintainer pointed at it on PR #294, 2026-10-26; his review bot reads `nri-review/SKILL.md` beside
+  it). The parts that decide a patch's shape: public-input checks live in `Source/Validation` only
+  (`NRI_RETURN_ON_FAILURE` there; a backend assumes validated descriptors and keeps native work,
+  native-result macros and capability answers; debug-only `NRI_CHECK` for impossible states),
+  Validation never checks device ownership, a new public function updates the table,
+  `FillFunctionTable`, Validation, every backend, the Creation glue and the capabilities together;
+  file-local helpers are `static inline` in the helper section at the top of the file; `Scratch<T>`
+  for variable-sized temporaries; no hidden barriers, synchronization, allocation or caching; an
+  empty line before `return`, `if`, `for`, `while`, `switch` in touched code; compound `?:`
+  conditions parenthesized; a single-sentence comment has no trailing period; `Include/` files are
+  edited by hand, never clang-formatted; `git diff --check` clean, the repository's line endings
+  kept. Applied: 0029's D3D12 backend half was dropped on both branches (2026-10-26); 0014's
+  check inside `SwapChainVK::Create` is a v190 bug fix that upstream replaced with a clamp (PR #285)
+  and goes with the tag.
 - **Every NRI defect found is patched on master, test first** (decided 2026-10-22). The test
   asserts the right answer and is run red against the unpatched build; the patch makes it green.
   Never a test shaped around the defect, a workaround or a skip with a "to fix" note. Master stays
@@ -391,8 +406,10 @@ configured per machine: the adapter named is whichever one the suite picked on t
   skipped, 0 failed. With `d3d12.dll` and `dxgi.dll` delay-loaded (5271921): Windows 516, 11
   skipped, lines 98.0%, branches 81.5%, 251 of 253; lavapipe 515, 285 skipped, 0 failed. With patches 0037 and 0038 and their tests (58b0e7f):
   Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields 1,611 of 1,612
-  (`vkInstanceCreateInfoNext` added); lavapipe 517, 286 skipped, 0 failed. The committed report is
-  measured where its header says; CI does not run it.
+  (`vkInstanceCreateInfoNext` added); lavapipe 517, 286 skipped, 0 failed. With 0029's D3D12 backend
+  half dropped (4e074ef): Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields
+  1,611 of 1,612; lavapipe 517, 286 skipped, 0 failed. The committed report is measured where its
+  header says; CI does not run it.
 
 ---
 
@@ -427,7 +444,7 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | 0026 vulkan-empty-vertex-input-no-dynamic-stride | `VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE` only when the vertex input has streams (`PipelineVK.hpp:378`, 1 line) | upstream made the stride dynamic for any non-null vertex input, so every draw with an empty one reported VUID-vkCmdDraw-pStrides-04913 (N2, Draws, render state and attachments) |
 | 0027 d3d12-clear-attachments-stencil-only-pass | `ClearAttachments` takes the depth-stencil view from `m_Depth`, else `m_Stencil` (`CommandBufferD3D12.hpp:1758`, 2 lines) | upstream dereferenced the null depth attachment of a stencil-only pass: an access violation (N3, Draws, render state and attachments) |
 | 0028 d3d12-depth-attachment-clears-stencil | `BeginRendering` clears the stencil when a stencil attachment exists and the attachment providing it (`stencil` if given, else `depth`) has `LoadOp::CLEAR`, with that attachment's clear value (`CommandBufferD3D12.hpp:1828-1832`, 4 lines added, 2 removed) | upstream took the stencil clear from `RenderingDesc::stencil` only, so a depth-stencil view passed as `depth` kept its stencil on D3D12 while Vulkan, whose stencil attachment is then the depth one, cleared it (N4, Draws, render state and attachments) |
-| 0029 non-array-texture-view-layer-offset | `DescriptorD3D12::Create(TextureViewDesc)` refuses `TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` and `TEXTURE_CUBE` views of a non-3D texture with `layerOffset` != 0 (`INVALID_ARGUMENT`, error naming the `_ARRAY` types); `DeviceVal::CreateDescriptor` refuses the same on every backend (11 lines added) | D3D12's non-array 1D, 2D and cube views have no array slice, and upstream dropped `layerOffset` silently: the view addressed the first layer on D3D12 and the asked one on Vulkan (N5, Multisampling, copies and queries) |
+| 0029 non-array-texture-view-layer-offset | `DeviceVal::CreateDescriptor` refuses `TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` and `TEXTURE_CUBE` views of a non-3D texture with `layerOffset` != 0 on every backend (`INVALID_ARGUMENT`, error naming the `_ARRAY` types; 4 lines; the D3D12 backend half was dropped 2026-10-26 for NRI's coding standard, which keeps input checks out of backends) | D3D12's non-array 1D, 2D and cube views have no array slice, and upstream dropped `layerOffset` silently: the view addressed the first layer on D3D12 and the asked one on Vulkan (N5, Multisampling, copies and queries) |
 | 0030 d3d12-micromap-write-barrier-sync | `GetBarrierSyncFlags` adds no `EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO` when the access holds `ACCELERATION_STRUCTURE_WRITE` or `MICROMAP_WRITE` (`CommandBufferD3D12.hpp:142`, 2 lines) | `MICROMAP_WRITE` maps to the same D3D12 write access, and the debug layer refuses the pair (1331): `Close` failed after every micromap build whose barrier named the `MICROMAP` stage (N6, Ray tracing) |
 | 0031 d3d12-acceleration-structure-alignment | `GetAccelerationStructureMemoryDesc2` and `AccelerationStructureD3D12::GetMemoryDesc` raise the alignment to `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT` (`ImplD3D12.cpp:1023`, `AccelerationStructureD3D12.hpp:52`, 2 lines added); micromaps keep their 128 | since 3371cdb the desc is a plain buffer's, 128 under tight alignment, which NRI validation accepts for a placement and the acceleration-structure SRV refuses (31) (N7, Ray tracing) |
 | 0032 d3d12-av1-required-auto-segmentation | `VideoSessionD3D12` keeps the AV1 encoder's `RequiredFeatureFlags` (`GetAV1RequiredFeatureFlags`); `EncodeVideo` enables automatic segmentation when they hold `AUTO_SEGMENTATION`, as well as for pictures with `SEGMENTATION_ENABLED` (`CommandBufferD3D12.hpp:1442`, 9 lines added, 1 removed) | upstream enabled it for the picture flag only, and the session merged the required flags into the supported ones; NVIDIA's encoder requires it, so NRI's default picture flags failed `Close` (1306) (N8, Extensions) |
@@ -1196,11 +1213,13 @@ Measured by `MultisampleTests`, `TextureCopyTests` and `QueryTests`.
   the 2D SRV; since the initial commit, 0c5f574), so no D3D12 view of that type can address
   another layer, and an array view would not match the shader's non-array declaration. Patch 0029
   refuses such a view (`TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE`, `TEXTURE_CUBE` of a 1D or 2D
-  texture with `layerOffset` != 0): the D3D12 backend with `INVALID_ARGUMENT`, NRI validation on
-  every backend, each naming the `_ARRAY` types.
+  texture with `layerOffset` != 0) in NRI validation on every backend, naming the `_ARRAY` types.
+  Until 2026-10-26 the D3D12 backend refused it too; that half was dropped for NRI's coding
+  standard (public-input checks live in Validation only, a backend assumes validated descriptors),
+  so without NRI validation D3D12 silently addresses the first layer as upstream does.
   `TextureCopyTests.A_non_array_view_of_a_layer_other_than_the_first_is_refused` checks TEXTURE
-  and STORAGE_TEXTURE at layer 1 and TEXTURE_CUBE at layer 6, with NRI validation on both backends
-  and without it on D3D12. Use the `_ARRAY` view types.
+  and STORAGE_TEXTURE at layer 1 and TEXTURE_CUBE at layer 6, with NRI validation on both backends.
+  Use the `_ARRAY` view types.
 - **A storage view over several mips** is cleared whole by Vulkan's `ClearStorage` and only at mip 0
   by D3D12, whose UAV addresses one mip. Use one mip per storage view.
 - **Occlusion queries.** NRI begins Vulkan occlusion queries without `VK_QUERY_CONTROL_PRECISE_BIT`,

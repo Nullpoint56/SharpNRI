@@ -6,34 +6,16 @@ STORAGE_TEXTURE and TEXTURE_CUBE views of a 1D or 2D texture, and the view addre
 (or cube) without a word. Vulkan honours it (baseArrayLayer). An array view would not match the
 shader's non-array declaration, so D3D12 cannot express such a view. Since 0c5f574 (initial commit).
 
-This refuses it: the D3D12 backend reports it and returns INVALID_ARGUMENT, and NRI validation
-refuses it on every backend, pointing to the "_ARRAY" view types, which address any layer on both
-backends.
+This refuses it in NRI validation on every backend, pointing to the "_ARRAY" view types, which
+address any layer on both backends. The backend is left alone: public-input checks belong to
+Validation (.agents/skills/nri-coding-standard).
 Measured on v190, NVIDIA: a two-layer texture, a STORAGE_TEXTURE view with layerOffset 1,
 CmdClearStorage: Vulkan cleared layer 1, D3D12 layer 0, with no message from NRI validation or
 either backend's layer. With the change, TEXTURE and STORAGE_TEXTURE views with layerOffset 1 and a
 TEXTURE_CUBE view with layerOffset 6 are refused with INVALID_ARGUMENT and one error naming
-"layerOffset" and "_ARRAY", on both backends with NRI validation and on D3D12 without it; the same
-views of the first layer are created.
+"layerOffset" and "_ARRAY", on both backends with NRI validation; the same views of the first layer
+are created.
 
-diff --git a/Source/D3D12/DescriptorD3D12.hpp b/Source/D3D12/DescriptorD3D12.hpp
-index f5f0314..7d6ccdc 100644
---- a/Source/D3D12/DescriptorD3D12.hpp
-+++ b/Source/D3D12/DescriptorD3D12.hpp
-@@ -68,6 +68,13 @@ Result DescriptorD3D12::Create(const TextureViewDesc& textureViewDesc) {
-     Dim_t layerNum = textureViewDesc.layerNum == REMAINING ? (textureDesc.layerNum - textureViewDesc.layerOffset) : textureViewDesc.layerNum;
-     Dim_t sliceNum = textureViewDesc.sliceNum == REMAINING ? (textureDesc.depth - textureViewDesc.sliceOffset) : textureViewDesc.sliceNum;
- 
-+    // Non-array 1D and 2D views (and a cube view) have no array slice in D3D12, so they can't select a layer
-+    const bool isNonArrayView = textureViewDesc.type == TextureView::TEXTURE || textureViewDesc.type == TextureView::SUBPASS_INPUT || textureViewDesc.type == TextureView::STORAGE_TEXTURE || textureViewDesc.type == TextureView::TEXTURE_CUBE;
-+    if (textureDesc.type != TextureType::TEXTURE_3D && isNonArrayView && textureViewDesc.layerOffset != 0) {
-+        NRI_REPORT_ERROR(&m_Device, "'layerOffset=%u' can't be selected by a non-array view in D3D12, use the '_ARRAY' view type", textureViewDesc.layerOffset);
-+        return Result::INVALID_ARGUMENT;
-+    }
-+
-     m_ViewDesc.texture = {};
-     m_ViewDesc.texture.layerOffset = textureViewDesc.layerOffset;
-     m_ViewDesc.texture.layerNum = layerNum;
 diff --git a/Source/Validation/DeviceVal.hpp b/Source/Validation/DeviceVal.hpp
 index 0bb2a05..3232ce4 100644
 --- a/Source/Validation/DeviceVal.hpp
