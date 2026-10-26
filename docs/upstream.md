@@ -681,10 +681,11 @@ Since the initial commit (0c5f574).
 
 **Fix.** D3D12 has no non-array view of layer N, and an array view would not match the shader's
 non-array declaration, so NRI cannot honour the request there. Patch attached
-(`patches/0029-non-array-texture-view-layer-offset.patch`), eleven lines: `DescriptorD3D12::Create`
-reports it and returns `INVALID_ARGUMENT` for a `TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` or
-`TEXTURE_CUBE` view of a 1D or 2D texture with `layerOffset != 0`, and validation refuses the same
-on every backend, pointing to the `_ARRAY` view types. Documenting it in `TextureViewDesc` instead
+(`patches/0029-non-array-texture-view-layer-offset.patch`), four lines: validation refuses a
+`TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` or `TEXTURE_CUBE` view of a 1D or 2D texture with
+`layerOffset != 0` on every backend, pointing to the `_ARRAY` view types. The D3D12 backend half of
+the first cut was dropped on 2026-10-26: input checks belong to Validation
+(`.agents/skills/nri-coding-standard` on NRI main). Documenting it in `TextureViewDesc` instead
 is his call.
 
 ## 0030 — D3D12: micromap barriers with `MICROMAP_WRITE` fail `Close` (N6)
