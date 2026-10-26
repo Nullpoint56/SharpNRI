@@ -219,10 +219,10 @@ From the owner. Do not relitigate.
   barriers, synchronization, allocation or caching; an empty line before `return`, `if`, `for`,
   `while`, `switch` in touched code; compound `?:` conditions parenthesized; a single-sentence
   comment has no trailing period; `Include/` files are edited by hand, never clang-formatted;
-  `git diff --check` clean, the repository's line endings kept. Measured consequence: 0029 carries
-  the same `layerOffset` refusal in `DescriptorD3D12` and in Validation, and the backend half is
-  against the standard (owner's call whether to drop it on both branches); 0002's Vulkan
-  `features.shared*` early-outs were dropped for it (fork 0a7f3b2b).
+  `git diff --check` clean, the repository's line endings kept. Applied: 0029 carried the same
+  `layerOffset` refusal in `DescriptorD3D12` and in Validation, and the backend half was dropped on
+  both branches (2026-10-26); 0002's Vulkan `features.shared*` early-outs were dropped for it
+  (fork 0a7f3b2b).
 - **Every NRI defect found is patched on master, test first** (decided 2026-10-22). The test
   asserts the right answer and is run red against the unpatched build; the patch makes it green.
   Never a test shaped around the defect, a workaround or a skip with a "to fix" note. Master stays
@@ -434,7 +434,7 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | 0018 d3d12-break-on-error-switch | `DeviceCreationDesc::disableD3D12BreakOnError` ("enabled by default" switches) wraps the two `SetBreakOnSeverity` calls in `DeviceD3D12::Create` (7 lines); the binding passes it unless `BreakOnError` and a debugger is attached | upstream sets the info-queue break on ERROR and CORRUPTION for every debug-layer device: without a debugger the first D3D12 error is an `SEHException` out of the NRI call, or a dead headless process, although the message callback already reports it |
 | 0019 d3d12-gpu-based-validation-switch | `DeviceCreationDesc::enableD3D12GpuBasedValidation` ("disabled by default", beside `enableD3D12RayTracingValidation`): `ID3D12Debug1::SetEnableGPUBasedValidation(true)` after `EnableDebugLayer` (9 lines) | upstream never enables GPU-based validation, which must be enabled before the device is created; the alternative is a D3D12 COM sequence in the binding |
 | 0024 enumerate-adapters-by-graphics-api | on `next`: `nriCreateDevice` with a null `adapterDesc` calls `nriEnumerateAdapters` with `GraphicsAPI::VK` for a VK device and `ALL` otherwise (`Creation.cpp`, 2 lines); main's 962615b (#286) gave `nriEnumerateAdapters` the backends to probe, which master's 0024 did as `nriEnumerateAdapters2` | creating a Vulkan device with no adapter still probed every backend: a DXGI factory, D3D12 devices and `D3D12Core.dll` loaded for the process's life; a D3D-only probe would change a D3D12 device's desc (queue counts), so D3D keeps the full one (Device creation and callbacks) |
-| 0029 non-array-texture-view-layer-offset | `DescriptorD3D12::Create(TextureViewDesc)` refuses `TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` and `TEXTURE_CUBE` views of a non-3D texture with `layerOffset` != 0 (`INVALID_ARGUMENT`, error naming the `_ARRAY` types); `DeviceVal::CreateDescriptor` refuses the same on every backend (11 lines added) | D3D12's non-array 1D, 2D and cube views have no array slice, and upstream dropped `layerOffset` silently: the view addressed the first layer on D3D12 and the asked one on Vulkan (N5, Multisampling, copies and queries) |
+| 0029 non-array-texture-view-layer-offset | `DeviceVal::CreateDescriptor` refuses `TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` and `TEXTURE_CUBE` views of a non-3D texture with `layerOffset` != 0 on every backend (`INVALID_ARGUMENT`, error naming the `_ARRAY` types; 4 lines; the D3D12 backend half was dropped 2026-10-26 for NRI's coding standard, which keeps input checks out of backends) | D3D12's non-array 1D, 2D and cube views have no array slice, and upstream dropped `layerOffset` silently: the view addressed the first layer on D3D12 and the asked one on Vulkan (N5, Multisampling, copies and queries) |
 | 0035 helper-sort-every-resource | `GroupByMemoryType` sorts `[0, bufferNum)` and `[0, textureNum)` (`HelperInterface.hpp:559`, `:571`, 2 lines) | upstream ended the range at the last element, which `std::sort` excludes, so the last resource of each kind was packed unsorted and the packing depended on the order passed (N11, Memory and resources) |
 | 0037 vulkan-swapchain-present-modes-info | `SwapChainVK::Create` chains `VkSwapchainPresentModesCreateInfoKHR` listing the chosen `presentMode` only, when the device has `swapchainMaintenance1` (`SwapChainVK.hpp:376`, 8 lines) | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (Extensions); one mode is what Vulkan assumes without the structure, so nothing else changes |
 | 0038 vulkan-instance-create-info-next | `DeviceCreationDesc::vkInstanceCreateInfoNext` (`NriOptional const void*`, next to `vkExtensions`): a caller's chain `DeviceVK::CreateInstance` appends to `VkInstanceCreateInfo::pNext` after NRI's `VkDebugUtilsMessengerCreateInfoEXT` and `VkValidationFeaturesEXT` (`DeviceVK.hpp:2122`; 1 header line, 3 source lines added, 3 changed) | NRI creates the instance and chained only its own structures, so `VkLayerSettingsCreateInfoEXT` could not reach the layer and layer settings went through environment variables: process-wide, and unseen on Linux and macOS when set from .NET (Device creation and callbacks); a phase 2 proposal |
@@ -1276,11 +1276,13 @@ Measured by `MultisampleTests`, `TextureCopyTests` and `QueryTests`.
   the 2D SRV; since the initial commit, 0c5f574), so no D3D12 view of that type can address
   another layer, and an array view would not match the shader's non-array declaration. Patch 0029
   refuses such a view (`TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE`, `TEXTURE_CUBE` of a 1D or 2D
-  texture with `layerOffset` != 0): the D3D12 backend with `INVALID_ARGUMENT`, NRI validation on
-  every backend, each naming the `_ARRAY` types.
+  texture with `layerOffset` != 0) in NRI validation on every backend, naming the `_ARRAY` types.
+  Until 2026-10-26 the D3D12 backend refused it too; that half was dropped for NRI's coding
+  standard (public-input checks live in Validation only, a backend assumes validated descriptors),
+  so without NRI validation D3D12 silently addresses the first layer as upstream does.
   `TextureCopyTests.A_non_array_view_of_a_layer_other_than_the_first_is_refused` checks TEXTURE
-  and STORAGE_TEXTURE at layer 1 and TEXTURE_CUBE at layer 6, with NRI validation on both backends
-  and without it on D3D12. Use the `_ARRAY` view types.
+  and STORAGE_TEXTURE at layer 1 and TEXTURE_CUBE at layer 6, with NRI validation on both backends.
+  Use the `_ARRAY` view types.
 - **A storage view over several mips** is cleared whole by Vulkan's `ClearStorage` and only at mip 0
   by D3D12, whose UAV addresses one mip. Use one mip per storage view.
 - **Occlusion queries.** NRI begins Vulkan occlusion queries without `VK_QUERY_CONTROL_PRECISE_BIT`,
