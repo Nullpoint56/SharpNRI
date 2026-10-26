@@ -48,7 +48,7 @@ read; nothing is pushed to it from here until an upstream PR is planned.
 - **Now.** `next` pins NRI main 83fd010 (2026-10-26, "NGX: fixed cleanup after failed
   initialization", still `NRI_VERSION 190`) and carries seventeen patches; master pins v190
   with thirty-seven. Verified at 9fa9e14 (2026-10-26): Windows (NVIDIA RTX 4070 SUPER, VK and
-  D3D12) 531 tests, 0 failed, 13 skipped; lavapipe in WSL (layer 1.4.363) 530 tests, 0 failed, 290 skipped.
+  D3D12) 531 tests, 0 failed, 13 skipped; lavapipe in WSL (layer 1.4.363) 530 tests, 0 failed, 290 skipped; the same counts at 412d5b19 with the PR #294 review fixes in 0002 (2026-10-26).
 - **Direction.** Binding work that does not depend on the NRI version lands on master and is
   merged forward into `next` often (`git merge master` on `next`). After a forward merge,
   regenerate L0 on `next` instead of resolving conflicts in `dotnet/Native` by hand. NRI-side work
@@ -407,7 +407,7 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | Patch | What | Why |
 |---|---|---|
 | 0001 agility-sdk-device-factory | `DeviceCreationDesc::d3d12AgilitySdkPath`; `D3D12GetInterface(CLSID_D3D12SDKConfiguration)` -> `ID3D12SDKConfiguration1::CreateDeviceFactory(NRI_AGILITY_SDK_VERSION_MAJOR, path)` -> `ApplyToGlobalState()` before any other D3D12 call | a managed host cannot export `D3D12SDKVersion`, so the SDK never loads otherwise |
-| 0002 shared-buffers-textures-fences | `BufferDesc::shared`, `TextureDesc::shared` (a committed resource in `DEVICE` memory with a dedicated, exportable allocation: VK `VkExternalMemory*CreateInfo` + `VkExportMemoryAllocateInfo` outside VMA, D3D12 `D3D12_HEAP_FLAG_SHARED`), `FenceDesc { initialValue, shared }` which `CreateFence` now takes (VK `VkExportSemaphoreCreateInfo`, timeline or binary; D3D12 `D3D12_FENCE_FLAG_SHARED`, `UNSUPPORTED` for a binary semaphore), `SharedHandleType` / `SharedHandle { handle, type, size }` and `CoreInterface::GetBufferSharedHandle` / `GetTextureSharedHandle` / `GetFenceSharedHandle` beside the native-object getters (a new caller-owned handle per call; `size` is the allocation size on both backends), `features.sharedResources` / `sharedFences`, `EXTERNAL_QUEUE` for barriers to/from `VK_QUEUE_FAMILY_EXTERNAL`; validation refuses `shared` outside `CreateCommitted*` and outside `DEVICE`, a getter on an object that is not shared, and a shared object without the feature; NONE zero handles; D3D11, WGPU, Metal `UNSUPPORTED`. The shape the maintainer asked for on #49 (2026-10-23); master's 0002 is the extension shape (`NRISharedHandle.h`) | upstream has no export path; compositors, a second device and CUDA (`cudaImportExternalMemory` / `cudaImportExternalSemaphore` take exactly these handles) import binary semaphores, timeline fences, buffers and textures |
+| 0002 shared-buffers-textures-fences | `BufferDesc::shared`, `TextureDesc::shared` (a committed resource in `DEVICE` memory with a dedicated, exportable allocation: VK `VkExternalMemory*CreateInfo` + `VkExportMemoryAllocateInfo` outside VMA, D3D12 `D3D12_HEAP_FLAG_SHARED`), `FenceDesc { initialValue, shared }` which `CreateFence` now takes (VK `VkExportSemaphoreCreateInfo`, timeline or binary; D3D12 `D3D12_FENCE_FLAG_SHARED`, `UNSUPPORTED` for a binary semaphore), `SharedHandleType` / `SharedHandle { handle, type, size }` and `CoreInterface::GetBufferSharedHandle` / `GetTextureSharedHandle` / `GetFenceSharedHandle` beside the native-object getters (a new caller-owned handle per call; `size` is the allocation size on both backends), `features.sharedResources` / `sharedFences`, `EXTERNAL_QUEUE` for barriers to/from `VK_QUEUE_FAMILY_EXTERNAL`; validation refuses `shared` outside `CreateCommitted*` and outside `DEVICE`, a getter on an object that is not shared, and a shared object without the feature; NONE zero handles; D3D11, WGPU, Metal `UNSUPPORTED`. The shape the maintainer asked for on #49 (2026-10-23); master's 0002 is the extension shape (`NRISharedHandle.h`). After the PR #294 review (2026-10-26): one Win32 export per object with a `DuplicateHandle` per call, `BufferBarrierDesc::srcQueue` / `dstQueue` for `EXTERNAL_QUEUE`, `EXTERNAL_QUEUE` a const pointer, the input checks in Validation only (Shared handles) | upstream has no export path; compositors, a second device and CUDA (`cudaImportExternalMemory` / `cudaImportExternalSemaphore` take exactly these handles) import binary semaphores, timeline fences, buffers and textures |
 | 0006 vulkan-portability-sampler-lod-bias | `samplerLodBiasMax = 0` with `VK_KHR_portability_subset` and no `samplerMipLodBias` (6 lines beside NRI's `imageView2DOn3DImage` read) | upstream bug: MoltenVK reports 15.999 and forbids any bias |
 | 0007 cmake-vulkan-loader-link-option | `NRI_ENABLE_VULKAN_LOADER_LINKING` (default ON) wraps the Apple `find_package(Vulkan)` + link; we pass OFF | shipped dylib otherwise needs the build machine's loader path; NRI PR 134 added it for an IDE case, maintainer: "just not needed" |
 | 0009 vulkan-swapchain-out-of-date-not-an-error | `AcquireNextTexture` / `Present` return `OUT_OF_DATE` for exactly `VK_ERROR_OUT_OF_DATE_KHR` before `NRI_RETURN_ON_BAD_VKRESULT` (no report); return values unchanged | upstream reporting defect: a documented, expected result reported as `Message::ERROR` on every resize |
@@ -552,7 +552,7 @@ configured per machine: the adapter named is whichever one the suite picked on t
   errors, types gone.)
 - NRI's headers have zero C++ default member initializers (`NriDefault` unused), so generator-dropped
   defaults cannot happen here. C `bool` is `byte` with `[NativeTypeName("bool")]`.
-- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,877 offsets, 56 fixed
+- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,879 offsets (1,877 before 0002's `BufferBarrierDesc` queues, 2026-10-26), 56 fixed
   buffers and 95 enums on `next` at bf88835 and again at 9fa9e14 on NRI main 83fd010, unchanged (main's video descs, `DescriptorSetBits` gone, 0002's
   `shared` fields, `FenceDesc` and feature bits; 1,876 before 0038's `vkInstanceCreateInfoNext`); 273 structs, 1,845 offsets, 55 fixed buffers and 96 enums on master at v190
   (1,844 before patch 0038, 1,840 before patches 0017-0019 and 0033 added a field each); 4 bitfields (exact bytes
@@ -1656,13 +1656,26 @@ extensions.
 - `SharedHandle::size` is the allocation size on both backends (VK: `VkMemoryAllocateInfo`;
   D3D12: `D3D12MA::Allocation::GetSize`, what `CUDA_EXTERNAL_MEMORY_HANDLE_DESC::size` takes); 0
   for a fence.
-- NVIDIA VK: second `vkGetMemoryWin32HandleKHR` on the same memory returned the same handle value.
-  Tests assert nothing about distinctness.
+- **One Win32 export per object (PR #294 review, item 1).** Vulkan allows one NT-handle export per
+  object and handle type (VUID-VkMemoryGetWin32HandleInfoKHR-handleType-00663,
+  VUID-VkSemaphoreGetWin32HandleInfoKHR-handleType-01127): a repeated `vkGetMemoryWin32HandleKHR` /
+  `vkGetSemaphoreWin32HandleKHR` returns the same `HANDLE` (NVIDIA here, 2026-10-13; the
+  maintainer on an RTX 4080, 2026-10-26: closing the first invalidated the second, no layer
+  message), while NRI's getters promise a caller-owned handle each call. Since the fix NRI exports
+  once per object (`DeviceVK::GetSharedMemoryHandle` / `GetSharedSemaphoreHandle`, the first
+  export under `m_SharedHandleLock`), keeps that handle in the object (`m_SharedHandle`) until the
+  object is destroyed (`CloseSharedHandle` in the destructors) and hands every `GetSharedHandle`
+  a `DuplicateHandle` of it; FD exports stay one per call. `SharedHandleTests` assert two handles
+  of a buffer, texture and fence differ, and `SharedHandleImportTests` close the first before the
+  second imports (VK texture and semaphore). Red before the fix on NVIDIA VK (equal values),
+  green after; D3D12's `CreateSharedHandle` was a new handle each call already.
 - An object that is not shared asked for a handle: `INVALID_ARGUMENT` "'shared' is false"
-  (validation for buffers and textures, from the desc; the backend for fences). A `shared`
+  (validation only, from the desc for buffers and textures and `FenceVal`'s `shared` flag for
+  fences; PR #294 review, item 4: the D3D12 and VK backends keep no input checks, only the native
+  work and its error handling). A `shared`
   resource through `CreateBuffer` / `CreateTexture` / `CreatePlaced*`, or committed outside
   `DEVICE`: `INVALID_ARGUMENT` from validation naming the rule (D3D12 cannot share an upload or
-  readback heap; Vulkan's shared allocation is not mapped). The backends refuse the location too.
+  readback heap; Vulkan's shared allocation is not mapped).
 - Import proofs (`SharedHandleImportTests`, Windows): VK texture into a second VK device as a
   dedicated allocation, 16,384 bytes match (same SHA-256); timeline semaphore both ways; D3D12 fence
   both ways; D3D12 texture opens on a second D3D12 device.
@@ -1695,16 +1708,41 @@ extensions.
   second queue signals -> NRI queue waits; second device's Khronos layer and NRI's messages clean.
   D3D12: `UNSUPPORTED`, no message.
 - Exclusive VK images need a release to `VK_QUEUE_FAMILY_EXTERNAL`; `NriQueue.External` (patch
-  0002's `EXTERNAL_QUEUE`) expresses it. NVIDIA tolerated the omission before.
+  0002's `EXTERNAL_QUEUE`) expresses it. NVIDIA tolerated the omission before. **Buffers too (PR
+  #294 review, item 2)**: `BufferBarrierDesc::srcQueue` / `dstQueue` (binding
+  `NriBufferBarrier.SrcQueue` / `DstQueue`), with the texture rules: `BufferVK` records its sharing
+  mode at creation (`IsConcurrent`; NRI makes a buffer `CONCURRENT` only with more than one active
+  queue family, `EXCLUSIVE` otherwise), an `EXCLUSIVE` buffer's side names the queue's family, a
+  `CONCURRENT` one's is `VK_QUEUE_FAMILY_IGNORED`, and `EXTERNAL_QUEUE` is
+  `VK_QUEUE_FAMILY_EXTERNAL` for either; validation passes the sentinel through as for textures;
+  D3D12 ignores both. The first cut wrote `IGNORED` for every local side, and the CUDA buffer round
+  trip (one queue fetched, so an `EXCLUSIVE` buffer) drew "[1298576651]
+  VUID-vkCmdPipelineBarrier2-srcQueueFamilyIndex-10387: ... pBufferMemoryBarriers[0] has
+  srcQueueFamilyIndex 4294967295 (VK_QUEUE_FAMILY_IGNORED) and dstQueueFamilyIndex 4294967294
+  (VK_QUEUE_FAMILY_EXTERNAL). The command buffer's command pool is associated with family index 0.
+  Source or destination queue family must match queue family associated with the command buffer's
+  command pool." (NVIDIA, layer 1.4.341, 2026-10-26); with the family named it is clean. That round
+  trip now releases to the external family after NRI's write and acquires from it before NRI's
+  read, on both backends. `EXTERNAL_QUEUE` itself is `static NriPtr(Queue) const` (item 3: as a pointer
+  to a const `Queue` it was not assignable to the fields, MSVC C2440); the ABI probe assigns it to
+  a `Queue*`, red before the fix (clang: "cannot initialize a variable of type 'Queue *' with an
+  lvalue of type 'const Queue *'").
 - **Other backends**: D3D11, WGPU and Metal take `FenceDesc.initialValue` and answer `UNSUPPORTED`
   for `shared` and for the three getters. The D3D11 build was compiled once from the scratch clone
   with `NRI_ENABLE_D3D11_SUPPORT=ON` against the staged `_deps` (2026-10-24, 0 errors); WGPU
   (needs the wgpu-native download) and Metal (macOS) are not compiled here, the maintainer's CI
   covers them.
-- **Patch-file rule met the hard way**: 0034 wraps validation's `CreateFence` allocation in the
-  `OUT_OF_MEMORY` check, so 0002's hunk there must end before that line; `DeviceVal::CreateFence`
-  keeps upstream's `Allocate` line byte for byte behind a `const uint64_t initialValue` alias.
-  0034 is the one patch on `next` that does not apply alone (its context is 0002's lines).
+- **Patch-file rule met the hard way** (history, 0034 is gone since NRI main 9d276c3): 0034 wrapped
+  validation's `CreateFence` allocation in the `OUT_OF_MEMORY` check, so 0002's hunk there had to
+  end before that line, and 0002 kept upstream's `Allocate` line byte for byte behind a
+  `const uint64_t initialValue` alias; 0034 was the one patch on `next` that did not apply alone.
+- **PR #294 review (2026-10-26, the maintainer, through the Codex connector and confirmed by
+  hand): NoGo with four items**, `FenceDesc` accepted, D3D11 sharing allowed as a follow-up. He
+  merged main 83fd010 into the PR branch himself (038cecbc), so the fixes are four commits on top
+  of his merge, never a force-push: `5e413361` (item 3, the const), `2320cc63` (item 4, checks
+  into Validation), `3a49e381` (item 1, one export + duplicates), `809121d4` (item 2, buffer
+  barrier queues). Patch 0002 is their squash with the earlier content, re-cut over 83fd010 +
+  0001. Compiled from the scratch clone with D3D11, D3D12 (Agility) and VK on (0 errors).
 
 ### Extensions
 

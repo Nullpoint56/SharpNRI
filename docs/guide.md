@@ -420,7 +420,12 @@ fence.Wait(1);
   the fence still short of the value; the binding checks `fence.Value` and throws. For work that
   may take longer (a first submit on lavapipe JIT-compiles its shaders), poll `fence.Value`.
 - Queue ownership transfer to or from another API / process: `SrcQueue` / `DstQueue` =
-  `NriQueue.External` (patch 0002; `VK_QUEUE_FAMILY_EXTERNAL` on Vulkan).
+  `NriQueue.External` (patch 0002; `VK_QUEUE_FAMILY_EXTERNAL` on Vulkan), on `NriTextureBarrier`
+  and on `NriBufferBarrier`, with the same rules: a buffer is `CONCURRENT` with more than one queue
+  family in use (no transfer between the device's own queues) and `EXCLUSIVE` otherwise (name the
+  queue on the local side); D3D12 ignores both. Release a shared
+  buffer to `External` after writing it and before the other side takes it, acquire from `External`
+  before reading it back (the CUDA round trip in the tests does exactly that).
 - UNORM rounding is the driver's: `0.1 * 255 = 25.5` reads 25 on NVIDIA Vulkan, 26 elsewhere. Allow
   one unit when comparing cleared or rendered pixels. VK and D3D12 readbacks differ at triangle
   edges.
@@ -538,7 +543,7 @@ if (device.TryRayTracing is { } rt)
 
 ```csharp
 using var shared = device.CreateSharedTexture(in desc);               // committed, DEVICE memory, exportable
-using var handle = shared.GetSharedHandle();                          // NriSharedHandle: Handle, Type, Size; Dispose closes it once
+using var handle = shared.GetSharedHandle();                          // NriSharedHandle: Handle, Type, Size; every call is a handle of its own, Dispose closes it once
 using var buffer = device.CreateSharedBuffer(new BufferDesc { size = 4096, usage = BufferUsageBits.SHADER_RESOURCE });
 using var bufferHandle = buffer.GetSharedHandle();
 using var sharedFence = device.CreateSharedFence();
