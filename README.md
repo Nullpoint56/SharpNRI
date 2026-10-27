@@ -87,11 +87,11 @@ var queue = device.GetQueue(QueueType.GRAPHICS);
 
 ## Coverage
 
-- `CoreInterface`: all 117 functions (114 plus patch 0002's three shared-handle getters).
+- `CoreInterface`: all 118 functions (114 plus the three shared-handle getters and `DestroySharedHandle`, NRI main since #294).
 - Extensions, 11 of 15 headers in `Include/Extensions`: `DescriptorHeap`, `Imgui`, `LowLatency`,
   `MeshShader`, `RayTracing`, `Streamer`, `SwapChain`, `Upscaler`, `Video`, `WrapperD3D12`,
-  `WrapperVK`. Shared buffers, textures and fences (patch 0002) are Core: `shared` on the descs
-  and `GetBufferSharedHandle` / `GetTextureSharedHandle` / `GetFenceSharedHandle`. `DeviceCreation` and `Helper` in full, `UploadData`
+  `WrapperVK`. Shared buffers, textures and fences (NRI #294) are Core: `shared` on the descs
+  and `GetBufferSharedHandle` / `GetTextureSharedHandle` / `GetFenceSharedHandle` / `DestroySharedHandle`. `DeviceCreation` and `Helper` in full, `UploadData`
   included.
 - The twelve flat exports (`nriConvert*Format*`, `nriGetFormatProps`, `nriGetGraphicsAPIString`,
   `nriFitPipelineLayoutSettingsIntoDeviceLimits`, `nriReportLiveObjects`, the three annotation

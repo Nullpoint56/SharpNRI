@@ -45,6 +45,23 @@ follows), 9131c1b answers `UNSUPPORTED` for a payload header on D3D12, and 90112
 the NVIDIA encode feedback query hang the suite skips H.264 encode for on Vulkan. 0029 re-cut
 over the renamed `textureViewDescFixed`. `next` pins 72f5f46 with twenty-two patches.
 
+**2026-10-27.** The maintainer merged PR #294 (0002) as eb4ed356, after two commits of his own on
+the branch: eecb4cfd (the shared-handle cleanup as a helper) and 93a542a8 (the shared allocation
+path queried the device address of a video-only buffer, which the ordinary path skips). He polished
+it on main the same day: f18c6df9 adds `CoreInterface::DestroySharedHandle`, which closes the
+caller-owned handle by its type (`CloseHandle` or `close`) and clears the struct; d0f5ce49 queries
+export support before creating a shared object (`vkGetPhysicalDeviceExternalBufferProperties`,
+`vkGetPhysicalDeviceImageFormatProperties2` with the external info and the image's limits,
+`vkGetPhysicalDeviceExternalSemaphoreProperties`) and answers `UNSUPPORTED` where Vulkan cannot
+export, reports `features.sharedFences` only when a timeline or binary semaphore exports, folds the
+queue-family choice of both barrier kinds into one helper, moves `EXTERNAL_QUEUE` beside the other
+constants and rewrites the comments of `GetQueue`, `SharingMode`, the barrier descs and
+`SharedHandle` ("After an FD import takes ownership, clear `SharedHandle` instead of destroying
+it"; FD 0 is valid). `next` pins b5f5c62 with sixteen patches, 0002 dropped; the binding disposes
+`NriSharedHandle` through `DestroySharedHandle` and adds `Detach` for imports that take ownership.
+Measured: Windows 535 tests, 0 failed, 13 skipped (NVIDIA RTX 4070 SUPER, VK and D3D12); lavapipe
+534, 0 failed, 294 skipped.
+
 On #49 he answered: "A PR would be very welcome! Regarding the API shape, I would prefer extending
 the existing `buffer`, `texture` and `fence` descs if the additions fit naturally and keep the API
 small. There's no need for a separate extension just to introduce parallel creation functions. If
@@ -72,9 +89,9 @@ question; the draft states the shape and offers the PR.
 | 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277); fixed 2026-10-19 in 81245bd; dropped on `next` 2026-10-21 |
 | 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | filed 2026-10-19 against main 8ee40ca, [#281](https://github.com/NVIDIA-RTX/NRI/issues/281); fixed 2026-10-20 in 48a14c3, another shape: a side with stages gets `COMMON` access and keeps its sync, one without stages stays `SYNC_NONE` ("forcing SYNC_NONE discards the caller's requested execution dependency"); dropped on `next` |
 | 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | filed 2026-10-19 against main 8ee40ca, [#282](https://github.com/NVIDIA-RTX/NRI/issues/282); fixed 2026-10-20 in 1163658, ours verbatim; dropped on `next` |
-| 0022 D3D12 copy layouts refused in copy command lists | bug | filed 2026-10-19 against main 8ee40ca, [#283](https://github.com/NVIDIA-RTX/NRI/issues/283); fixed 2026-10-20 in 732f737, ours without the sentinel guard, which 0002 now carries; dropped on `next` |
-| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | filed 2026-10-19 against main 8ee40ca, [#284](https://github.com/NVIDIA-RTX/NRI/issues/284); fixed 2026-10-20 in 2603edc, the sharing mode recorded at creation; dropped on `next`, 0002 keeps the external family |
-| 0002 shared buffers, textures and fences | proposal, PR | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs; re-cut in that shape on `next` 2026-10-23 (section below); filed 2026-10-24 as [PR #294](https://github.com/NVIDIA-RTX/NRI/pull/294) from the owner's fork (`Nullpoint56:shared-handles`, main 72f5f46 + 0002), the `FenceDesc` question asked in a [comment on #49](https://github.com/NVIDIA-RTX/NRI/issues/49) that links it |
+| 0022 D3D12 copy layouts refused in copy command lists | bug | filed 2026-10-19 against main 8ee40ca, [#283](https://github.com/NVIDIA-RTX/NRI/issues/283); fixed 2026-10-20 in 732f737, ours without the sentinel guard, which 0002 carried and #294 merged; dropped on `next` |
+| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | filed 2026-10-19 against main 8ee40ca, [#284](https://github.com/NVIDIA-RTX/NRI/issues/284); fixed 2026-10-20 in 2603edc, the sharing mode recorded at creation; dropped on `next`, 0002 kept the external family (merged as #294) |
+| 0002 shared buffers, textures and fences | proposal, PR | merged 2026-10-27 as eb4ed356, polished by the maintainer in f18c6df9 (`DestroySharedHandle`) and d0f5ce49 (export support queries, `UNSUPPORTED`, comments); dropped on `next` at b5f5c62. Offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs; re-cut in that shape on `next` 2026-10-23 (section below); filed 2026-10-24 as [PR #294](https://github.com/NVIDIA-RTX/NRI/pull/294) from the owner's fork (`Nullpoint56:shared-handles`, main 72f5f46 + 0002), the `FenceDesc` question asked in a [comment on #49](https://github.com/NVIDIA-RTX/NRI/issues/49) that links it; reviewed 2026-10-26, four items fixed on the branch |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2, drafted 2026-10-19, not filed; offer limit 0, a feature bit, or a clamp |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2, drafted 2026-10-19 as a question, not filed: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
 | 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2, drafted 2026-10-19, not filed; the uncapped order is his and stays |
@@ -270,10 +287,14 @@ which only the NRI-created path offers. Patch attached, 1 header line and ~20 li
 
 **Title:** Core: shared buffers, textures and fences (export to another device, API or process), the #49 request
 
-**Status 2026-10-24.** Filed as PR #294 from the owner's fork, the `FenceDesc` question in a comment on #49. Re-cut in the shape the maintainer asked for on #49: no extension, fields
+**Status 2026-10-27.** Merged as eb4ed356 (with the maintainer's eecb4cfd and 93a542a8 on the branch) and polished on main in f18c6df9 (`CoreInterface::DestroySharedHandle`) and d0f5ce49 (export support queries and `UNSUPPORTED`, `features.sharedFences` only when a semaphore type exports, the comments rewritten); dropped on `next` at b5f5c62. The text below is the PR as filed.
 
-**Status 2026-10-26.** Reviewed by the maintainer (through the Codex connector, then confirmed by hand): "NoGo until the following four items are addressed", `FenceDesc { initialValue, shared }` accepted, D3D11 sharing may stay a follow-up. He merged main 83fd010 into the branch himself (038cecbc). Items and the commits on top of his merge: (1) P1, repeated Win32 exports returned the same handle (VUID 00663 / 01127; reproduced on his RTX 4080): one export per object, retained until destruction, `DuplicateHandle` per caller, first export under a device lock, FD exports per call, `3a49e381`; (2) P1, no external ownership-transfer path for buffers: `BufferBarrierDesc::srcQueue` / `dstQueue`, the texture rules (an `EXCLUSIVE` buffer names the queue's family, a `CONCURRENT` one `IGNORED`, `EXTERNAL_QUEUE` is `VK_QUEUE_FAMILY_EXTERNAL` for either; the all-`IGNORED` first cut drew VUID-vkCmdPipelineBarrier2-srcQueueFamilyIndex-10387 on a one-family buffer), Validation passes the sentinel through, D3D12 ignores, `44aff46c`; (3) P2, `EXTERNAL_QUEUE` expanded to `const Queue*` (MSVC C2440): `static NriPtr(Queue) const`, `5e413361`; (4) the memory-location and shared-object checks moved out of the D3D12 and VK backends into Validation, `FenceVal` tracks `shared`, `2320cc63`; and, after his pointer to `.agents/skills/nri-coding-standard`, `0a7f3b2b` drops the Vulkan `Create` early-outs on `features.sharedResources` / `sharedFences` (Validation checks them) and moves `DuplicateSharedHandle` to the helper section. Reply drafted for the owner's reading; not posted.
-on the existing descs, the getters in Core. What the PR adds, against main 72f5f46:
+**Status 2026-10-24.** Filed as PR #294 from the owner's fork, the `FenceDesc` question in a comment on #49. Re-cut in the shape the maintainer asked for on #49: no extension, fields
+on the existing descs, the getters in Core.
+
+**Status 2026-10-26.** Reviewed by the maintainer (through the Codex connector, then confirmed by hand): "NoGo until the following four items are addressed", `FenceDesc { initialValue, shared }` accepted, D3D11 sharing may stay a follow-up. He merged main 83fd010 into the branch himself (038cecbc). Items and the commits on top of his merge: (1) P1, repeated Win32 exports returned the same handle (VUID 00663 / 01127; reproduced on his RTX 4080): one export per object, retained until destruction, `DuplicateHandle` per caller, first export under a device lock, FD exports per call, `3a49e381`; (2) P1, no external ownership-transfer path for buffers: `BufferBarrierDesc::srcQueue` / `dstQueue`, the texture rules (an `EXCLUSIVE` buffer names the queue's family, a `CONCURRENT` one `IGNORED`, `EXTERNAL_QUEUE` is `VK_QUEUE_FAMILY_EXTERNAL` for either; the all-`IGNORED` first cut drew VUID-vkCmdPipelineBarrier2-srcQueueFamilyIndex-10387 on a one-family buffer), Validation passes the sentinel through, D3D12 ignores, `44aff46c`; (3) P2, `EXTERNAL_QUEUE` expanded to `const Queue*` (MSVC C2440): `static NriPtr(Queue) const`, `5e413361`; (4) the memory-location and shared-object checks moved out of the D3D12 and VK backends into Validation, `FenceVal` tracks `shared`, `2320cc63`; and, after his pointer to `.agents/skills/nri-coding-standard`, `0a7f3b2b` drops the Vulkan `Create` early-outs on `features.sharedResources` / `sharedFences` (Validation checks them) and moves `DuplicateSharedHandle` to the helper section. Reply posted on #294 (2026-10-26).
+
+What the PR added, against main 72f5f46:
 
 - `BufferDesc::shared`, `TextureDesc::shared`: a committed resource in `DEVICE` memory with a
   dedicated, exportable allocation (VK: `VkExternalMemoryBufferCreateInfo` /
@@ -541,7 +562,7 @@ and the after side of one whose `dstQueue` is (the hand-off `TextureBarrierDesc`
 Vulkan the same barriers are the queue family release and acquire). With it the upload on COPY and
 the acquire on DIRECT are clean and the readback matches. Patch attached
 (`patches/0022-d3d12-copy-list-layouts-common.patch`), thirteen lines; the upstream form drops
-the `EXTERNAL_QUEUE` term, which is patch 0002's.
+the `EXTERNAL_QUEUE` term, which is patch 0002's (merged upstream as #294 on 2026-10-27).
 
 ## 0023 — Vulkan writes queue family indices into barriers on `CONCURRENT` images
 
@@ -564,7 +585,7 @@ remembers the number of active families at creation and, for a CONCURRENT image,
 is not the external family becomes `VK_QUEUE_FAMILY_IGNORED`; EXCLUSIVE and wrapped images keep
 the indices. With it both are clean, and the EXCLUSIVE case still reports the mismatch. Patch
 attached (`patches/0023-vulkan-concurrent-image-no-queue-family-transfer.patch`), twenty lines; the
-upstream form drops the `EXTERNAL_QUEUE` term, which is patch 0002's (keep
+upstream form drops the `EXTERNAL_QUEUE` term, which is patch 0002's, merged as #294 (keep
 `VK_QUEUE_FAMILY_EXTERNAL` sides if upstream ever has one).
 
 ## 0024 — Adapter enumeration filtered by graphics API (proposal, phase 2)

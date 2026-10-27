@@ -420,10 +420,10 @@ fence.Wait(1);
   the fence still short of the value; the binding checks `fence.Value` and throws. For work that
   may take longer (a first submit on lavapipe JIT-compiles its shaders), poll `fence.Value`.
 - Queue ownership transfer to or from another API / process: `SrcQueue` / `DstQueue` =
-  `NriQueue.External` (patch 0002; `VK_QUEUE_FAMILY_EXTERNAL` on Vulkan), on `NriTextureBarrier`
-  and on `NriBufferBarrier`, with the same rules: a buffer is `CONCURRENT` with more than one queue
-  family in use (no transfer between the device's own queues) and `EXCLUSIVE` otherwise (name the
-  queue on the local side); D3D12 ignores both. Release a shared
+  `NriQueue.External` (NRI's `EXTERNAL_QUEUE`; `VK_QUEUE_FAMILY_EXTERNAL` on Vulkan) on one side and
+  the local queue executing the barrier on the other, on `NriTextureBarrier` and on
+  `NriBufferBarrier`. Buffers need no transfer between the device's own queues, only to or from an
+  external user; D3D12 ignores both. Release a shared
   buffer to `External` after writing it and before the other side takes it, acquire from `External`
   before reading it back (the CUDA round trip in the tests does exactly that).
 - UNORM rounding is the driver's: `0.1 * 255 = 25.5` reads 25 on NVIDIA Vulkan, 26 elsewhere. Allow
@@ -539,11 +539,11 @@ if (device.TryRayTracing is { } rt)
   `WrapperD3D12.CreateAccelerationStructureD3D12(desc, type)`; caller names the type; needs
   `RayTracing`. The import reports the same GPU handle, native object, buffer and scratch sizes.
 
-### Shared buffers, textures and fences (patch 0002)
+### Shared buffers, textures and fences
 
 ```csharp
 using var shared = device.CreateSharedTexture(in desc);               // committed, DEVICE memory, exportable
-using var handle = shared.GetSharedHandle();                          // NriSharedHandle: Handle, Type, Size; every call is a handle of its own, Dispose closes it once
+using var handle = shared.GetSharedHandle();                          // NriSharedHandle: Handle, Type, Size; a new handle per call, Dispose closes it once (NRI's DestroySharedHandle)
 using var buffer = device.CreateSharedBuffer(new BufferDesc { size = 4096, usage = BufferUsageBits.SHADER_RESOURCE });
 using var bufferHandle = buffer.GetSharedHandle();
 using var sharedFence = device.CreateSharedFence();
@@ -567,8 +567,12 @@ The same thing through the descs: `BufferDesc.shared` / `TextureDesc.shared` set
 - `Desc.features.sharedResources` needs `VK_KHR_external_memory_win32`/`_fd`,
   `Desc.features.sharedFences` needs `VK_KHR_external_semaphore_win32`/`_fd`; D3D12 reports both.
   lavapipe has external memory fd but not external semaphore fd (resources export, fences do not);
-  MoltenVK has neither fd extension (only `VK_EXT_external_memory_metal`). Creating a shared
-  object without the feature throws `NriUnsupportedException`.
+  MoltenVK has neither fd extension (only `VK_EXT_external_memory_metal`). Vulkan also reports
+  `sharedFences` 0 when neither a timeline nor a binary semaphore can be exported. Creating a shared
+  object without the feature throws `NriUnsupportedException`, and so does a Vulkan buffer, image
+  or semaphore that the device cannot export (NRI asks `vkGetPhysicalDeviceExternal*Properties` /
+  `vkGetPhysicalDeviceImageFormatProperties2` first: an image's format, usage, size, mip and layer
+  count and sample count all count).
 - A shared resource is committed and in `DEVICE` memory: `shared` with `CreateBuffer` /
   `CreateTexture` / `CreatePlaced*`, or a committed one in `HOST_UPLOAD` / `HOST_READBACK`, is
   `INVALID_ARGUMENT` from NRI validation (D3D12 cannot share an upload or readback heap; Vulkan's
@@ -576,10 +580,20 @@ The same thing through the descs: `BufferDesc.shared` / `TextureDesc.shared` set
 - `Size` is the allocation size on both backends: what the importer's
   `VkMemoryAllocateInfo::allocationSize` or `CUDA_EXTERNAL_MEMORY_HANDLE_DESC::size` takes. 0 for
   a fence.
-- The handle is yours; `Dispose` closes it, once: later calls do nothing, and `Handle` reads 0
-  after the first (`NriSharedHandle` is a class, so every reference sees that). No finalizer: a
-  handle never disposed stays open until the process exits. NVIDIA Vulkan returned the same NT
-  handle value for two exports of the same memory: do not assume distinct values.
+- The handle is yours. `Dispose` hands it to NRI's `DestroySharedHandle` (`CloseHandle` for an NT
+  handle, `close` for a file descriptor), once: later calls do nothing, and after the first the
+  object reads as NRI's cleared struct, `Handle` 0, `Type` `NONE`, `Size` 0 (`NriSharedHandle` is
+  a class, so every reference sees that). No finalizer: a handle never disposed stays open until
+  the process exits. It may outlive the device that exported it.
+- **An import that takes ownership**: a file descriptor imported into Vulkan
+  (`VkImportMemoryFdInfoKHR`, `VkImportSemaphoreFdInfoKHR`) or CUDA is closed by the importer, so
+  do not dispose it: `var fd = handle.Detach();` returns the value and leaves the object empty,
+  and a later `Dispose` does nothing (NRI's header: "After an FD import takes ownership, clear
+  SharedHandle instead of destroying it"). An NT handle import duplicates, so dispose after it as
+  usual. File descriptor 0 is valid (`IsValid` true), an NT handle 0 is not.
+- Every call returns a handle of its own: Vulkan exports one NT handle per object and hands each
+  caller a duplicate (Vulkan allows one export per object and handle type; NVIDIA returned the same
+  value for a repeated raw export), D3D12 creates one per call.
 - An object that is not shared asked for a handle: `INVALID_ARGUMENT` ("'shared' is false").
 - A shared buffer, texture or fence still works as a normal one.
 - **Binary shared fence** (`CreateSharedBinaryFence()`, i.e. `FenceDesc { SwapChainSemaphore, shared }`):
@@ -607,7 +621,8 @@ The same thing through the descs: `BufferDesc.shared` / `TextureDesc.shared` set
 - Exclusive Vulkan images need a release barrier with `DstQueue = NriQueue.External` before
   another device acquires them, and an acquire with `SrcQueue = NriQueue.External` coming back.
 - On master this is the `SharedHandle` extension (`device.SharedHandles.CreateSharedTexture(...)`
-  and friends, no buffers); `next` carries the shape proposed upstream.
+  and friends, no buffers); `next` has the shape merged upstream (#294, NRI main eb4ed356, with the
+  maintainer's f18c6df9 and d0f5ce49).
 
 ### Upscaler
 
@@ -939,9 +954,9 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | GPU work longer than 5 s behind `fence.Wait` | `TimeoutException` (NRI's `NRI_TIMEOUT_FENCE`); poll `fence.Value` | RayTracing |
 | D3D12 micromaps | debug error 1162 (the prebuild). A `{MICROMAP_WRITE, MICROMAP}` before side closes (NRI main 1dc13b2; patch 0030 on master); before the fix NRI added postbuild-info sync and `Close` failed | RayTracing |
 | Index-less OMM on Vulkan | VUID-...-pInfos-10904 (likely false positive) | RayTracing |
-| `features.sharedFences` 0 | lavapipe (no external semaphore fd), MoltenVK (no fd handles; `sharedResources` 0 too) | SharedHandles |
+| `features.sharedFences` 0 | lavapipe (no external semaphore fd), MoltenVK (no fd handles; `sharedResources` 0 too), any Vulkan device that exports no semaphore type | SharedHandles |
 | D3D11 opening a D3D12 shared texture | `E_INVALIDARG` (TYPELESS) | SharedHandles |
-| Two exports, same handle value | NVIDIA Vulkan returns the same NT handle | SharedHandles |
+| Two exports of one object | two handles: NRI exports once and duplicates per call (a raw repeated export returns the same NT handle on NVIDIA) | SharedHandles |
 | `IsUpscalerSupported` true, DLL absent | `CreateUpscaler` throws naming the file | Upscaler |
 | XeSS without the guard | lock held, next creation hangs | Upscaler |
 | Vulkan Reflex + D3D12 in one process | `D3D12CreateDevice` 0x887A0007 | LowLatency |
@@ -965,7 +980,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Homebrew Vulkan on macOS | not found without `DYLD_FALLBACK_LIBRARY_PATH` and `VK_DRIVER_FILES` | Platform: macOS |
 | An allocator that throws or returns null | an NRI object's creation fails with `OUT_OF_MEMORY` (NRI main 9d276c3; patch 0034 on master); inside NRI's containers, device creation's first allocation among them, still an access violation. An allocator must not fail | Device creation |
 | Queue priority between 0 and 0.5 on D3D12, or below 0 on Vulkan | D3D12 stays Normal (High only above 0.5); Vulkan treats low as normal | Device creation |
-| `NriSharedHandle` disposed twice, or never | the second `Dispose` does nothing (`Handle` reads 0 after the first); one never disposed stays open until the process exits (no finalizer) | SharedHandles |
+| `NriSharedHandle` disposed twice, or never | the second `Dispose` does nothing (`Handle` 0 and `Type` `NONE` after the first); one never disposed stays open until the process exits (no finalizer); `Detach` gives it up unclosed for an import that takes ownership | SharedHandles |
 | Host-memory texture copy into a short span | `ArgumentException`: the binding refuses what NRI would write past | Memory |
 | `AllocateAndBindMemory` with a `preferredMemorySize` | packs alike in every order (patch 0035); before the patch NRI's alignment sort left out the last buffer and the last texture, so the count could be one or two for the same three textures | Memory |
 | Vertex streams declared out of slot order on Vulkan | each attribute reads its stream's slot (NRI main 0593d91; patch 0025 on master); before the fix the stream index: nothing drawn, VUID-...-06209 | Recording |

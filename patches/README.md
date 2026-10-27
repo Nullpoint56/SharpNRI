@@ -9,22 +9,24 @@ a header changes the L0 layer and the ABI oracle measures the patched header. Bo
 that is already applied, so the submodule working tree normally sits with every patch applied and
 `git -C nri status` shows the patched files as modified. Listed and explained in `CLAUDE.md` (Patches).
 
-This is the `next` branch's set, against NRI main 83fd010 (2026-10-26) rather than a tag (`CLAUDE.md`: Branches).
-Twenty of master's patches are gone because NRI main carries the fix: 0003, 0004, 0005, 0008,
-0010, 0014, 0020, 0021, 0022, 0023, 0032, 0033, 0036 (48d4a33), and since 83fd010 the seven filed
+This is the `next` branch's set, against NRI main b5f5c62 (2026-10-27) rather than a tag (`CLAUDE.md`: Branches).
+Twenty-one of master's patches are gone because NRI main carries the fix: 0003, 0004, 0005, 0008,
+0010, 0014, 0020, 0021, 0022, 0023, 0032, 0033, 0036 (48d4a33); since 83fd010 the seven filed
 reports: 0025 (0593d91, #295), 0026 (8a8fc2b, #296), 0027 (909a139, #297), 0028 (c8fe3b2, #298),
 0030 (1dc13b2, #299), 0031 (561e2be, #300) and 0034 (9d276c3 and aa23763, #301), each test passing
-on 83fd010 without the patch. Of 0024 only the two lines main did not take stay (main's 962615b
-gave `nriEnumerateAdapters` the backends to probe). 0002 is
-re-cut in the shape the maintainer asked for on #49 (2026-10-23: fields on the descs, the getters in
-Core), and over 83fd010 (2026-10-26) for the Vulkan latency fence, which main now creates through
-`CreateImplementation`. All seventeen apply in order onto 83fd010 and each also alone. 0037 and 0038
-are `next`'s own (2026-10-24), not on master: a layer warning and a phase 2 proposal.
+on 83fd010 without the patch; and since b5f5c62 0002: the shared buffers, textures and fences were
+merged as #294 (eb4ed356, 2026-10-27, the shape the maintainer asked for on #49: fields on the descs,
+the getters in Core) and polished by the maintainer in f18c6df9 (`DestroySharedHandle`) and d0f5ce49
+(export support queries, `UNSUPPORTED` for configurations Vulkan cannot export). Master keeps its
+extension-shaped 0002 until a tag carries the merged form. Of 0024 only the two lines main did not
+take stay (main's 962615b gave `nriEnumerateAdapters` the backends to probe). All sixteen apply in
+order onto b5f5c62, each also alone, and each passes the scripts' `-C0` reverse check; 0001, 0006,
+0013, 0015, 0017 and 0038 are re-cut for line offsets only (2026-10-27). 0037 and 0038 were cut on
+`next` (2026-10-24) and taken to master: a layer warning and a phase 2 proposal.
 
 | Patch | What | Why |
 |---|---|---|
 | `0001-agility-sdk-device-factory` | `DeviceCreationDesc::d3d12AgilitySdkPath`; device creation goes through `ID3D12SDKConfiguration1::CreateDeviceFactory` + `ApplyToGlobalState` when set | a managed host cannot export `D3D12SDKVersion`, so NRI's documented route never loads the SDK (CLAUDE.md: D3D12 and the Agility SDK) |
-| `0002-shared-buffers-textures-fences` | `BufferDesc::shared`, `TextureDesc::shared` (committed, `DEVICE`, a dedicated exportable allocation), `FenceDesc { initialValue, shared }` for `CreateFence`, `SharedHandle` and the Core getters `GetBufferSharedHandle` / `GetTextureSharedHandle` / `GetFenceSharedHandle`, `features.sharedResources` / `sharedFences`, `EXTERNAL_QUEUE` for barriers that release to or acquire from `VK_QUEUE_FAMILY_EXTERNAL`; Vulkan opaque win32/fd, D3D12 NT handles, NONE zero handles, D3D11/WGPU/Metal `UNSUPPORTED`, through the validation layer; the shape the maintainer asked for on #49 (master carries the extension shape) | upstream has no export path at all: a compositor, a second device or CUDA cannot import a texture, buffer or fence (CLAUDE.md: Shared handles) |
 | `0006-vulkan-portability-sampler-lod-bias` | `DeviceDesc::other.samplerLodBiasMax` is 0 when `VK_KHR_portability_subset` is enabled without `samplerMipLodBias` | upstream bug: MoltenVK forbids any mip LOD bias while reporting `maxSamplerLodBias = 15.999`, so honouring NRI's limit fails validation (CLAUDE.md: MoltenVK and the paravirtual Mac) |
 | `0007-cmake-vulkan-loader-link-option` | `NRI_ENABLE_VULKAN_LOADER_LINKING` wraps the Apple `find_package(Vulkan)` + `Vulkan_LIBRARIES` link, default ON | upstream PR 134 linked the loader for an IDE case and the maintainer called it "just not needed"; a shipped `libNRI.dylib` then needs the build machine's loader path to load at all (CLAUDE.md: MoltenVK and the paravirtual Mac) |
 | `0009-vulkan-swapchain-out-of-date-not-an-error` | `AcquireNextTexture` and `QueuePresent` return `OUT_OF_DATE` for `VK_ERROR_OUT_OF_DATE_KHR` without reporting it; every other failure is reported as before | upstream reporting defect: the documented result of a resize was reported as `Message::ERROR` (CLAUDE.md: Extensions) |

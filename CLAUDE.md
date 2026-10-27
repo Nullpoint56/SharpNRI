@@ -45,10 +45,13 @@ read; nothing is pushed to it from here until an upstream PR is planned.
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, held by the submodule pointer and moved on purpose | the patches still needed on that commit | integration: testing against current NRI, upstream reports and PRs written against what the maintainer reads |
 
-- **Now.** `next` pins NRI main 83fd010 (2026-10-26, "NGX: fixed cleanup after failed
-  initialization", still `NRI_VERSION 190`) and carries seventeen patches; master pins v190
-  with thirty-seven. Verified at 9fa9e14 (2026-10-26): Windows (NVIDIA RTX 4070 SUPER, VK and
-  D3D12) 531 tests, 0 failed, 13 skipped; lavapipe in WSL (layer 1.4.363) 530 tests, 0 failed, 290 skipped; the same counts at 412d5b19 and 11cd6405 with the PR #294 review fixes in 0002 (2026-10-26).
+- **Now.** `next` pins NRI main b5f5c62 (2026-10-27, "Updated readme", still `NRI_VERSION 190`;
+  PR #294, our 0002, merged as eb4ed356 and polished by the maintainer in f18c6df9 and d0f5ce49)
+  and carries sixteen patches; master pins v190 with thirty-seven. Verified at 8f1abefc
+  (2026-10-27): Windows (NVIDIA RTX 4070 SUPER, VK and D3D12) 535 tests, 0 failed, 13 skipped;
+  lavapipe in WSL (layer 1.4.363) 534 tests, 0 failed, 294 skipped (the four new tests are the
+  Windows-only `NriSharedHandle` ones). Before, on 83fd010 with seventeen patches (9fa9e14,
+  2026-10-26): 531 and 530 tests, 13 and 290 skipped.
 - **Direction.** Binding work that does not depend on the NRI version lands on master and is
   merged forward into `next` often (`git merge master` on `next`). After a forward merge,
   regenerate L0 on `next` instead of resolving conflicts in `dotnet/Native` by hand. NRI-side work
@@ -120,8 +123,8 @@ structs filled by `nriGetInterface(device, "Name", sizeof(Name), &table)`; no re
 (excluding D3D11/Metal/WebGPU wrappers): 13 interface tables with 229 functions, plus the two
 structs the caller fills (`CallbackInterface`, `AllocationCallbacks`: 5), so 234 function pointers;
 with master's patch 0002 (`SharedHandleInterface`) 14 tables, 233 functions, 238 function pointers;
-with `next`'s 0002 (three getters in Core) 13 tables, 232 functions, 237 function pointers (the
-ABI oracle's count on each). 19 flat exports (20 on master with patch 0024's `nriEnumerateAdapters2`; main's `nriEnumerateAdapters`
+on `next`, NRI main since #294 (eb4ed356: three getters in Core; f18c6df9: `DestroySharedHandle`)
+13 tables, 233 functions, 238 function pointers (the ABI oracle's count on each). 19 flat exports (20 on master with patch 0024's `nriEnumerateAdapters2`; main's `nriEnumerateAdapters`
 takes the backends to probe since 962615b), 246 named structs
 + 33 nested anonymous + 2 unions, 95 enums (57 `NriEnum` + 38 `NriBits`), 4 bitfields (all in
 `TopLevelInstance`).
@@ -424,7 +427,6 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | Patch | What | Why |
 |---|---|---|
 | 0001 agility-sdk-device-factory | `DeviceCreationDesc::d3d12AgilitySdkPath`; `D3D12GetInterface(CLSID_D3D12SDKConfiguration)` -> `ID3D12SDKConfiguration1::CreateDeviceFactory(NRI_AGILITY_SDK_VERSION_MAJOR, path)` -> `ApplyToGlobalState()` before any other D3D12 call | a managed host cannot export `D3D12SDKVersion`, so the SDK never loads otherwise |
-| 0002 shared-buffers-textures-fences | `BufferDesc::shared`, `TextureDesc::shared` (a committed resource in `DEVICE` memory with a dedicated, exportable allocation: VK `VkExternalMemory*CreateInfo` + `VkExportMemoryAllocateInfo` outside VMA, D3D12 `D3D12_HEAP_FLAG_SHARED`), `FenceDesc { initialValue, shared }` which `CreateFence` now takes (VK `VkExportSemaphoreCreateInfo`, timeline or binary; D3D12 `D3D12_FENCE_FLAG_SHARED`, `UNSUPPORTED` for a binary semaphore), `SharedHandleType` / `SharedHandle { handle, type, size }` and `CoreInterface::GetBufferSharedHandle` / `GetTextureSharedHandle` / `GetFenceSharedHandle` beside the native-object getters (a new caller-owned handle per call; `size` is the allocation size on both backends), `features.sharedResources` / `sharedFences`, `EXTERNAL_QUEUE` for barriers to/from `VK_QUEUE_FAMILY_EXTERNAL`; validation refuses `shared` outside `CreateCommitted*` and outside `DEVICE`, a getter on an object that is not shared, and a shared object without the feature; NONE zero handles; D3D11, WGPU, Metal `UNSUPPORTED`. The shape the maintainer asked for on #49 (2026-10-23); master's 0002 is the extension shape (`NRISharedHandle.h`). After the PR #294 review (2026-10-26): one Win32 export per object with a `DuplicateHandle` per call, `BufferBarrierDesc::srcQueue` / `dstQueue` for `EXTERNAL_QUEUE`, `EXTERNAL_QUEUE` a const pointer, the input checks in Validation only (Shared handles) | upstream has no export path; compositors, a second device and CUDA (`cudaImportExternalMemory` / `cudaImportExternalSemaphore` take exactly these handles) import binary semaphores, timeline fences, buffers and textures |
 | 0006 vulkan-portability-sampler-lod-bias | `samplerLodBiasMax = 0` with `VK_KHR_portability_subset` and no `samplerMipLodBias` (6 lines beside NRI's `imageView2DOn3DImage` read) | upstream bug: MoltenVK reports 15.999 and forbids any bias |
 | 0007 cmake-vulkan-loader-link-option | `NRI_ENABLE_VULKAN_LOADER_LINKING` (default ON) wraps the Apple `find_package(Vulkan)` + link; we pass OFF | shipped dylib otherwise needs the build machine's loader path; NRI PR 134 added it for an IDE case, maintainer: "just not needed" |
 | 0009 vulkan-swapchain-out-of-date-not-an-error | `AcquireNextTexture` / `Present` return `OUT_OF_DATE` for exactly `VK_ERROR_OUT_OF_DATE_KHR` before `NRI_RETURN_ON_BAD_VKRESULT` (no report); return values unchanged | upstream reporting defect: a documented, expected result reported as `Message::ERROR` on every resize |
@@ -446,7 +448,7 @@ configured per machine: the adapter named is whichever one the suite picked on t
   `m_InstanceVersion`; ours still applied on top, so it was removed by hand), 0005 (9b45d77), 0008
   (5ed8bb6, our table), 0010 (bc3ebe7), 0014 (81245bd, then replaced by PR #285's clamp,
   Extensions), 0020 (48a14c3, another shape: `COMMON` access, Barriers), 0021 (1163658), 0022
-  (732f737, without the sentinel guard, which 0002 now carries), 0023 (2603edc, the sharing mode
+  (732f737, without the sentinel guard, which 0002 carried and #294 merged), 0023 (2603edc, the sharing mode
   recorded at creation); and since 2f7a49f: 0032 (af45e72, merged 2026-10-22 in #264, the same
   rule: automatic segmentation follows the required feature flags), 0033 (57d92ff and af45e72 in
   the same merge, another shape: `VideoAV1EncodeDecodeInfoDesc::pictureDesc` / `av1PictureDesc`
@@ -483,6 +485,12 @@ configured per machine: the adapter named is whichever one the suite picked on t
   committed, `git diff` against that commit), 0007, 0012 and 0037 unchanged. All seventeen apply
   in order onto 83fd010, each also alone, and each passes the `-C0` reverse check (measured
   2026-10-26). 0029 (N5) and 0035 (N11) were not filed and main has not touched those lines.
+  **On NRI main b5f5c62 (2026-10-27) 0002 is gone too**: PR #294 was merged as eb4ed356 (with the
+  maintainer's eecb4cfd and 93a542a8 on the branch) and polished on main in f18c6df9 and d0f5ce49
+  (Shared handles). 0001, 0006, 0013, 0015, 0017 and 0038 are re-cut for line offsets only (a
+  scratch clone at b5f5c62 with the earlier patches committed, `git diff` against that commit;
+  only `@@` and `index` lines changed), the other ten unchanged. All sixteen apply in order onto
+  b5f5c62, each also alone, and each passes the `-C0` reverse check (measured 2026-10-27).
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
   because a later patch may change a line inside an earlier patch's context, and with full
@@ -569,14 +577,16 @@ configured per machine: the adapter named is whichever one the suite picked on t
   errors, types gone.)
 - NRI's headers have zero C++ default member initializers (`NriDefault` unused), so generator-dropped
   defaults cannot happen here. C `bool` is `byte` with `[NativeTypeName("bool")]`.
-- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,879 offsets (1,877 before 0002's `BufferBarrierDesc` queues, 2026-10-26), 56 fixed
-  buffers and 95 enums on `next` at bf88835 and again at 9fa9e14 on NRI main 83fd010, unchanged (main's video descs, `DescriptorSetBits` gone, 0002's
-  `shared` fields, `FenceDesc` and feature bits; 1,876 before 0038's `vkInstanceCreateInfoNext`); 273 structs, 1,845 offsets, 55 fixed buffers and 96 enums on master at v190
+- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,880 offsets, 56 fixed
+  buffers and 95 enums on `next` at 8f1abefc on NRI main b5f5c62 (2026-10-27; 1,879 at 9fa9e14 on 83fd010 + 0002, before
+  f18c6df9's `CoreInterface::DestroySharedHandle`; 1,877 before 0002's `BufferBarrierDesc` queues; main's video descs, `DescriptorSetBits` gone,
+  the `shared` fields, `FenceDesc` and feature bits; 1,876 before 0038's `vkInstanceCreateInfoNext`); 273 structs, 1,845 offsets, 55 fixed buffers and 96 enums on master at v190
   (1,844 before patch 0038, 1,840 before patches 0017-0019 and 0033 added a field each); 4 bitfields (exact bytes
   written),
-  237 function-pointer fields on `next` (238 on master: the extension table), 19 `DllImport`s on
+  238 function-pointer fields on `next` (237 before `DestroySharedHandle`) and 238 on master (the
+  extension table), 19 `DllImport`s on
   `next` (20 on master, with patch 0024's `nriEnumerateAdapters2`); zero mismatches on x64
-  (win-x64, 2026-10-26 on `next`, 2026-10-24 on master) and arm64 (the macOS CI job, last run before patch 0017). Blind to calling convention, `const`, reference vs pointer,
+  (win-x64, 2026-10-27 on `next`, 2026-10-24 on master) and arm64 (the macOS CI job, last run before patch 0017). Blind to calling convention, `const`, reference vs pointer,
   `bool` vs `uint8_t`. The anonymous union in `BottomLevelGeometryDesc` is checked as outer offsets.
 - **`nriGetInterface` checks the table size itself**: mismatch = `INVALID_ARGUMENT` after both sizes
   are reported through the message callback (`Source/Creation/Creation.cpp`). A drifted table fails
@@ -841,9 +851,10 @@ configured per machine: the adapter named is whichever one the suite picked on t
     allocations, each refusing with 3, then with 2 once a buffer is disposed.
 - **`NriSharedHandle` is a sealed class whose `Dispose` closes once.** As a `readonly record
   struct`, disposing it twice or disposing a copy closed the value again, and the process may by
-  then have reused that value for another handle. `Dispose` now takes the value with
-  `Interlocked.Exchange` and closes it; later calls find 0 (`Handle` reads 0, `IsValid` false). No
-  finalizer, as everywhere. Measured (`InteropTests`): Windows hands a closed value to the next
+  then have reused that value for another handle. `Dispose` now releases the object with
+  `Interlocked.Exchange` and closes the handle (since 2026-10-27 on `next` through NRI's
+  `DestroySharedHandle`, Shared handles); later calls find it released (`Handle` reads 0, `Type`
+  `NONE`, `IsValid` false). No finalizer, as everywhere. Measured (`InteropTests`): Windows hands a closed value to the next
   handle the process opens (every time in 20,000 close-and-create pairs, also with four threads
   churning handles), and a second `Dispose` leaves that handle open.
 
@@ -1660,18 +1671,57 @@ extensions.
 
 ### Shared handles
 
-- **Shape on `next` (patch 0002, 2026-10-23, the maintainer's choice on #49)**: `shared` on
-  `BufferDesc` and `TextureDesc`, `FenceDesc { initialValue, shared }` for `CreateFence`, the
-  three Core getters beside `Get*NativeObject`, `features.sharedResources` / `sharedFences`,
-  `EXTERNAL_QUEUE` in `NRIDescs.h`. Binding: `NriDevice.CreateSharedBuffer` /
+- **Shape on `next`: NRI's own since #294** (merged 2026-10-27 as eb4ed356; the shape the
+  maintainer chose on #49, our 0002 until then): `shared` on `BufferDesc` and `TextureDesc`,
+  `FenceDesc { initialValue, shared }` for `CreateFence`, the three Core getters beside
+  `Get*NativeObject`, `CoreInterface::DestroySharedHandle` (f18c6df9), `features.sharedResources`
+  / `sharedFences`, `EXTERNAL_QUEUE` in `NRIDescs.h`. Binding: `NriDevice.CreateSharedBuffer` /
   `CreateSharedTexture` (committed, `DEVICE`), `CreateSharedFence` / `CreateSharedBinaryFence`,
   `NriBuffer` / `NriTexture` / `NriFence.GetSharedHandle()`, `NriSharedHandle { Handle, Type,
   Size }` in `dotnet/Core`; no extension object. Master keeps the extension shape
   (`NRISharedHandle.h`, `device.SharedHandles`) until a tag carries the merged form.
+- **What the maintainer changed when merging** (eecb4cfd and 93a542a8 on the branch, f18c6df9 and
+  d0f5ce49 on main, 2026-10-27):
+  - `CoreInterface::DestroySharedHandle(SharedHandle&)`: a `static inline` helper in
+    `SharedExternal.h`, the same entry in every backend's table and Validation's, that closes the
+    handle by its type (`CloseHandle` for `OPAQUE_WIN32` / `D3D12_RESOURCE` / `D3D12_FENCE` on
+    Windows, `close` for `OPAQUE_FD` elsewhere) and clears the struct. It takes no device.
+  - Export support is asked before a shared object is created: `BufferVK::Create`
+    `vkGetPhysicalDeviceExternalBufferProperties`, `TextureVK::Create`
+    `vkGetPhysicalDeviceImageFormatProperties2` with `VkPhysicalDeviceExternalImageFormatInfo`
+    and the image's sample count, extent, mips and layers against the limits, `FenceVK::Create`
+    `vkGetPhysicalDeviceExternalSemaphoreProperties` for its semaphore type
+    (`DeviceVK::IsSharedFenceSupported`); not exportable is `UNSUPPORTED`, without a message.
+    `features.sharedFences` is reported only when a timeline or a binary semaphore exports.
+  - One `GetQueueFamilyIndex` helper for both barrier kinds (our rules), the video-only-buffer
+    test shared (`IsVideoOnly`; 93a542a8: the shared allocation path queried the device address
+    of a video-only buffer, which the ordinary path skips), `CloseSharedHandle` moved to
+    `SharedVK.h`, `EXTERNAL_QUEUE` moved up beside `WHOLE_SIZE` / `REMAINING`.
+  - The comments rewritten: `GetQueue` and `SharingMode` (buffers "follow D3D12: ownership
+    transfers are only needed to or from an external user"), `BufferBarrierDesc::srcQueue` /
+    `dstQueue` ("Only for ownership transfers of shared buffers to or from an external user: use
+    `EXTERNAL_QUEUE` and the local queue executing the barrier"), `SharedHandle` ("After an FD
+    import takes ownership, clear `SharedHandle` instead of destroying it"; "FD 0 is valid").
+
+  Measured here (2026-10-27; NVIDIA, VK and D3D12; lavapipe): every shared-handle test passes
+  unchanged, `features.sharedFences` is 1 on NVIDIA VK and 0 on lavapipe as before; no test needed
+  a change for the new behaviour. No configuration that answers `UNSUPPORTED` has been measured.
+- **`NriSharedHandle` disposes through NRI** (8f1abefc): it captures the device's
+  `DestroySharedHandle` when created and `Dispose` calls it, once (`Interlocked.Exchange`, no
+  finalizer); the handle may outlive its device
+  (`InteropTests.A_shared_handle_outlives_its_device_and_still_closes`). Released, it reads as
+  NRI's cleared struct: `Handle` 0, `Type` `NONE`, `Size` 0. `Detach()` returns the value without
+  closing it and releases the object, for an import that takes ownership (an FD into Vulkan or
+  CUDA), as the header asks; a later `Dispose` does nothing and a second `Detach` throws
+  `ObjectDisposedException` (`InteropTests.Detaching_a_shared_handle_gives_it_up_without_closing_it`,
+  Windows: `GetHandleInformation` still accepts the handle after `Detach` and `Dispose`).
+  `IsValid` takes FD 0 as valid (`OPAQUE_FD`), NT handle 0, -1 and `NONE` as not. The public
+  constructor takes the device whose table closes the handle.
 - Vulkan backend enables `VK_KHR_external_memory_win32`/`_fd` and
   `VK_KHR_external_semaphore_win32`/`_fd` itself (55 device extensions on NVIDIA, up from 53) and
   allocates a shared resource's memory directly (`DeviceVK::AllocateSharedMemory`, not VMA) to
-  chain the export info; the features report the extensions. D3D12 reports both true.
+  chain the export info; the features report the extensions (and, since d0f5ce49, `sharedFences`
+  only when a timeline or binary semaphore exports). D3D12 reports both true.
 - `SharedHandle::size` is the allocation size on both backends (VK: `VkMemoryAllocateInfo`;
   D3D12: `D3D12MA::Allocation::GetSize`, what `CUDA_EXTERNAL_MEMORY_HANDLE_DESC::size` takes); 0
   for a fence.
@@ -1759,9 +1809,12 @@ extensions.
   hand): NoGo with four items**, `FenceDesc` accepted, D3D11 sharing allowed as a follow-up. He
   merged main 83fd010 into the PR branch himself (038cecbc), so the fixes are four commits on top
   of his merge, never a force-push: `5e413361` (item 3, the const), `2320cc63` (item 4, checks
-  into Validation), `3a49e381` (item 1, one export + duplicates), `809121d4` (item 2, buffer
-  barrier queues). Patch 0002 is their squash with the earlier content, re-cut over 83fd010 +
-  0001. Compiled from the scratch clone with D3D11, D3D12 (Agility) and VK on (0 errors).
+  into Validation), `3a49e381` (item 1, one export + duplicates), `44aff46c` (item 2, buffer
+  barrier queues), then `0a7f3b2b` (the Vulkan `features.shared*` early-outs dropped for the coding
+  standard). Patch 0002 was their squash with the earlier content, re-cut over 83fd010 +
+  0001. Compiled from the scratch clone with D3D11, D3D12 (Agility) and VK on (0 errors). The
+  reply was posted 2026-10-26; **merged 2026-10-27** as eb4ed356 and polished (above), and 0002
+  dropped on `next` at b5f5c62.
 
 ### Extensions
 
