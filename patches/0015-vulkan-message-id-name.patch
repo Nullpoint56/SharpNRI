@@ -9,10 +9,10 @@ VK_EXT_custom_border_color, ...".
 This reports "[%u] %s: %s" when pMessageIdName is set; messages without a name are unchanged.
 
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index a0828342..0a29fafe 100644
+index 29d64f0f..58fed789 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
-@@ -289,7 +289,10 @@ static VkBool32 VKAPI_PTR MessageCallback(VkDebugUtilsMessageSeverityFlagBitsEXT
+@@ -307,7 +307,10 @@ static VkBool32 VKAPI_PTR MessageCallback(VkDebugUtilsMessageSeverityFlagBitsEXT
      } else if (messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)
          severity = Message::WARNING;
  

@@ -33,10 +33,10 @@ index 153fb433..45aebee2 100644
  
  NriStruct(WindowsWindow) {  // Expects "WIN32" platform macro
 diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
-index 8321ac66..3bf6ed1c 100644
+index 2d0133fd..a90888cc 100644
 --- a/Include/NRIDescs.h
 +++ b/Include/NRIDescs.h
-@@ -2286,6 +2286,7 @@ NriStruct(DeviceDesc) {
+@@ -2287,6 +2287,7 @@ NriStruct(DeviceDesc) {
          bool presentFromCompute;                                  // see "SwapChainDesc::queue"
          bool waitableSwapChain;                                   // see "SwapChainDesc::waitable"
          bool resizableSwapChain;                                  // swap chain can be resized without triggering an "OUT_OF_DATE" error
@@ -69,10 +69,10 @@ index 640db660..4b2a7507 100644
      return Result::SUCCESS;
  }
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index 0a29fafe..9dd4e4d6 100644
+index 58fed789..8d12d619 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
-@@ -1588,6 +1588,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+@@ -1606,6 +1606,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
          m_Desc.features.presentFromCompute = true;
          m_Desc.features.waitableSwapChain = m_Desc.features.swapChain != 0 && PresentIdFeatures.presentId != 0 && PresentWaitFeatures.presentWait != 0;
          m_Desc.features.resizableSwapChain = m_Desc.features.swapChain != 0 && m_IsSupported.swapChainMaintenance1 != 0;

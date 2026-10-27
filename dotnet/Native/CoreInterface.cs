@@ -352,4 +352,7 @@ public unsafe partial struct CoreInterface
 
     [NativeTypeName("Result (*)(const Fence &, SharedHandle &) __attribute__((stdcall))")]
     public delegate* unmanaged[Stdcall]<Fence*, SharedHandle*, Result> GetFenceSharedHandle;
+
+    [NativeTypeName("void (*)(SharedHandle &) __attribute__((stdcall))")]
+    public delegate* unmanaged[Stdcall]<SharedHandle*, void> DestroySharedHandle;
 }

@@ -14,7 +14,7 @@ D3D12CreateDevice and AGS's device creation all see the SDK. Nothing changes whe
 null. Applies on top of NRI v190.
 
 diff --git a/Include/Extensions/NRIDeviceCreation.h b/Include/Extensions/NRIDeviceCreation.h
-index ddbffe5..a8ad7b5 100644
+index 63ea8093..b6fcdcff 100644
 --- a/Include/Extensions/NRIDeviceCreation.h
 +++ b/Include/Extensions/NRIDeviceCreation.h
 @@ -78,6 +78,7 @@ NriStruct(DeviceCreationDesc) {
@@ -26,10 +26,10 @@ index ddbffe5..a8ad7b5 100644
      // Vulkan specific
      Nri(VKBindingOffsets) vkBindingOffsets;
 diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
-index 0e1215a..855c521 100644
+index 786030e1..7c35757e 100644
 --- a/Source/D3D12/DeviceD3D12.hpp
 +++ b/Source/D3D12/DeviceD3D12.hpp
-@@ -489,6 +489,26 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
+@@ -492,6 +492,26 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
      // Get adapter description as early as possible for meaningful error reporting
      m_Desc.adapterDesc = *desc.adapterDesc;
  
