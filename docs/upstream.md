@@ -92,8 +92,8 @@ question; the draft states the shape and offers the PR.
 | 0022 D3D12 copy layouts refused in copy command lists | bug | filed 2026-10-19 against main 8ee40ca, [#283](https://github.com/NVIDIA-RTX/NRI/issues/283); fixed 2026-10-20 in 732f737, ours without the sentinel guard, which 0002 carried and #294 merged; dropped on `next` |
 | 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | filed 2026-10-19 against main 8ee40ca, [#284](https://github.com/NVIDIA-RTX/NRI/issues/284); fixed 2026-10-20 in 2603edc, the sharing mode recorded at creation; dropped on `next`, 0002 kept the external family (merged as #294) |
 | 0002 shared buffers, textures and fences | proposal, PR | merged 2026-10-27 as eb4ed356, polished by the maintainer in f18c6df9 (`DestroySharedHandle`) and d0f5ce49 (export support queries, `UNSUPPORTED`, comments); dropped on `next` at b5f5c62. Offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs; re-cut in that shape on `next` 2026-10-23 (section below); filed 2026-10-24 as [PR #294](https://github.com/NVIDIA-RTX/NRI/pull/294) from the owner's fork (`Nullpoint56:shared-handles`, main 72f5f46 + 0002), the `FenceDesc` question asked in a [comment on #49](https://github.com/NVIDIA-RTX/NRI/issues/49) that links it; reviewed 2026-10-26, four items fixed on the branch |
-| 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2, drafted 2026-10-19, not filed; offer limit 0, a feature bit, or a clamp |
-| 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2, drafted 2026-10-19 as a question, not filed: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
+| 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | filed 2026-10-27 against main b5f5c626 as [#303](https://github.com/NVIDIA-RTX/NRI/issues/303), the fix of patch 0006 attached; the earlier status is in the section below |
+| 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | filed 2026-10-27 against main b5f5c626 as [#302](https://github.com/NVIDIA-RTX/NRI/issues/302), the fix of patch 0016 attached; the earlier status is in the section below |
 | 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2, drafted 2026-10-19, not filed; the uncapped order is his and stays |
 | 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | phase 2, drafted 2026-10-19, not filed; the default (break) is his and stays |
 | 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2, drafted 2026-10-19, not filed |
@@ -101,7 +101,7 @@ question; the draft states the shape and offers the PR.
 | 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | phase 2, drafted 2026-10-19, not filed; main took the idea in its own shape on 2026-10-22 (962615b, #286: `nriEnumerateAdapters` takes the backends to probe); `next` keeps two lines, `nriCreateDevice` with no adapter probing VK only for a VK device, a phase 2 note when #286 is discussed |
 | 0001 Agility SDK from a path | proposal | phase 2, drafted 2026-10-19, not filed: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
 | 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
-| 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
+| 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | filed 2026-10-27 against main b5f5c626 as [#304](https://github.com/NVIDIA-RTX/NRI/issues/304), the fix of patch 0009 attached; the earlier status is in the section below |
 | 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
 | 0015 Khronos message id name not forwarded | reporting | not filed: a format he changed on purpose in 59d0785 |
 | 0037 Vulkan swap chain without `VkSwapchainPresentModesCreateInfoKHR` | layer warning | not filed: one present mode is what Vulkan assumes without the structure; the best-practices warning is cosmetic (drafted 2026-10-24, section below) |
@@ -110,13 +110,13 @@ question; the draft states the shape and offers the PR.
 | N2 Vulkan empty vertex input makes the binding stride dynamic | bug | fixed upstream in 8a8fc2b (2026-10-26), dropped on next; patched on master as 0026 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#296](https://github.com/NVIDIA-RTX/NRI/issues/296); reproduced on main 2f7a49f (2026-10-22) |
 | N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | fixed upstream in 909a139 (2026-10-26), dropped on next; patched on master as 0027 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#297](https://github.com/NVIDIA-RTX/NRI/issues/297); reproduced on main 2f7a49f (2026-10-22) |
 | N4 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` | bug | fixed upstream in c8fe3b2 (2026-10-26, D3D11 too), dropped on next; patched on master as 0028 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#298](https://github.com/NVIDIA-RTX/NRI/issues/298); reproduced on main 2f7a49f (2026-10-22) |
-| N5 D3D12 2D texture views ignore `layerOffset` | bug | patched on master as 0029 (2026-10-22, PR #26), re-cut on next for 72f5f46 (2026-10-23); phase 1 candidate, not filed: owner's trigger; the patch refuses the view in validation (the D3D12 backend half was dropped 2026-10-26 for the coding standard), documenting instead is his call; reproduced on main 2f7a49f (2026-10-22) |
+| N5 D3D12 2D texture views ignore `layerOffset` | bug | filed 2026-10-27 against main b5f5c626 as [#306](https://github.com/NVIDIA-RTX/NRI/issues/306), the fix of patch 0029 attached; the earlier status is in the section below |
 | N6 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` | bug | fixed upstream in 1dc13b2 (2026-10-26; its message says "fixed #300"), dropped on next; patched on master as 0030 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#299](https://github.com/NVIDIA-RTX/NRI/issues/299); reproduced on main 2f7a49f (2026-10-22) |
 | N7 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 | bug | fixed upstream in 561e2be (2026-10-26, another shape: the buffer desc asks for 256 under tight alignment), dropped on next; patched on master as 0031 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#300](https://github.com/NVIDIA-RTX/NRI/issues/300); reproduced on main 2f7a49f (2026-10-22) |
 | N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | patched on master as 0032 (2026-10-22, PR #26); fixed on main by af45e72 (merged 2026-10-22, #264), the same rule, so dropped on next (2026-10-23); nothing to file; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
 | N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | patched on master as 0033 (2026-10-22, PR #26); main chose another shape (57d92ff, af45e72, 9131c1b: the submitted picture descs in the desc, a key frame without references, `UNSUPPORTED` for a header on D3D12), so dropped on next (2026-10-23) and the binding follows; nothing to file; phase 2: the desc carries no frame type, so the fix is his API choice; the patch proposes `VideoAV1EncodeDecodeInfoDesc::keyFrame` and D3D12 describing from the metadata whether a header is given or not; reproduced on main 2f7a49f (2026-10-22) |
 | N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | fixed upstream in 9d276c3 and aa23763 (2026-10-26), dropped on next; patched on master as 0034 (2026-10-22, PR #26), re-cut on next for 72f5f46's creation rollback (#292, 2026-10-23) and carried until 83fd010; filed 2026-10-24 against main 72f5f46, [#301](https://github.com/NVIDIA-RTX/NRI/issues/301); reproduced on main 2f7a49f (2026-10-22) |
-| N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | patched on master as 0035 (2026-10-22, PR #26), carried on next; recorded 2026-10-22, not filed: packing only, so not phase 1 by the rules; owner's judgment; reproduced on main 2f7a49f (2026-10-22) |
+| N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | filed 2026-10-27 against main b5f5c626 as [#305](https://github.com/NVIDIA-RTX/NRI/issues/305), the fix of patch 0035 attached; the earlier status is in the section below |
 | `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
 | Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
@@ -180,6 +180,8 @@ clean under GCC and passes our suite.
 
 ## 0006 — `samplerLodBiasMax` permits a bias a portability device forbids
 
+**Status 2026-10-27.** Filed as [#303](https://github.com/NVIDIA-RTX/NRI/issues/303) against main b5f5c626 (the macOS CI measurement; `DeviceVK.hpp:1554` there).
+
 **Title:** Vulkan on MoltenVK: `samplerLodBiasMax` ignores `VkPhysicalDevicePortabilitySubsetFeaturesKHR::samplerMipLodBias`
 
 `DeviceVK::Create` copies `VkPhysicalDeviceLimits::maxSamplerLodBias` into
@@ -234,6 +236,8 @@ table to 184 in its existing style, one commented entry per VkFormat; BC1's RGB 
 formats. Patch attached (`patches/0008-vulkan-format-table-compressed.patch`), 55 lines, table only.
 
 ## 0009 — `OUT_OF_DATE` from `AcquireNextTexture` / `QueuePresent` is reported as an error
+
+**Status 2026-10-27.** Filed as [#304](https://github.com/NVIDIA-RTX/NRI/issues/304) against main b5f5c626 (reproduced there: 6 of 8 resizes report `QueuePresentKHR(): failed, result = 0xC4653214`).
 
 **Title:** Vulkan swap chain: the documented `OUT_OF_DATE` result should not be reported as `Message::ERROR`
 
@@ -400,6 +404,8 @@ enable extension VK_EXT_custom_border_color, ...`). Fix: `"[%u] %s: %s"` when `p
 non-null. Patch attached (`patches/0015-vulkan-message-id-name.patch`), four lines.
 
 ## 0016 — Validation refuses a pipeline layout whose `shaderStages` is `ALL`
+
+**Status 2026-10-27.** Filed as [#302](https://github.com/NVIDIA-RTX/NRI/issues/302) against main b5f5c626 (reproduced there: both messages, VK and D3D12).
 
 **Title:** Validation: `PipelineLayoutDesc::shaderStages = ALL` is treated as no stages
 
@@ -794,6 +800,8 @@ if (m_Stencil.attachment && stencil.loadOp == LoadOp::CLEAR)
 
 ### N5: D3D12: 2D texture views ignore layerOffset
 
+**Status 2026-10-27.** Filed as [#306](https://github.com/NVIDIA-RTX/NRI/issues/306) against main b5f5c626 (the view is created there without a message; `DescriptorD3D12.hpp:165`, `:217`), proposing the Validation refusal and offering documentation instead.
+
 **Observed.** A two-layer `R32_UINT` `TEXTURE_2D`, a `STORAGE_TEXTURE` view with `layerOffset = 1`,
 `CmdClearStorage`: Vulkan clears layer 1, D3D12 clears layer 0 (hardware and WARP). Neither NRI
 validation nor either backend's layer says anything.
@@ -901,6 +909,8 @@ if (!impl) {
 ```
 
 ### N11: the memory helper's alignment sort leaves out the last buffer and the last texture
+
+**Status 2026-10-27.** Filed as [#305](https://github.com/NVIDIA-RTX/NRI/issues/305) against main b5f5c626 (reproduced there: VK two allocations in 2 of 6 orders, D3D12 in 4 of 6; `HelperInterface.hpp:556`, `:568`).
 
 **Observed.** `AllocateAndBindMemory` packs the last buffer and the last texture of a group where they
 were passed, after the sorted rest, so the same resources in another order get another layout and,
