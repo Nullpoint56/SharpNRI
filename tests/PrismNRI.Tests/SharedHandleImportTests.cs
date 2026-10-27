@@ -1,4 +1,4 @@
-// The SharedHandle extension (patches/0002), the other side: a handle NRI exports is opened by a
+// Shared handles (NRI #294, eb4ed356), the other side: a handle NRI exports is opened by a
 // second, independent API object on the same adapter and used there. SharedHandleTests proves the
 // handles come out; this proves they mean something.
 //

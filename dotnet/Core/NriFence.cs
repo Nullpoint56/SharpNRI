@@ -24,14 +24,14 @@ public sealed unsafe class NriFence : NriObject
     public ulong Value => Device.Core.GetFenceValue(Raw);
 
     /// <summary>
-    /// A new handle to the fence, which the caller owns (patch 0002). Throws with
+    /// A new handle to the fence, which the caller owns (<see cref="NriSharedHandle"/>). Throws with
     /// <see cref="Result.INVALID_ARGUMENT"/> for a fence not created shared (<see cref="NriDevice.CreateSharedFence"/>).
     /// </summary>
     public NriSharedHandle GetSharedHandle()
     {
         SharedHandle h;
         Device.Check(Device.Core.GetFenceSharedHandle(Raw, &h), "GetFenceSharedHandle");
-        return NriSharedHandle.From(in h);
+        return NriSharedHandle.From(Device, in h);
     }
 
     /// <summary>Blocks the calling thread until the fence reaches <paramref name="value"/>.</summary>

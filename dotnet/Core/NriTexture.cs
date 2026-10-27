@@ -74,14 +74,14 @@ public sealed unsafe class NriTexture : NriObject
     public ulong GetNativeObject() => Device.Core.GetTextureNativeObject(Raw);
 
     /// <summary>
-    /// A new handle to the texture's memory, which the caller owns (patch 0002). Throws with
+    /// A new handle to the texture's memory, which the caller owns (<see cref="NriSharedHandle"/>). Throws with
     /// <see cref="Result.INVALID_ARGUMENT"/> for a texture not created shared (<see cref="NriDevice.CreateSharedTexture"/>).
     /// </summary>
     public NriSharedHandle GetSharedHandle()
     {
         SharedHandle h;
         Device.Check(Device.Core.GetTextureSharedHandle(Raw, &h), "GetTextureSharedHandle");
-        return NriSharedHandle.From(in h);
+        return NriSharedHandle.From(Device, in h);
     }
 
     /// <summary>Bound into or placed in <paramref name="memory"/>, which then outlives this texture.</summary>

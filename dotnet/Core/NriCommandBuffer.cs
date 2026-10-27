@@ -16,9 +16,10 @@ namespace PrismNRI;
 
 /// <summary><c>BufferBarrierDesc</c> naming the wrapper.</summary>
 /// <remarks>
-/// <see cref="SrcQueue"/> / <see cref="DstQueue"/>: NRI's buffers are <c>CONCURRENT</c>, so a queue family ownership
-/// transfer exists only to or from <see cref="NriQueue.External"/> (a shared buffer released before an
-/// export, or acquired after an import); any other queue on either side is ignored, and D3D12 ignores both.
+/// <see cref="SrcQueue"/> / <see cref="DstQueue"/>: only for a queue family ownership transfer of a shared
+/// buffer to or from an external user: <see cref="NriQueue.External"/> on one side (the release before an
+/// export, or the acquire after an import) and the local queue executing the barrier on the other. Buffers
+/// need no transfer between the device's own queues; D3D12 ignores both.
 /// </remarks>
 public readonly unsafe record struct NriBufferBarrier(NriBuffer Buffer, AccessStage Before, AccessStage After, NriQueue? SrcQueue = null, NriQueue? DstQueue = null)
 {
@@ -50,7 +51,7 @@ public readonly unsafe record struct NriBufferBarrier(NriBuffer Buffer, AccessSt
 /// a texture created <c>EXCLUSIVE</c> (or with one active queue family), or with
 /// <see cref="NriQueue.External"/> on one side; on a <c>CONCURRENT</c> texture NRI writes
 /// <c>VK_QUEUE_FAMILY_IGNORED</c> for every side that is not external (NRI 2603edc; the external side is
-/// patch 0002's), so the two barriers of a hand-off are ordinary barriers, each naming only its own
+/// #294's), so the two barriers of a hand-off are ordinary barriers, each naming only its own
 /// queue's stages. On D3D12 they are the copy-queue hint and nothing else.
 /// </remarks>
 public readonly unsafe record struct NriTextureBarrier(

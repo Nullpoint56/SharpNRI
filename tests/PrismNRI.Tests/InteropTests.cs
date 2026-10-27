@@ -383,9 +383,10 @@ public sealed unsafe class InteropTests
     private static extern int CloseHandle(nint handle);
 
     /// <summary>
-    /// NriSharedHandle.Dispose closes the OS handle, once: GetHandleInformation accepts the exported
-    /// fence handle before and refuses it after with ERROR_INVALID_HANDLE, and the disposed object
-    /// reads 0 and invalid, in its properties and in ToString (what a log or debugger shows).
+    /// NriSharedHandle.Dispose closes the OS handle through NRI's DestroySharedHandle, once:
+    /// GetHandleInformation accepts the exported fence handle before and refuses it after with
+    /// ERROR_INVALID_HANDLE, and the disposed object reads as NRI's cleared struct (handle 0, type
+    /// NONE) and invalid, in its properties and in ToString (what a log or debugger shows).
     /// Windows hands a closed value to the next handle the process opens
     /// (measured outside the suite: every time in 20,000 close-and-create pairs, also with four
     /// threads opening and closing handles meanwhile), so the events opened next get it back, and a
@@ -400,13 +401,14 @@ public sealed unsafe class InteropTests
         Assert.SkipUnless(OperatingSystem.IsWindows(), "GetHandleInformation is Windows' (the handle is a file descriptor elsewhere)");
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
-        Assert.SkipWhen(device.Desc.features.sharedFences == 0, "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_win32");
+        Assert.SkipWhen(device.Desc.features.sharedFences == 0, "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_win32 or exports no semaphore type");
 
         using var fence = device.CreateSharedFence();
         var handle = fence.GetSharedHandle();
         var value = handle.Handle;
+        var type = handle.Type;
         Assert.True(handle.IsValid);
-        Assert.Contains($"Handle = {value}, Type = {handle.Type}", handle.ToString(), StringComparison.Ordinal);
+        Assert.Contains($"Handle = {value}, Type = {type}", handle.ToString(), StringComparison.Ordinal);
         Assert.NotEqual(0, GetHandleInformation(value, out _));
 
         handle.Dispose();
@@ -414,7 +416,8 @@ public sealed unsafe class InteropTests
         Assert.Equal(6, Marshal.GetLastPInvokeError()); // ERROR_INVALID_HANDLE
         Assert.False(handle.IsValid);
         Assert.Equal(0, handle.Handle);
-        Assert.Contains("Handle = 0,", handle.ToString(), StringComparison.Ordinal);
+        Assert.Equal(SharedHandleType.NONE, handle.Type);
+        Assert.Contains("Handle = 0, Type = NONE,", handle.ToString(), StringComparison.Ordinal);
         Assert.EndsWith("IsValid = False }", handle.ToString(), StringComparison.Ordinal);
 
         // New handles, kept open, until one has the closed value; then the second Dispose.
@@ -438,10 +441,84 @@ public sealed unsafe class InteropTests
             foreach (var e in events) CloseHandle(e);
         }
 
-        Assert.False(new NriSharedHandle(0, handle.Type, 0).IsValid);
-        Assert.False(new NriSharedHandle(-1, handle.Type, 0).IsValid);
-        new NriSharedHandle(0, handle.Type, 0).Dispose();
-        new NriSharedHandle(-1, handle.Type, 0).Dispose();
+        Assert.False(new NriSharedHandle(device, 0, type, 0).IsValid);
+        Assert.False(new NriSharedHandle(device, -1, type, 0).IsValid);
+        new NriSharedHandle(device, 0, type, 0).Dispose();
+        new NriSharedHandle(device, -1, type, 0).Dispose();
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// NriSharedHandle.Detach gives the handle up without closing it, for an import that takes
+    /// ownership (NRI's header: "After an FD import takes ownership, clear SharedHandle instead of
+    /// destroying it"): it returns the value, the object then reads as disposed, a later Dispose
+    /// leaves the handle open (GetHandleInformation still accepts it, and the caller's CloseHandle
+    /// succeeds), and a second Detach throws. File descriptor 0 is valid (NRI's header says so), an
+    /// NT handle 0 is not; the FD-0 object is detached, not disposed, so stdin stays open.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void Detaching_a_shared_handle_gives_it_up_without_closing_it(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "GetHandleInformation is Windows' (the handle is a file descriptor elsewhere)");
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        Assert.SkipWhen(device.Desc.features.sharedFences == 0, "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_win32 or exports no semaphore type");
+
+        using var fence = device.CreateSharedFence();
+        var handle = fence.GetSharedHandle();
+        var value = handle.Handle;
+        Assert.True(handle.IsValid);
+
+        Assert.Equal(value, handle.Detach());
+        Assert.False(handle.IsValid);
+        Assert.Equal(0, handle.Handle);
+        Assert.Equal(SharedHandleType.NONE, handle.Type);
+        Assert.NotEqual(0, GetHandleInformation(value, out _));
+
+        handle.Dispose();
+        Assert.NotEqual(0, GetHandleInformation(value, out _));
+        Assert.Throws<ObjectDisposedException>(() => handle.Detach());
+        Assert.NotEqual(0, CloseHandle(value));
+
+        var disposed = fence.GetSharedHandle();
+        disposed.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => disposed.Detach());
+
+        var fd0 = new NriSharedHandle(device, 0, SharedHandleType.OPAQUE_FD, 0);
+        Assert.True(fd0.IsValid);
+        Assert.Equal(0, fd0.Detach());
+        Assert.False(new NriSharedHandle(device, 0, SharedHandleType.OPAQUE_WIN32, 0).IsValid);
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
+    /// DestroySharedHandle takes no device (NRI f18c6df9: a helper that closes the handle by its
+    /// type), so a handle exported by a device that is gone still closes on Dispose: the fence and
+    /// the device are disposed first, the handle stays open, and Dispose closes it.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void A_shared_handle_outlives_its_device_and_still_closes(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "GetHandleInformation is Windows' (the handle is a file descriptor elsewhere)");
+        var messages = new List<NriMessage>();
+        NriSharedHandle handle;
+        using (var device = TestDevice.Create(backend.Api, messages))
+        {
+            Assert.SkipWhen(device.Desc.features.sharedFences == 0, "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_win32 or exports no semaphore type");
+            using var fence = device.CreateSharedFence();
+            handle = fence.GetSharedHandle();
+        }
+
+        var value = handle.Handle;
+        Assert.True(handle.IsValid);
+        Assert.NotEqual(0, GetHandleInformation(value, out _));
+        handle.Dispose();
+        Assert.Equal(0, GetHandleInformation(value, out _));
+        Assert.Equal(6, Marshal.GetLastPInvokeError()); // ERROR_INVALID_HANDLE
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 

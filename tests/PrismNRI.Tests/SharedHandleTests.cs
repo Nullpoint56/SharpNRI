@@ -1,7 +1,7 @@
-// Shared buffers, textures and fences (patches/0002: BufferDesc::shared, TextureDesc::shared,
+// Shared buffers, textures and fences (NRI #294, eb4ed356: BufferDesc::shared, TextureDesc::shared,
 // FenceDesc::shared, the Core getters and the feature bits): export each on each backend and check
 // the handle is the kind the backend promises, that the device reports the features, and that NRI
-// validation refuses the shapes the patch excludes. Importing elsewhere is a separate proof
+// validation refuses the shapes NRI excludes. Importing elsewhere is a separate proof
 // (SharedHandleImportTests, CudaInteropTests) because it needs the other API's binding.
 
 using PrismNRI.Native;
@@ -36,11 +36,12 @@ public sealed class SharedHandleTests
     /// <summary>
     /// Skips when the Vulkan device lacks the platform's external semaphore extension: lavapipe (Mesa
     /// 25) advertises VK_KHR_external_memory_fd but not VK_KHR_external_semaphore_fd (CLAUDE.md:
-    /// Lavapipe), MoltenVK neither.
+    /// Lavapipe), MoltenVK neither. Since NRI d0f5ce49 it is also false when the device exports neither
+    /// a timeline nor a binary semaphore of the platform's handle type.
     /// </summary>
     private static void RequireSharedFences(NriDevice device) =>
         Assert.SkipWhen(device.Desc.features.sharedFences == 0,
-            "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_fd/_win32 (lavapipe has no external semaphores; MoltenVK neither)");
+            "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_fd/_win32 or exports no semaphore type (lavapipe has no external semaphores; MoltenVK neither)");
 
     private static readonly TextureDesc SharedTexture = new()
     {
@@ -52,7 +53,8 @@ public sealed class SharedHandleTests
 
     /// <summary>
     /// What each backend reports: D3D12 both features, NONE both (it claims every feature), Vulkan
-    /// the extensions of the platform (recorded; on NVIDIA Windows both, on lavapipe memory only).
+    /// the extensions of the platform, and for fences an exportable semaphore type (recorded; on NVIDIA
+    /// Windows both, on lavapipe memory only).
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.AllBackends), MemberType = typeof(TestDevice))]
@@ -222,7 +224,7 @@ public sealed class SharedHandleTests
     /// Release to the external queue family and acquire back. With one queue the Vulkan image is
     /// EXCLUSIVE (one active family); with graphics, compute and copy queues fetched it is
     /// CONCURRENT, where Vulkan wants VK_QUEUE_FAMILY_IGNORED on the side that is not external
-    /// (NRI 2603edc writes that for ordinary queues and patch 0002 keeps the external side; NRI
+    /// (NRI 2603edc writes that for ordinary queues and #294 keeps the external side; NRI
     /// v190 wrote the queue's family index).
     /// </summary>
     [Theory]

@@ -19,9 +19,10 @@ public sealed unsafe partial class NriDevice
     }
 
     /// <summary>
-    /// A timeline fence that can be exported (<c>FenceDesc::shared</c>, patch 0002; needs
+    /// A timeline fence that can be exported (<c>FenceDesc::shared</c>; needs
     /// <c>Desc.features.sharedFences</c>): Vulkan <c>VkExportSemaphoreCreateInfo</c>, D3D12
-    /// <c>D3D12_FENCE_FLAG_SHARED</c>. Export it with <see cref="NriFence.GetSharedHandle"/>.
+    /// <c>D3D12_FENCE_FLAG_SHARED</c>. Export it with <see cref="NriFence.GetSharedHandle"/>. Throws
+    /// <see cref="NriUnsupportedException"/> where Vulkan cannot export a semaphore of that type.
     /// <see cref="NriSwapChainExtension.SwapChainSemaphore"/> as <paramref name="initialValue"/> makes it
     /// binary instead (<see cref="CreateSharedBinaryFence"/>).
     /// </summary>
@@ -167,9 +168,10 @@ public sealed unsafe partial class NriDevice
 
     /// <summary>
     /// A committed buffer in <see cref="MemoryLocation.DEVICE"/> with a dedicated, exportable allocation
-    /// (<c>BufferDesc::shared</c>, patch 0002; needs <c>Desc.features.sharedResources</c>): Vulkan
+    /// (<c>BufferDesc::shared</c>; needs <c>Desc.features.sharedResources</c>): Vulkan
     /// opaque handle, D3D12 <c>D3D12_HEAP_FLAG_SHARED</c>. Export it with <see cref="NriBuffer.GetSharedHandle"/>;
-    /// everything else about it is an ordinary <see cref="NriBuffer"/>.
+    /// everything else about it is an ordinary <see cref="NriBuffer"/>. Throws
+    /// <see cref="NriUnsupportedException"/> where Vulkan cannot export a buffer of that usage.
     /// </summary>
     public NriBuffer CreateSharedBuffer(in BufferDesc desc, float priority = 0)
     {
@@ -180,9 +182,11 @@ public sealed unsafe partial class NriDevice
 
     /// <summary>
     /// A committed texture in <see cref="MemoryLocation.DEVICE"/> with a dedicated, exportable
-    /// allocation (<c>TextureDesc::shared</c>, patch 0002; needs <c>Desc.features.sharedResources</c>):
+    /// allocation (<c>TextureDesc::shared</c>; needs <c>Desc.features.sharedResources</c>):
     /// Vulkan opaque handle, D3D12 <c>D3D12_HEAP_FLAG_SHARED</c>. Export it with
     /// <see cref="NriTexture.GetSharedHandle"/>; everything else about it is an ordinary <see cref="NriTexture"/>.
+    /// Throws <see cref="NriUnsupportedException"/> where Vulkan cannot export an image of that format,
+    /// usage, size or sample count.
     /// </summary>
     public NriTexture CreateSharedTexture(in TextureDesc desc, float priority = 0)
     {
