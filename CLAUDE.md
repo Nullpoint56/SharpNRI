@@ -418,7 +418,11 @@ configured per machine: the adapter named is whichever one the suite picked on t
   Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields 1,611 of 1,612
   (`vkInstanceCreateInfoNext` added); lavapipe 517, 286 skipped, 0 failed. With 0029's D3D12 backend
   half dropped (4e074ef): Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields
-  1,611 of 1,612; lavapipe 517, 286 skipped, 0 failed. The committed report is measured where its
+  1,611 of 1,612; lavapipe 517, 286 skipped, 0 failed. On NRI v191 with eleven patches (731a65b,
+  2026-11-03): Windows 535 tests, 13 skipped, lines 98.1%, branches 82.1%, 252 of 252 functions
+  bound (the merged shared handles: three Core getters and `DestroySharedHandle` instead of the
+  extension table; 19 flat exports without `nriEnumerateAdapters2`), 250 of 252 call sites run,
+  fields 1,646 of 1,647; lavapipe 534, 294 skipped, 0 failed. The committed report is measured where its
   header says; CI does not run it.
 
 ---
