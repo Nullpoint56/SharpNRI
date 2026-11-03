@@ -1,6 +1,6 @@
 # Third-party notices
 
-PrismNRI's own code is MIT. Its native payloads are built by `tools/build-native.ps1` from the NRI
+PrismNRI's own code is MIT (`LICENSE.md`). Its native payloads are built by `tools/build-native.ps1` from the NRI
 submodule at the tag pinned in `Directory.Build.props` (versions below are those pinned by NRI v190's
 `CMakeLists.txt`) and ship as three packages (`CLAUDE.md`: Native packages). Each package stages the
 licence of every component inside it beside its binaries, in `licenses/<Component>/`, copied from the

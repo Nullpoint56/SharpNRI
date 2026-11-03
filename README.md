@@ -133,7 +133,7 @@ from the pinned, patched headers (needs `ClangSharpPInvokeGenerator` 21.1.8.4).
 
 ## Licence
 
-MIT. The native payload carries its components' own licences, listed in `THIRD-PARTY-NOTICES.md`.
+MIT ([LICENSE.md](LICENSE.md)). The native payload carries its components' own licences, listed in `THIRD-PARTY-NOTICES.md`.
 NRI (MIT) is built with VMA and D3D12MA (MIT), NVAPI and AMD AGS (MIT); the Upscalers package adds
 NIS (MIT), FSR (MIT) and XeSS (Intel licence) SDK code; the Agility package is Microsoft's runtime
 under Microsoft's licence. Not shipped: ClangSharp, dxc, xunit, and Microsoft's code coverage
