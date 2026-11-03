@@ -13,7 +13,7 @@ more still grows the buffer as before. 0 keeps the on-demand growth, so no exist
 Measured on v190, Vulkan and D3D12: 100 KiB with queuedFrameNum 2 gives one 262,144-byte buffer at
 creation that frames streaming 64 KiB keep; a 192 KiB frame grows it to 393,216 bytes.
 diff --git a/Include/Extensions/NRIStreamer.h b/Include/Extensions/NRIStreamer.h
-index a6ff35f..651fe55 100644
+index 0b2bab84..82f636f2 100644
 --- a/Include/Extensions/NRIStreamer.h
 +++ b/Include/Extensions/NRIStreamer.h
 @@ -32,7 +32,7 @@ NriStruct(StreamerDesc) {
@@ -26,7 +26,7 @@ index a6ff35f..651fe55 100644
  
      // Statically allocated read/write ring-buffer for generic CPU data
 diff --git a/Source/Shared/StreamerInterface.hpp b/Source/Shared/StreamerInterface.hpp
-index b783061..9b74bd5 100644
+index 5bcf36ce..11e61539 100644
 --- a/Source/Shared/StreamerInterface.hpp
 +++ b/Source/Shared/StreamerInterface.hpp
 @@ -59,6 +59,14 @@ Result StreamerImpl::Create(const StreamerDesc& desc) {

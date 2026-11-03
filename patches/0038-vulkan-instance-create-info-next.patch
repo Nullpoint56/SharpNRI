@@ -40,7 +40,7 @@ index cd2aa603..741c61fa 100644
      Result ResolveInstanceDispatchTable(const Vector<const char*>& desiredInstanceExts);
      Result ResolveDispatchTable(const Vector<const char*>& desiredDeviceExts);
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index 8d12d619..363d82aa 100644
+index 444c62f4..f0d801bc 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
 @@ -772,7 +772,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe

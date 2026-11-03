@@ -33,10 +33,10 @@ index 153fb433..45aebee2 100644
  
  NriStruct(WindowsWindow) {  // Expects "WIN32" platform macro
 diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
-index 2d0133fd..a90888cc 100644
+index 83a315ef..a6686a5b 100644
 --- a/Include/NRIDescs.h
 +++ b/Include/NRIDescs.h
-@@ -2287,6 +2287,7 @@ NriStruct(DeviceDesc) {
+@@ -2288,6 +2288,7 @@ NriStruct(DeviceDesc) {
          bool presentFromCompute;                                  // see "SwapChainDesc::queue"
          bool waitableSwapChain;                                   // see "SwapChainDesc::waitable"
          bool resizableSwapChain;                                  // swap chain can be resized without triggering an "OUT_OF_DATE" error
@@ -69,7 +69,7 @@ index 640db660..4b2a7507 100644
      return Result::SUCCESS;
  }
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index 58fed789..8d12d619 100644
+index 4eb73f4b..444c62f4 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
 @@ -1606,6 +1606,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
@@ -81,7 +81,7 @@ index 58fed789..8d12d619 100644
          m_Desc.features.textureCompressionBC = features.features.textureCompressionBC;
          m_Desc.features.textureCompressionETC2 = features.features.textureCompressionETC2;
 diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
-index d37cd106..2f4815fb 100644
+index 0531842f..416c1702 100644
 --- a/Source/VK/SwapChainVK.hpp
 +++ b/Source/VK/SwapChainVK.hpp
 @@ -230,8 +230,13 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {

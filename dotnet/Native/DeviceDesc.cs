@@ -16,55 +16,55 @@ public partial struct DeviceDesc
     [NativeTypeName("uint16_t")]
     public ushort shaderModel;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2001_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2002_C5")]
     public _viewport_e__Struct viewport;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2008_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2009_C5")]
     public _dimensions_e__Struct dimensions;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2019_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2020_C5")]
     public _precision_e__Struct precision;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2027_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2028_C5")]
     public _memory_e__Struct memory;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2041_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2042_C5")]
     public _memoryAlignment_e__Struct memoryAlignment;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2055_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2056_C5")]
     public _pipelineLayout_e__Struct pipelineLayout;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2063_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2064_C5")]
     public _descriptorSet_e__Struct descriptorSet;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2080_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2081_C5")]
     public _descriptorHeap_e__Struct descriptorHeap;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2089_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2090_C5")]
     public _shaderStage_e__Struct shaderStage;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2194_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2195_C5")]
     public _accelerationStructure_e__Struct accelerationStructure;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2204_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2205_C5")]
     public _wave_e__Struct wave;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2213_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2214_C5")]
     public _resolve_e__Struct resolve;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2221_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2222_C5")]
     public _other_e__Struct other;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2239_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2240_C5")]
     public _tiers_e__Struct tiers;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2284_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2285_C5")]
     public _features_e__Struct features;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2365_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2366_C5")]
     public _shaderFeatures_e__Struct shaderFeatures;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L2413_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L2414_C5")]
     public _videoFeatures_e__Struct videoFeatures;
 
     public partial struct _viewport_e__Struct
@@ -210,7 +210,7 @@ public partial struct DeviceDesc
         [NativeTypeName("uint32_t")]
         public uint storageTextureMaxNum;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2070_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2071_C9")]
         public _updateAfterSet_e__Struct updateAfterSet;
 
         public partial struct _updateAfterSet_e__Struct
@@ -270,34 +270,34 @@ public partial struct DeviceDesc
         [NativeTypeName("uint32_t")]
         public uint resourceMaxNum;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2098_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2099_C9")]
         public _updateAfterSet_e__Struct updateAfterSet;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2108_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2109_C9")]
         public _vertex_e__Struct vertex;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2115_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2116_C9")]
         public _tesselationControl_e__Struct tesselationControl;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2125_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2126_C9")]
         public _tesselationEvaluation_e__Struct tesselationEvaluation;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2131_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2132_C9")]
         public _geometry_e__Struct geometry;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2140_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2141_C9")]
         public _fragment_e__Struct fragment;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2156_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2157_C9")]
         public _compute_e__Struct compute;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2164_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2165_C9")]
         public _task_e__Struct task;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2174_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2175_C9")]
         public _mesh_e__Struct mesh;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2186_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2187_C9")]
         public _rayTracing_e__Struct rayTracing;
 
         public partial struct _updateAfterSet_e__Struct
@@ -879,10 +879,10 @@ public partial struct DeviceDesc
 
     public partial struct _videoFeatures_e__Struct
     {
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2414_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2415_C9")]
         public _decode_e__Struct decode;
 
-        [NativeTypeName("__AnonymousRecord_NRIDescs_L2420_C9")]
+        [NativeTypeName("__AnonymousRecord_NRIDescs_L2421_C9")]
         public _encode_e__Struct encode;
 
         public partial struct _decode_e__Struct

@@ -11,7 +11,7 @@ creation obtains ID3D12SDKConfiguration1, creates a device factory for the SDK v
 compiled against (NRI_AGILITY_SDK_VERSION_MAJOR) from that directory, and applies it to the
 process state before any other D3D12 entry point is called, so D3D12GetDebugInterface,
 D3D12CreateDevice and AGS's device creation all see the SDK. Nothing changes when the field is
-null. Applies on top of NRI v190.
+null. Applies on top of NRI v191.
 
 diff --git a/Include/Extensions/NRIDeviceCreation.h b/Include/Extensions/NRIDeviceCreation.h
 index 63ea8093..b6fcdcff 100644
