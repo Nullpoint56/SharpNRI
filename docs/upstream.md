@@ -299,6 +299,15 @@ device from the factory and wrapping it with `nriCreateDeviceFromD3D12Device`, a
 what we fall back to; it loses `Robustness`, `DeviceLostInfoLevel` and ray-tracing validation,
 which only the NRI-created path offers. Patch attached, 1 header line and ~20 lines.
 
+## Not ours: NRI #307, Agility 1.620 deprecation warnings (2026-11-03)
+
+Filed by another user on Intel Arc. NRI v191 builds against Agility 1.620.1, whose debug layer reports
+each legacy `ID3D12Device::CheckFeatureSupport` as `D3D12_MESSAGE_ID_DEPRECATED_API` (989): 33 per D3D12
+device on NVIDIA and WARP, 27 from NRI (`DeviceD3D12.hpp`) and 6 from D3D12MA (its #102, fixed on
+sawickiap's fork, not yet upstream). It failed our Windows CI (the device-lost test refuses warnings at
+creation), so that test allows exactly these until both fixes reach NRI. A comment with the measurement and
+a prototype of NRI's part is drafted for the owner (scratchpad); nothing posted.
+
 ## 0002 — Shared buffers, textures and fences
 
 **Title:** Core: shared buffers, textures and fences (export to another device, API or process), the #49 request

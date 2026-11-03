@@ -290,7 +290,13 @@ dotnet test --project tests/PrismNRI.Tests -c Release --no-build
 
 - It checks the submodule tag against `NriVersion`, applies `patches/` (skipping applied ones),
   configures, builds, stages, and prints a table. A matching `_deps` makes configure run with
-  `FETCHCONTENT_FULLY_DISCONNECTED=ON`.
+  `FETCHCONTENT_FULLY_DISCONNECTED=ON`. When the key (NRI commit, patches, options) differs from the last configure, the
+  variant's tree is deleted first, downloads included (bcbfced8): NRI keeps its Agility pin in CMake
+  cache variables, and after the move to v191 an existing tree kept compiling and staging Agility
+  1.619 while CI, on a fresh tree, got 1.620. Clearing only the cache left FetchContent's extracted
+  1.619 package in `_deps`, and NRI.dll built for 1.620 then met a 1.619 runtime (`INVALID_SDK` on
+  every D3D12 device). So a local verification after moving NRI needs that fresh tree; the WSL clone
+  likewise (`rm -rf _build/linux-x64-base` once, or `-Clean`).
 - Only options that exist on the target are passed: NRI declares most with
   `cmake_dependent_option`, and an option whose condition is false is silently ignored.
 - NRI's generated `Include/NRIAgilitySDK.h` is moved into the build tree after configure.
@@ -1372,6 +1378,23 @@ Measured by `DebugAidTests`.
 
 ### D3D12 and the Agility SDK
 
+- **Agility 1.620 reports every legacy `CheckFeatureSupport` as deprecated (NRI #307, D3D12MA #102).**
+  v191 moved NRI's Agility pin from 1.619.6 to 1.620.1 (c33dd915), whose debug layer reports each
+  `ID3D12Device::CheckFeatureSupport` as `D3D12_MESSAGE_ID_DEPRECATED_API` (989), a WARNING:
+  "ID3D12Device::CheckFeatureSupport is superseded by ID3D12Device16::CheckFeatureSupport1. Move to
+  CheckFeatureSupport1 and pass your Agility SDK version ...". 33 per D3D12 device creation on NVIDIA
+  and WARP (2026-11-03); the answers are unchanged. NRI v191 has 29 such calls in `DeviceD3D12.hpp`
+  (the `ID3D12VideoDevice` and DXGI `CheckFeatureSupport` calls are other interfaces and do not warn)
+  and D3D12MA, which NRI builds in, six in its initialisation. Filed upstream by another user on
+  Intel Arc (#307, 2026-11-03); D3D12MA's maintainer fixed his part on his fork (#102: the SDK
+  version from `ID3D12DeviceConfiguration::GetDesc().SDKVersion`, the legacy call when it is 0), to
+  be merged later. A prototype of NRI's part (not committed; `ID3D12DeviceBest` =
+  `ID3D12Device16`, the SDK version taken the way D3D12MA does, one helper the 29 calls go through)
+  left 6 warnings per device, D3D12MA's; device, device-lost and Agility tests passed on NVIDIA and
+  WARP, and the whole suite on NVIDIA but for `AgilityFactoryRouteTests`, which expects `Using
+  ID3D12Device15` and then reads 16. The device-lost child, which fails on any warning during
+  creation (a DRED warning means no diagnostics), allows exactly these, matched by ID and text, and
+  fails when none remain, so the allowance goes when both fixes reach NRI (Tests and skips).
 - **Agility does not load in a managed process.** NRI's CMake writes `Include/NRIAgilitySDK.h`
   declaring `D3D12SDKVersion` / `D3D12SDKPath` exports for the host executable; `dotnet.exe`,
   `testhost.exe` and apphosts export nothing, so the inbox runtime runs. Symptom:
@@ -2076,7 +2099,10 @@ extensions.
   Vulkan driver's refused micromap-size query pools, and lavapipe's clipping-primitive counter
   (`TestDevice.IsLavapipeVK`, owner 2026-10-22). That last one is a known bug to remove: on lavapipe
   the pipeline-statistics test asserts the wrong value 0 instead of skipping, so the day Mesa counts
-  the primitives the test fails, naming the exception, and it goes.
+  the primitives the test fails, naming the exception, and it goes. The same pattern for the D3D12 device-lost
+  child's allowance of the `[989]` `CheckFeatureSupport` deprecation warnings (NRI #307, D3D12MA
+  #102; D3D12 and the Agility SDK): every other warning still fails it, and when no such warning
+  remains it fails, naming the allowance to remove.
 - **No skip turns a wrong result into a pass on a software adapter** (lavapipe, WARP), or on any
   adapter: a skip names a missing capability only. A wrong answer fails, with enough in the message
   (the hit map for ray queries) to diagnose it. The two macOS device-name skips are the recorded

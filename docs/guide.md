@@ -972,6 +972,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Raw `NriApi` device creation with null `AbortExecution` | `DebugBreak()` kills the process on any error | Wrappers |
 | `ConvertVKFormatToNRI` on BC1 RGB (131, 132) | `UNKNOWN` (NRI has BC1 RGBA only; other compressed formats map, NRI 5ed8bb6) | Flat exports |
 | Wrapped VK device without `VK_KHR_get_surface_capabilities2` | access violation in `CreateSwapChain` | SwapChain |
+| D3D12 debug layer warnings `[989]` at device creation | NRI v191 builds against Agility 1.620, which reports every legacy `CheckFeatureSupport` as deprecated: 33 warnings per device, answers unchanged (NRI #307, D3D12MA #102); harmless, filter ID 989 if your log treats warnings as failures | D3D12 |
 | Expecting `OUT_OF_DATE` on resize | none with present scaling (`features.resizableSwapChain`) | SwapChain |
 | DXGI conversions on Linux / macOS | 0 / `UNKNOWN` | Flat exports |
 | `Format.MAX_NUM` to a flat export | `ArgumentOutOfRangeException` | Flat exports |
