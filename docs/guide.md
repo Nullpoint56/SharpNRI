@@ -2,7 +2,7 @@
 
 Every entry is the real API; every caveat sits next to the API it concerns, with the measured fact.
 NRI's own header comments still apply; this covers what the binding adds and what NRI does that the
-headers do not say. NRI v190.
+headers do not say. NRI v191.
 
 - [Packages and install](#packages-and-install)
 - [Device creation](#device-creation)
@@ -256,7 +256,7 @@ queue.UploadData(
   `buffer.CreateView(BufferView.STORAGE_STRUCTURED_BUFFER, structureStride: 16)`,
   `device.CreateSampler(in samplerDesc)`.
 - **Sampler `mipBias`**: keep within `device.Desc.other.samplerLodBiasMax`. On MoltenVK it is 0
-  (patch 0006): MoltenVK reports `maxSamplerLodBias = 15.999` but forbids any bias
+  (NRI #303, v191): MoltenVK reports `maxSamplerLodBias = 15.999` but forbids any bias
   (`samplerMipLodBias = false`, VUID-VkSamplerCreateInfo-samplerMipLodBias-04467).
 - `device.CreatePipelineCache(bytes)`: a cache rebuilt from its own bytes reports the same size.
   Stale or foreign bytes throw `NriException` with `Result.OUT_OF_DATE` and create nothing (no
@@ -317,8 +317,8 @@ set.Update(rangeIndex: 1, descriptorIndex: 0, outputView);
 - `Nri.FitPipelineLayoutSettingsIntoDeviceLimits(device.Desc, wanted)` clamps counts and sizes in
   NRI's priority order.
 - `ShaderStages = StageBits.ALL` on a layout means every shader stage. `ALL` is 0 in NRI (the
-  barrier default); the D3D12 backend reads it as all shaders and patch 0016 makes NRI validation
-  agree. Upstream validation masked each range's stages with 0 and refused a range with explicit
+  barrier default); since NRI #302 (v191) every backend and NRI validation resolve `ALL` and
+  `ALL_SHADERS` to the layout's stages. Before, validation masked each range's stages with 0 and refused a range with explicit
   stages ("not compatible with 'shaderStages'"), and any graphics pipeline on an all-`ALL` layout
   ("not enabled in the pipeline layout").
 - **Root descriptor offsets mean different things per backend.** `SetRootDescriptor(index, view,
@@ -722,8 +722,8 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   `OutOfDate` (Vulkan only: the window changed under a swap chain that cannot follow it); recreate
   the swap chain. After `OutOfDate` from acquire nothing was acquired and the semaphore is not
   signalled; after `OutOfDate` from present the semaphore wait still happened. It is an enum so a
-  further outcome can be added later; switch with a default branch. Every other failure throws. With patch 0009
-  NRI reports no ERROR message for it (upstream v190 reports one on every resize).
+  further outcome can be added later; switch with a default branch. Every other failure throws. NRI reports no
+  ERROR message for it (NRI #304, v191; v190 reported one on every resize).
 - When it happens: NRI creates the swap chain with present scaling where the device has
   `swapchain_maintenance1` (`features.resizableSwapChain`), and then the driver keeps presenting
   through resizes. Measured on NVIDIA (RTX 4070 SUPER, Windows): an NRI-created device saw no
@@ -982,7 +982,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Queue priority between 0 and 0.5 on D3D12, or below 0 on Vulkan | D3D12 stays Normal (High only above 0.5); Vulkan treats low as normal | Device creation |
 | `NriSharedHandle` disposed twice, or never | the second `Dispose` does nothing (`Handle` 0 and `Type` `NONE` after the first); one never disposed stays open until the process exits (no finalizer); `Detach` gives it up unclosed for an import that takes ownership | SharedHandles |
 | Host-memory texture copy into a short span | `ArgumentException`: the binding refuses what NRI would write past | Memory |
-| `AllocateAndBindMemory` with a `preferredMemorySize` | packs alike in every order (patch 0035); before the patch NRI's alignment sort left out the last buffer and the last texture, so the count could be one or two for the same three textures | Memory |
+| `AllocateAndBindMemory` with a `preferredMemorySize` | packs alike in every order (NRI #305, v191); before, NRI's alignment sort left out the last buffer and the last texture, so the count could be one or two for the same three textures | Memory |
 | Vertex streams declared out of slot order on Vulkan | each attribute reads its stream's slot (NRI main 0593d91; patch 0025 on master); before the fix the stream index: nothing drawn, VUID-...-06209 | Recording |
 | An empty `NriVertexInputDesc` on Vulkan | draws as `VertexInput = null` (NRI main 8a8fc2b; patch 0026 on master); before the fix VUID-vkCmdDraw-pStrides-04913 on every draw | Recording |
 | `ClearAttachments` in a stencil-only pass on D3D12 | clears (NRI main 909a139; patch 0027 on master); before the fix an access violation in NRI | Recording |
@@ -990,7 +990,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | `SetDepthBias` on a pipeline without a static bias | the bias is not dynamic: VUID-vkCmdDraw-None-08608 / D3D12 1366 | Recording |
 | Draw-parameters emulation on Vulkan | indirect records misread; set the flag on D3D12 only | Recording |
 | No barrier between a compute write and an indirect read | NVIDIA reads zeros without a message; only synchronization validation reports it | Recording |
-| A `TEXTURE` / `STORAGE_TEXTURE` / `TEXTURE_CUBE` view of a layer other than the first | refused with `INVALID_ARGUMENT` (patch 0029: D3D12 cannot express it; before the patch D3D12 used the first layer, silently); use the `_ARRAY` view types | Descriptors |
+| A `TEXTURE` / `STORAGE_TEXTURE` / `TEXTURE_CUBE` view of a layer other than the first | addresses that layer on every backend (NRI #306, v191: D3D12 builds it as a one-layer array view); NRI v190 used the first layer on D3D12, silently | Descriptors |
 | A storage view over several mips in `ClearStorage` | Vulkan clears every mip, D3D12 only the first; one mip per storage view | Descriptors |
 | D3D12 attachment resolve into layer or mip > 0, or of a layered view | right with patch 0036 (NRI main's fix, backported to v190); without it a wrong subresource, `Close` failing, or the first layer only | Recording |
 | Occlusion query counts on Vulkan | NRI begins them without `PRECISE`: only non-zero is guaranteed | Queries |
