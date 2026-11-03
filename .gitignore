@@ -19,3 +19,6 @@ _NRI_SDK/
 
 # the consume smoke test's default folder feed (tools/consume/nuget.config)
 nupkg/
+
+# Private working notes (CLAUDE.md: The repository)
+CLAUDE.local.md

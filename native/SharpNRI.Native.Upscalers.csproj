@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SharpNRI.Native.Upscalers - NRI built with NIS, FSR and XeSS compiled in (CLAUDE.md: Native packages).
+
+    A packaging project: no code. Packs runtimes-upscalers/<rid>/native (staged by
+    pwsh tools/build-native.ps1 -Variant Upscalers) under runtimes/<rid>/native, where NuGet copies
+    it beside the consumer's executable.
+
+    It contains NRI.dll / libNRI.so, as the SharpNRI package does: a consumer takes exactly one of
+    the two native payloads. Reference this package and exclude SharpNRI's native assets
+    (<PackageReference Include="SharpNRI" ExcludeAssets="native" />) so the Base NRI.dll does not compete.
+
+    It does NOT contain the vendor runtimes (amd_fidelityfx_*.dll, libxess.dll, nvngx_*.dll). The
+    application ships those beside its executable, under the vendors' terms.
+  -->
+
+  <PropertyGroup>
+    <PackageId>SharpNRI.Native.Upscalers</PackageId>
+    <Version>1.0.0-beta.1</Version>
+    <Description>NRI native library for SharpNRI with the NIS, FSR and XeSS upscalers compiled in. Replaces the NRI library of the SharpNRI package (take one or the other). Vendor runtimes (FidelityFX, XeSS) are not included: the application ships them.</Description>
+    <PackageTags>nri;upscaler;fsr;xess;nis;native</PackageTags>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <SharpNRINativeStaging>$(MSBuildThisFileDirectory)..\runtimes-upscalers\</SharpNRINativeStaging>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(SharpNRINativeStaging)**\*"
+          Pack="true"
+          PackagePath="runtimes\%(RecursiveDir)%(Filename)%(Extension)"
+          Visible="false" />
+  </ItemGroup>
+
+  <Target Name="SharpNRIWarnIfNoStaging" BeforeTargets="GenerateNuspec" Condition="!Exists('$(SharpNRINativeStaging)')">
+    <Error Text="Nothing staged in $(SharpNRINativeStaging). Run: pwsh tools/build-native.ps1 -Variant Upscalers" />
+  </Target>
+
+</Project>

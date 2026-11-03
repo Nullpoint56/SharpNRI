@@ -11,10 +11,10 @@
 // children. The allocations of one AllocateAndBindMemory call share one count: NRI does not say
 // which resource went into which, so every resource of the call holds all of them.
 
-using PrismNRI.Native;
-using Buffer = PrismNRI.Native.Buffer;
+using SharpNRI.Native;
+using Buffer = SharpNRI.Native.Buffer;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>A device memory allocation that buffers and textures are bound into.</summary>
 /// <remarks>

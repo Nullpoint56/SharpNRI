@@ -6,15 +6,15 @@
     dotnet/Native holds everything tools/generate-native.ps1 writes. Exactly one of those files
     carries a DllImport: NriApi.cs, the flat nri* exports (device creation, interface acquisition,
     format helpers). Everything else is enums, structs and function-pointer tables: data, whatever
-    it describes. The data compiles into PrismNRI.Descs, which has no native dependency; NriApi.cs
-    compiles into PrismNRI, which references Descs. Named here so neither project can drift.
+    it describes. The data compiles into SharpNRI.Descs, which has no native dependency; NriApi.cs
+    compiles into SharpNRI, which references Descs. Named here so neither project can drift.
 
     Adding to the import side is only correct for a file that names the library.
   -->
 
   <ItemGroup>
-    <PrismNRIGeneratedImport Include="$(MSBuildThisFileDirectory)dotnet\Native\NriApi.cs" />
-    <PrismNRIGeneratedDesc Include="$(MSBuildThisFileDirectory)dotnet\Native\*.cs" Exclude="@(PrismNRIGeneratedImport)" />
+    <SharpNRIGeneratedImport Include="$(MSBuildThisFileDirectory)dotnet\Native\NriApi.cs" />
+    <SharpNRIGeneratedDesc Include="$(MSBuildThisFileDirectory)dotnet\Native\*.cs" Exclude="@(SharpNRIGeneratedImport)" />
   </ItemGroup>
 
 </Project>

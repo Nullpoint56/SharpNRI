@@ -142,11 +142,11 @@ jobs:
 
       - name: Build managed
         if: needs.gate.outputs.win == 'full'
-        run: dotnet build PrismNRI.slnx -c Release
+        run: dotnet build SharpNRI.slnx -c Release
 
       - name: Test
         if: needs.gate.outputs.win == 'full'
-        run: dotnet test --solution PrismNRI.slnx -c Release --no-build
+        run: dotnet test --solution SharpNRI.slnx -c Release --no-build
 
   linux-x64:
     needs: gate
@@ -248,7 +248,7 @@ jobs:
 
       - name: Build managed
         if: needs.gate.outputs.linux == 'full'
-        run: dotnet build PrismNRI.slnx -c Release
+        run: dotnet build SharpNRI.slnx -c Release
 
       # The "intermittent ray query miss" was NRI's 5 s fence-wait timeout: lavapipe JIT-compiles
       # its shaders while it executes the command buffer, which with a cold Mesa shader cache on a
@@ -265,8 +265,8 @@ jobs:
           VK_KHRONOS_VALIDATION_VALIDATE_SYNC: "1"
           VK_KHRONOS_VALIDATION_SYNCVAL_SHADER_ACCESSES_HEURISTIC: "1"
         run: |
-          t=tests/PrismNRI.Tests/bin/Release/net11.0/PrismNRI.Tests
-          $t -noColor -showLiveOutput -class PrismNRI.Tests.RayTracingTests -class PrismNRI.Tests.RayTracingPipelineTests
+          t=tests/SharpNRI.Tests/bin/Release/net11.0/SharpNRI.Tests
+          $t -noColor -showLiveOutput -class SharpNRI.Tests.RayTracingTests -class SharpNRI.Tests.RayTracingPipelineTests
 
       # A SIGSEGV in the test host (seen once, exit 139 after 106 tests, 0 failed) loses the buffered
       # test list, so the crashing test cannot be read from the log (CLAUDE.md: CI runners and
@@ -284,7 +284,7 @@ jobs:
           mkdir -p /tmp/dumps
           # Detailed output lists passed tests as they finish; the default lists only skips and
           # failures, which is why two crashes at "106 completed" could not be placed.
-          dotnet test --solution PrismNRI.slnx -c Release --no-build --output Detailed
+          dotnet test --solution SharpNRI.slnx -c Release --no-build --output Detailed
 
       - name: Crash stacks
         if: failure()
@@ -404,9 +404,9 @@ jobs:
 
       - name: Build managed
         if: needs.gate.outputs.osx == 'full'
-        run: dotnet build PrismNRI.slnx -c Release
+        run: dotnet build SharpNRI.slnx -c Release
 
       # Detailed: every skip and its reason in the log, which is what this leg is measured by.
       - name: Test
         if: needs.gate.outputs.osx == 'full'
-        run: dotnet test --solution PrismNRI.slnx -c Release --no-build --output Detailed
+        run: dotnet test --solution SharpNRI.slnx -c Release --no-build --output Detailed

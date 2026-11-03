@@ -1,5 +1,5 @@
 using System;
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 [NativeTypeName("uint32_t")]
 [Flags]

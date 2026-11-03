@@ -9,10 +9,10 @@
 // SWAPCHAIN_SEMAPHORE initial value (NriDevice.CreateFence(NriSwapChainExtension.SwapChainSemaphore));
 // D3D ignores them. The frame loop in the header comment is the reference for how they cycle.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>SwapChainDesc</c> with the window as <see cref="NriWindow"/> and the queue as a wrapper.</summary>
 public sealed class NriSwapChainDesc

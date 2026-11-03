@@ -1,9 +1,9 @@
 // L2 — a buffer.
 
-using PrismNRI.Native;
-using Buffer = PrismNRI.Native.Buffer;
+using SharpNRI.Native;
+using Buffer = SharpNRI.Native.Buffer;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>A buffer. Unbound until placed in memory unless created committed or placed.</summary>
 public sealed unsafe class NriBuffer : NriObject

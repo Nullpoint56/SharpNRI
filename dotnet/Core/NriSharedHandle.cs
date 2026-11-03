@@ -5,9 +5,9 @@
 // Exporting a buffer's or texture's memory and a fence to another API, device or process
 // (CLAUDE.md: Shared handles).
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>
 /// An exported handle, owned by the caller: <see cref="Dispose"/> hands it to NRI's

@@ -1,10 +1,10 @@
 // L2 — the device's Create* surface, one method per CoreInterface entry, plus the two Helper
 // entries that belong beside them.
 
-using PrismNRI.Native;
-using Buffer = PrismNRI.Native.Buffer;
+using SharpNRI.Native;
+using Buffer = SharpNRI.Native.Buffer;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 public sealed unsafe partial class NriDevice
 {

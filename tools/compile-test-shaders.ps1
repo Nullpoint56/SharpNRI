@@ -1,7 +1,7 @@
 #requires -Version 7
 <#
 .SYNOPSIS
-    Regenerates every test shader binary under tests/PrismNRI.Tests/Shaders from its .hlsl source.
+    Regenerates every test shader binary under tests/SharpNRI.Tests/Shaders from its .hlsl source.
 
 .DESCRIPTION
     Each .hlsl file is scanned for entry points by name; every entry found is compiled twice,
@@ -41,7 +41,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$shaderDir = Join-Path $root 'tests' 'PrismNRI.Tests' 'Shaders'
+$shaderDir = Join-Path $root 'tests' 'SharpNRI.Tests' 'Shaders'
 
 if (-not $Dxc) {
     $candidates = @()

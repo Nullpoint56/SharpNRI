@@ -12,11 +12,11 @@
 // structure type, which AccelerationStructureVKDesc does not carry. Device creation from a
 // VkDevice is NriDevice.CreateFromVulkan.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
-using Buffer = PrismNRI.Native.Buffer;
+using SharpNRI.Interop;
+using SharpNRI.Native;
+using Buffer = SharpNRI.Native.Buffer;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>NRI's <c>WrapperVKInterface</c>. Acquire through <see cref="NriDevice.WrapperVK"/>.</summary>
 public sealed unsafe class NriWrapperVKExtension

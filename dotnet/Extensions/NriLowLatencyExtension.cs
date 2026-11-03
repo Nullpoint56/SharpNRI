@@ -12,10 +12,10 @@
 //    frame.
 // Threadsafe per NRI.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>NRI's <c>LowLatencyInterface</c>. Acquire through <see cref="NriDevice.LowLatency"/>.</summary>
 public sealed unsafe class NriLowLatencyExtension

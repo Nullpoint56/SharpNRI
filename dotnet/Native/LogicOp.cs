@@ -1,4 +1,4 @@
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 [NativeTypeName("uint8_t")]
 public enum LogicOp : byte

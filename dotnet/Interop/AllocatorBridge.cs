@@ -10,9 +10,9 @@
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>
 /// A host allocator NRI can use for its own bookkeeping. Must be thread safe. Alignment is a

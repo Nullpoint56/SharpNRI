@@ -1,32 +1,33 @@
 # Third-party notices
 
-PrismNRI's own code is MIT. Its native payloads are built by `tools/build-native.ps1` from the NRI
-submodule at the tag pinned in `Directory.Build.props` (versions below are those pinned by NRI v190's
-`CMakeLists.txt`) and ship as three packages (`CLAUDE.md`: Native packages). Each package stages the
+SharpNRI's own code is MIT (`LICENSE.md`). Its native payloads are built by `tools/build-native.ps1` from the NRI
+submodule at the tag pinned in `Directory.Build.props` (versions below are those pinned by NRI v191's
+`CMakeLists.txt`) and ship as two packages (`CLAUDE.md`: Native packages). Each package stages the
 licence of every component inside it beside its binaries, in `licenses/<Component>/`, copied from the
-exact archive the build fetched. This file is staged with the two NRI packages as
+exact archive the build fetched. This file is staged with both packages as
 `licenses/THIRD-PARTY-NOTICES.md`; its licence texts section also keeps the texts of the vendor SDKs
-no package ships, for the application that ships their runtimes.
+and the Agility SDK runtime no package ships, for the application that ships their runtimes.
 
-**No PrismNRI package contains a vendor upscaler runtime** (`nvngx_*`, `amd_fidelityfx_*`,
-`libxess*`), and none contains DLSS/NGX code.
+**No SharpNRI package contains a vendor upscaler runtime** (`nvngx_*`, `amd_fidelityfx_*`,
+`libxess*`), none contains DLSS/NGX code, and none contains the DirectX Agility SDK runtime
+(`D3D12Core.dll`, `d3d12SDKLayers.dll`).
 
-## `PrismNRI` — Base (`runtimes/<rid>/native/`)
+## `SharpNRI` — Base (`runtimes/<rid>/native/`)
 
 NRI with no upscaler SDK compiled in. MIT throughout, plus Apache-2.0 alternatives in headers.
 
 | Component | Version | In the package as | Licence | Platforms |
 |---|---|---|---|---|
-| [NRI](https://github.com/NVIDIA-RTX/NRI) (NVIDIA Render Interface) | v190 + `patches/` | `NRI.dll` / `libNRI.so` / `libNRI.dylib` | MIT | all |
-| [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | commit 3aa9212 | compiled into NRI | MIT | all |
-| [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | v1.4.365 | compiled into NRI (headers only; no Vulkan runtime is shipped) | Apache-2.0 OR MIT | all |
+| [NRI](https://github.com/NVIDIA-RTX/NRI) (NVIDIA Render Interface) | v191 + `patches/` | `NRI.dll` / `libNRI.so` / `libNRI.dylib` | MIT | all |
+| [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | commit 0f1a757 | compiled into NRI | MIT | all |
+| [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | v1.4.367 | compiled into NRI (headers only; no Vulkan runtime is shipped) | Apache-2.0 OR MIT | all |
 | [NVTX](https://github.com/NVIDIA/NVTX) | v3.6.0 | compiled into NRI (header-only) | Apache-2.0 with LLVM exceptions | all |
-| [D3D12 Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator) | commit 1d86c11 | compiled into NRI | MIT | Windows |
-| [DirectX 12 Agility SDK](https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/1.619.6) headers | 1.619.6 | compiled into NRI (headers only; the runtime is the Agility package) | MIT (`LICENSE-CODE.txt`) | Windows |
+| [D3D12 Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator) | commit 1753823 | compiled into NRI | MIT | Windows |
+| [DirectX 12 Agility SDK](https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/1.620.1) headers | 1.620.1 | compiled into NRI (headers only; the runtime is not shipped) | MIT (`LICENSE-CODE.txt`) | Windows |
 | [NVAPI](https://github.com/NVIDIA/nvapi) | commit 70d337d | static lib linked into NRI (no DLL; the driver provides `nvapi64.dll`) | MIT | Windows |
 | [AMD AGS](https://github.com/GPUOpen-LibrariesAndSDKs/AGS_SDK) | v6.3.1 | `amd_ags_x64.dll` (loaded at run time) | MIT | win-x64 |
 
-## `PrismNRI.Native.Upscalers` — Upscalers (`runtimes-upscalers/<rid>/native/`)
+## `SharpNRI.Native.Upscalers` — Upscalers (`runtimes-upscalers/<rid>/native/`)
 
 Replaces Base (same file name, `NRI.dll` / `libNRI.so`; take one or the other). Everything in Base,
 plus:
@@ -35,30 +36,21 @@ plus:
 |---|---|---|---|---|
 | [NVIDIA Image Scaling (NIS)](https://github.com/NVIDIAGameWorks/NVIDIAImageScaling) | v1.0.3 | shader source inside NRI, compiled into NRI | MIT | all |
 | [ShaderMake](https://github.com/NVIDIA-RTX/ShaderMake) (`ShaderMakeBlob`) | commit 3f01623 | compiled into NRI (blob lookup for the embedded NIS shaders) | MIT | all |
-| [AMD FSR SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK) ("Redstone") API headers | v2.3.0 | compiled into NRI; NRI loads the runtime by name | MIT for the files its `license.md` lists (the API headers are listed) | win-x64 |
+| [AMD FSR SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK) ("Redstone") API headers | v2.4.0 | compiled into NRI (D3D12 and Vulkan); NRI loads the runtime by name | MIT for the files its `license.md` lists (the API headers are listed) | win-x64 |
 | [Intel XeSS SDK](https://github.com/intel/xess) headers and import library | v3.0.2 | compiled and linked into NRI; `libxess.dll` is delay-loaded | Intel Simplified Software License | win-x64 |
 
 Not in it: the runtimes those SDKs need. The application ships them beside its executable:
 
 | Upscaler | Runtime files | From | Licence the application takes on |
 |---|---|---|---|
-| FSR on D3D12 | `amd_fidelityfx_loader_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll` | AMD FSR SDK v2.3.0, `Kits/FidelityFX/signedbin` | MIT (both are in `license.md`'s MIT list) |
-| FSR on Vulkan | `amd_fidelityfx_vk.dll` | AMD FidelityFX SDK v1.1.4, `PrebuiltSignedDLL` | MIT |
+| FSR on D3D12 | `amd_fidelityfx_loader_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll` | AMD FSR SDK v2.4.0, `Kits/FidelityFX/signedbin` | MIT (both are in `license.md`'s MIT list) |
+| FSR on Vulkan | `amd_fidelityfx_loader_vk.dll`, `amd_fidelityfx_upscaler_vk.dll` | AMD FSR SDK v2.4.0, `Kits/FidelityFX/signedbin` | MIT (both are in `license.md`'s MIT list) |
 | XeSS (D3D12) | `libxess.dll` | Intel XeSS SDK v3.0.2, `bin` | Intel Simplified Software License (binary only) |
 | DLSS SR / RR | `nvngx_dlss.dll`, `nvngx_dlssd.dll` | NVIDIA DLSS SDK, only with a `-WithDlss` build of NRI (below) | NVIDIA RTX SDKs License |
 
 `NriUpscalerExtension.IsRuntimeInstalled` reports whether they are beside the application, and
 `CreateUpscaler` refuses with `NriUnsupportedException` naming the missing file rather than calling
 into NRI without it (`CLAUDE.md`: Upscalers and vendor runtimes).
-
-## `PrismNRI.Native.Agility` (`runtimes-agility/<rid>/native/AgilitySDK/`)
-
-| Component | Version | In the package as | Licence | Platforms |
-|---|---|---|---|---|
-| [DirectX 12 Agility SDK](https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/1.619.6) runtime | 1.619.6 | `AgilitySDK/D3D12Core.dll`, `AgilitySDK/d3d12SDKLayers.dll`, `AgilitySDK/LICENSE.txt` | **Microsoft Software License Terms (proprietary)** | win-x64 |
-
-Optional, and works with either NRI package: patch 0001 makes NRI load it from the `AgilitySDK`
-directory beside the application at device creation; without it D3D12 runs on the inbox runtime.
 
 ## DLSS: a build, not a package
 
@@ -79,13 +71,18 @@ does not download the DLSS repository at all.
 - **NIS** is NVIDIA's spatial upscaler/sharpener; **ShaderMake** compiles NRI's internal shaders at
   build time and only its small blob-reader library ends up in NRI.
 - **FSR / XeSS / DLSS** are the vendor temporal upscalers behind NRI's upscaler extension.
-- **Agility SDK** is the redistributable D3D12 runtime that unlocks newer D3D12 features (enhanced
-  barriers etc.) on older Windows builds.
+- **Agility SDK runtime** is Microsoft's redistributable D3D12 runtime that unlocks newer D3D12
+  features (enhanced barriers etc.) on older Windows builds. No SharpNRI package ships it. An
+  application that wants it takes Microsoft's `Microsoft.Direct3D.D3D12` package; patch 0001 makes
+  NRI load it from a directory beside the application at device creation. Without it D3D12 runs on
+  the inbox runtime.
 
-Never shipped (build-time only): DXC (`dxc.exe`, used by ShaderMake), the ShaderMake executable, the
-Agility SDK's `D3D12StateObjectCompiler.*` (not in its `distributable files.txt`) and
-`d3dconfig.exe`, XeSS frame generation / low latency DLLs (`libxess_fg.dll`, `libxell.dll`,
-`libxess_dx11.dll`), DLSS frame generation (`nvngx_dlssg`), and the other FidelityFX effect DLLs.
+Never shipped (build-time only): DXC (`dxc.exe`, used by ShaderMake), the ShaderMake executable,
+XeSS frame generation / low latency DLLs (`libxess_fg.dll`, `libxell.dll`, `libxess_dx11.dll`), DLSS
+frame generation (`nvngx_dlssg`), and the other FidelityFX effect DLLs. Also never shipped: the
+Agility SDK's binaries, which NRI's build copies into `AgilitySDK/` beside `NRI.dll`
+(`D3D12Core.dll`, `d3d12SDKLayers.dll`, `d3dconfig.exe`, and `D3D12StateObjectCompiler.*`, which is
+not in its `distributable files.txt`).
 
 Not shipped but required on the target machine: the Microsoft Visual C++ 2015-2022 runtime
 (`NRI.dll` imports `MSVCP140.dll` / `VCRUNTIME140.dll`), a GPU driver, on Linux the Vulkan loader
@@ -106,20 +103,13 @@ flags for the maintainer and for applications, not legal advice.
 3. **Intel XeSS** (`licenses/Intel-XeSS/LICENSE.txt`), Upscalers only: the headers and import
    library are compiled into `NRI.dll`; the notice and terms must be reproduced "in the Software and
    in the documentation". Met by this file and the staged licence.
-4. **DirectX Agility SDK runtime** (`AgilitySDK/LICENSE.txt`), Agility package only. Only
-   `D3D12Core.dll`, `d3d12SDKLayers.dll` and `d3dconfig.exe` are distributable, and only the first two
-   are shipped. Distribution requires that we "add significant primary functionality", "require
-   distributors and external end users to agree to terms that protect it and Microsoft at least as
-   much as this agreement", and "indemnify, defend, and hold harmless Microsoft". Use is "solely for
-   use on Windows". **The second is not met**: the package imposes no terms on its users. This is one
-   reason the runtime is a separate, optional package rather than part of `PrismNRI`.
 
 ### The application's
 
-An application that ships vendor runtimes beside PrismNRI takes on their terms itself; PrismNRI
-neither ships them nor passes their terms on.
+An application that ships vendor runtimes or the Agility SDK runtime beside SharpNRI takes on their
+terms itself; SharpNRI neither ships them nor passes their terms on.
 
-1. **AMD FSR / FidelityFX runtimes**: MIT for the listed DLLs; carry the notice.
+1. **AMD FSR runtimes**: MIT for the listed DLLs; carry the notice.
 2. **Intel XeSS** `libxess.dll`: binary only, unmodified, notice and terms reproduced in the software
    and its documentation.
 3. **NVIDIA DLSS / NGX** (`-WithDlss` builds; "NVIDIA RTX SDKs LICENSE", v. March 14, 2024).
@@ -131,11 +121,19 @@ neither ships them nor passes their terms on.
    https://developer.nvidia.com/sw-notification); **NVIDIA marks on splash screen, about box and
    credits** with NVIDIA's approval (Supplement §7.1(b), §7.2(c)). Because NGX is statically linked,
    these attach to the `-WithDlss` `NRI.dll` itself, not only to the `nvngx_*` DLLs.
+4. **DirectX Agility SDK runtime**, from Microsoft's `Microsoft.Direct3D.D3D12` package, under its
+   Microsoft Software License Terms (`LICENSE.txt` in the package). Only `D3D12Core.dll`,
+   `d3d12SDKLayers.dll` and `d3dconfig.exe` are distributable (`distributable files.txt`).
+   Distribution requires that the application "add significant primary functionality", "require
+   distributors and external end users to agree to terms that protect it and Microsoft at least as
+   much as this agreement", and "indemnify, defend, and hold harmless Microsoft". Use is "solely for
+   use on Windows". A library package cannot bind its users to terms, which is why SharpNRI does not
+   ship the runtime.
 
 ## Licence texts
 
 Verbatim, from the archives fetched by the build. The one abridgement is the AMD FSR SDK licence, whose
-893 lines are mostly a per-file list; its operative texts are reproduced and the complete file is
+969 lines are mostly a per-file list; its operative texts are reproduced and the complete file is
 staged as `licenses/AMD-FSR-SDK/license.md`.
 
 ### NRI
@@ -863,107 +861,58 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### AMD FidelityFX SDK v1.1.4
-
-`licenses/AMD-FidelityFX-SDK/LICENSE.txt`
-
-```text
-This file is part of the FidelityFX SDK.
-
-Copyright (C) 2024 Advanced Micro Devices, Inc.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files(the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and /or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions :
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-```
-
-### AMD FSR SDK v2.3.0
+### AMD FSR SDK v2.4.0
 
 `licenses/AMD-FSR-SDK/license.md`
 
 ```text
-The following license applies to all files except as noted below. 
+The following license applies to all files except as noted below.
 
 Copyright (C) Advanced Micro Devices, Inc.
- 
-REDISTRIBUTION: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to install, reproduce, copy and distribute copies of the Software, in binary form only, and to permit persons to whom the Software is provided to do the same, provided that the following conditions are met: 
- 
-No reverse engineering, decompilation, or disassembly of this Software is permitted. 
- 
-Redistributions must reproduce the above copyright notice, this permission notice, and the following disclaimers and notices in the Software documentation and/or other materials provided with the Software. 
- 
-DISCLAIMER: THE USE OF THE SOFTWARE IS AT YOUR SOLE RISK.  THE SOFTWARE 
-IS PROVIDED "AS IS" AND WITHOUT WARRANTY OF ANY KIND AND COPYRIGHT 
-HOLDER AND ITS LICENSORS EXPRESSLY DISCLAIM ALL WARRANTIES, EXPRESS AND 
-IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
-MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. 
-COPYRIGHT HOLDER AND ITS LICENSORS DO NOT WARRANT THAT THE SOFTWARE WILL 
-MEET YOUR REQUIREMENTS, OR THAT THE OPERATION OF THE SOFTWARE WILL BE 
-UNINTERRUPTED OR ERROR-FREE.  THE ENTIRE RISK ASSOCIATED WITH THE USE OF 
-THE SOFTWARE IS ASSUMED BY YOU.  FURTHERMORE, COPYRIGHT HOLDER AND ITS 
-LICENSORS DO NOT WARRANT OR MAKE ANY REPRESENTATIONS REGARDING THE USE 
-OR THE RESULTS OF THE USE OF THE SOFTWARE IN TERMS OF ITS CORRECTNESS, 
-ACCURACY, RELIABILITY, CURRENTNESS, OR OTHERWISE. 
- 
-DISCLAIMER: UNDER NO CIRCUMSTANCES INCLUDING NEGLIGENCE, SHALL COPYRIGHT HOLDER AND ITS LICENSORS OR ITS DIRECTORS, OFFICERS, EMPLOYEES OR AGENTS ("AUTHORIZED REPRESENTATIVES") BE LIABLE FOR ANY INCIDENTAL, INDIRECT, 
-SPECIAL OR CONSEQUENTIAL DAMAGES (INCLUDING DAMAGES FOR LOSS OF BUSINESS 
-PROFITS, BUSINESS INTERRUPTION, LOSS OF BUSINESS INFORMATION, AND THE 
-LIKE) ARISING OUT OF THE USE, MISUSE OR INABILITY TO USE THE SOFTWARE, 
-BREACH OR DEFAULT, INCLUDING THOSE ARISING FROM INFRINGEMENT OR ALLEGED 
-INFRINGEMENT OF ANY PATENT, TRADEMARK, COPYRIGHT OR OTHER INTELLECTUAL 
-PROPERTY RIGHT EVEN IF COPYRIGHT HOLDER AND ITS AUTHORIZED 
-REPRESENTATIVES HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.  IN 
-NO EVENT SHALL COPYRIGHT HOLDER OR ITS AUTHORIZED REPRESENTATIVES TOTAL 
-LIABILITY FOR ALL DAMAGES, LOSSES, AND CAUSES OF ACTION (WHETHER IN 
-CONTRACT, TORT (INCLUDING NEGLIGENCE) OR OTHERWISE) EXCEED THE AMOUNT OF 
-US$10.  
 
+REDISTRIBUTION: Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to install, reproduce, copy and distribute copies of the Software, in binary form only, and to permit persons to whom the Software is provided to do the same, provided that the following conditions are met:
 
-These source files 
+No reverse engineering, decompilation, or disassembly of this Software is permitted.
+
+Redistributions must reproduce the above copyright notice, this permission notice, and the following disclaimers and notices in the Software documentation and/or other materials provided with the Software.
+
+DISCLAIMER: THE USE OF THE SOFTWARE IS AT YOUR SOLE RISK.  THE SOFTWARE IS PROVIDED “AS IS” AND WITHOUT WARRANTY OF ANY KIND AND COPYRIGHT HOLDER AND ITS LICENSORS EXPRESSLY DISCLAIM ALL WARRANTIES, EXPRESS AND IMPLIED, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. COPYRIGHT HOLDER AND ITS LICENSORS DO NOT WARRANT THAT THE SOFTWARE WILL MEET YOUR REQUIREMENTS, OR THAT THE OPERATION OF THE SOFTWARE WILL BE UNINTERRUPTED OR ERROR-FREE.  THE ENTIRE RISK ASSOCIATED WITH THE USE OF THE SOFTWARE IS ASSUMED BY YOU.  FURTHERMORE, COPYRIGHT HOLDER AND ITS LICENSORS DO NOT WARRANT OR MAKE ANY REPRESENTATIONS REGARDING THE USE OR THE RESULTS OF THE USE OF THE SOFTWARE IN TERMS OF ITS CORRECTNESS, ACCURACY, RELIABILITY, CURRENTNESS, OR OTHERWISE.
+
+DISCLAIMER: UNDER NO CIRCUMSTANCES INCLUDING NEGLIGENCE, SHALL COPYRIGHT HOLDER AND ITS LICENSORS OR ITS DIRECTORS, OFFICERS, EMPLOYEES OR AGENTS (“AUTHORIZED REPRESENTATIVES”) BE LIABLE FOR ANY INCIDENTAL, INDIRECT, SPECIAL OR CONSEQUENTIAL DAMAGES (INCLUDING DAMAGES FOR LOSS OF BUSINESS PROFITS, BUSINESS INTERRUPTION, LOSS OF BUSINESS INFORMATION, AND THE LIKE) ARISING OUT OF THE USE, MISUSE OR INABILITY TO USE THE SOFTWARE, BREACH OR DEFAULT, INCLUDING THOSE ARISING FROM INFRINGEMENT OR ALLEGED INFRINGEMENT OF ANY PATENT, TRADEMARK, COPYRIGHT OR OTHER INTELLECTUAL PROPERTY RIGHT EVEN IF COPYRIGHT HOLDER AND ITS AUTHORIZED REPRESENTATIVES HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.  IN NO EVENT SHALL COPYRIGHT HOLDER OR ITS AUTHORIZED REPRESENTATIVES TOTAL LIABILITY FOR ALL DAMAGES, LOSSES, AND CAUSES OF ACTION (WHETHER IN CONTRACT, TORT (INCLUDING NEGLIGENCE) OR OTHERWISE) EXCEED THE AMOUNT OF US$10.
+
+These source files
 
 [... file paths abridged, see licenses/AMD-FSR-SDK/license.md. They include:]
 - `Kits\FidelityFX\signedbin\amd_fidelityfx_loader_dx12.dll`
 - `Kits\FidelityFX\signedbin\amd_fidelityfx_upscaler_dx12.dll`
+- `Kits\FidelityFX\signedbin\amd_fidelityfx_loader_vk.dll`
+- `Kits\FidelityFX\signedbin\amd_fidelityfx_upscaler_vk.dll`
 
-are subject to the following license:   
- 
+are subject to the following license:
 
 Copyright (C) Advanced Micro Devices, Inc.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions: 
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software. 
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. 
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### AMD FSR SDK v2.3.0: third-party notice
+### AMD FSR SDK v2.4.0: third-party notice
 
 `licenses/AMD-FSR-SDK/3rdpartynotice.md`
 
 ```text
-<h1>Third Party Licensing for AMD FSR™ SDK 2.3.0 - "Redstone"</h1>
+<h1>Third Party Licensing for AMD FSR™ SDK 2.4.0 - "Redstone"</h1>
 
 <h2>The FSR™ SDK includes the use of the following third party components:</h2>
 
 | Nam of 3rd Party Component | Version (if applicable) | License | Comments |
 | --- | --- | --- | --- |
 | vcpkg | 2026.05.25 | https://github.com/Microsoft/vcpkg/blob/master/LICENSE.txt | Used to pull in a number of components to build samples |
-| DX12 Agility SDK | 1.616.1 | https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/1.616.1/License | Pulled in via vcpkg |
+| DirectX® 12 Agility SDK | 1.616.1 | https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/1.616.1/License | Pulled in via vcpkg |
+| Vulkan® | 1.2 | https://vulkan.lunarg.com/ | Pulled in via vcpkg |
 | dxheaders | 1.616.0 | https://github.com/microsoft/DirectX-Headers/blob/main/LICENSE | Pulled in via vcpkg |
 | dxc shader compiler | 1.8.2505(.28) | https://github.com/microsoft/DirectXShaderCompiler/blob/main/LICENSE.TXT | Pulled in via vcpkg |
 | imgui | 1.87 | https://www.dearimgui.com/licenses/ (MIT) | - |
@@ -1614,7 +1563,8 @@ SOFTWARE.
 
 ### DirectX Agility SDK: Microsoft Software License Terms
 
-`licenses/DirectX-AgilitySDK/LICENSE.txt`
+`LICENSE.txt` in Microsoft's `Microsoft.Direct3D.D3D12` 1.620.1 package (the runtime; not shipped by
+SharpNRI, kept here for applications that ship it)
 
 ```text
 MICROSOFT SOFTWARE LICENSE TERMS
@@ -1656,11 +1606,11 @@ Third Party Distribution. You may permit distributors of your applications to co
 
 Distribution Requirements. For any code you distribute, you must:
 
-add significant primary functionality to it in your applications; 
+i. add significant primary functionality to it in your applications; 
 
-i.  require distributors and external end users to agree to terms that protect it and Microsoft at least as much as this agreement; and
+ii.  require distributors and external end users to agree to terms that protect it and Microsoft at least as much as this agreement; and
 
-ii. indemnify, defend, and hold harmless Microsoft from any claims, including attorneys’ fees, related to the distribution or use of your applications, except to the extent that any claim is based solely on the unmodified distributable code.
+iii. indemnify, defend, and hold harmless Microsoft from any claims, including attorneys’ fees, related to the distribution or use of your applications, except to the extent that any claim is based solely on the unmodified distributable code.
 
 Distribution Restrictions. You may not:
 

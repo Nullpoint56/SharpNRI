@@ -3,9 +3,9 @@
 // Created from a queue, which fixes the queue type of every command buffer it backs. Reset
 // recycles the memory of all of them at once; none may be pending on the GPU.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>Backing memory for command buffers of one queue type.</summary>
 public sealed unsafe class NriCommandAllocator : NriObject

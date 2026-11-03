@@ -1,4 +1,4 @@
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 public partial struct QueryPoolDesc
 {

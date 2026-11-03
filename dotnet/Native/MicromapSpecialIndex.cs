@@ -1,4 +1,4 @@
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 [NativeTypeName("int8_t")]
 public enum MicromapSpecialIndex : sbyte

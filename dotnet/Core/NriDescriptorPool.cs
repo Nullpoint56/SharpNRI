@@ -7,9 +7,9 @@
 // on the managed heap: AllocateDescriptorSets(..., Span<NriDescriptorSet>) and
 // AllocateDescriptorSet write into caller-owned or stack storage.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>A pool descriptor sets are allocated from.</summary>
 public sealed unsafe class NriDescriptorPool : NriObject

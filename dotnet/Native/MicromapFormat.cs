@@ -1,4 +1,4 @@
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 [NativeTypeName("uint16_t")]
 public enum MicromapFormat : ushort

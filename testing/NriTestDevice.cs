@@ -4,21 +4,21 @@
 // (Vulkan validation layers, D3D12 debug layer), with every message recorded. A test asserts on the
 // record: the validation layers are the party that decides whether what the code did was legal.
 //
-// Adapter choice: the software adapter (WARP, lavapipe) when PRISMNRI_TEST_SOFTWARE is set or
+// Adapter choice: the software adapter (WARP, lavapipe) when SHARPNRI_TEST_SOFTWARE is set or
 // under GitHub Actions, otherwise the first adapter NRI lists. The NONE backend needs no adapter
 // and is always available; it validates nothing and allocates nothing (NRI never wraps it in its
 // validation layer), which makes it the right device for lifetime and allocation-counting tests
 // and the wrong one for anything that asks a question.
 //
 // Environment:
-//   PRISMNRI_TEST_SOFTWARE=1   prefer the software adapter
-//   PRISMNRI_TEST_BACKEND=VK   only this backend is available; the others report a reason
-//   PRISMNRI_TRACE=1           echo every message to stderr as it arrives, which is the only
+//   SHARPNRI_TEST_SOFTWARE=1   prefer the software adapter
+//   SHARPNRI_TEST_BACKEND=VK   only this backend is available; the others report a reason
+//   SHARPNRI_TRACE=1           echo every message to stderr as it arrives, which is the only
 //                              record that survives a native crash
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI.Testing;
+namespace SharpNRI.Testing;
 
 /// <summary>Options a test may adjust before the device is created. Defaults are the validated ones.</summary>
 public sealed class NriTestDeviceOptions
@@ -77,12 +77,12 @@ public sealed class NriTestDevice : IDisposable
     // ---------------------------------------------------------------- environment
 
     public static bool PreferSoftware =>
-        Environment.GetEnvironmentVariable("PRISMNRI_TEST_SOFTWARE") is "1" or "true"
+        Environment.GetEnvironmentVariable("SHARPNRI_TEST_SOFTWARE") is "1" or "true"
         || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is "true";
 
-    public static bool Trace => Environment.GetEnvironmentVariable("PRISMNRI_TRACE") is "1" or "true";
+    public static bool Trace => Environment.GetEnvironmentVariable("SHARPNRI_TRACE") is "1" or "true";
 
-    public static string? OnlyBackend => Environment.GetEnvironmentVariable("PRISMNRI_TEST_BACKEND");
+    public static string? OnlyBackend => Environment.GetEnvironmentVariable("SHARPNRI_TEST_BACKEND");
 
     /// <summary>The three backends a test can run on, in the order they are usually listed.</summary>
     public static IReadOnlyList<GraphicsAPI> Backends { get; } = [GraphicsAPI.NONE, GraphicsAPI.VK, GraphicsAPI.D3D12];
@@ -104,7 +104,7 @@ public sealed class NriTestDevice : IDisposable
     public static string? Unavailable(GraphicsAPI api)
     {
         if (OnlyBackend is { } only && !string.Equals(only, api.ToString(), StringComparison.OrdinalIgnoreCase))
-            return $"PRISMNRI_TEST_BACKEND={only} excludes {api}";
+            return $"SHARPNRI_TEST_BACKEND={only} excludes {api}";
         return Availability.Value.TryGetValue(api, out var reason) ? reason : $"{api} is not a backend this fixture knows";
     }
 

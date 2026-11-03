@@ -20,11 +20,11 @@
 // allocate, and invalidated when the streamer is disposed.
 
 using System.Buffers;
-using PrismNRI.Interop;
-using PrismNRI.Native;
-using Buffer = PrismNRI.Native.Buffer;
+using SharpNRI.Interop;
+using SharpNRI.Native;
+using Buffer = SharpNRI.Native.Buffer;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>BufferOffset</c>: a buffer and an offset into it.</summary>
 /// <param name="Buffer">Null when NRI could not place the data (it reports why through the message callback).</param>

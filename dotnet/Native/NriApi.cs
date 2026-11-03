@@ -1,9 +1,9 @@
 using System.Runtime.InteropServices;
-using static PrismNRI.Native.Format;
-using static PrismNRI.Native.FormatSupportBits;
-using static PrismNRI.Native.GraphicsAPI;
+using static SharpNRI.Native.Format;
+using static SharpNRI.Native.FormatSupportBits;
+using static SharpNRI.Native.GraphicsAPI;
 
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 public static unsafe partial class NriApi
 {

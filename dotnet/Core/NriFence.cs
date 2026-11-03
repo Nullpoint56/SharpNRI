@@ -3,9 +3,9 @@
 // NRI's Fence is a timeline semaphore on Vulkan and an ID3D12Fence on D3D12: a monotonically
 // increasing 64-bit value, waited on and signalled by value from both host and queues.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>A timeline fence. Signal and wait by value; the value never goes backwards.</summary>
 public sealed unsafe class NriFence : NriObject

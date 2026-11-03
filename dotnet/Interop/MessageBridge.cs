@@ -18,9 +18,9 @@
 
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>One message from NRI: its own validation, a backend validation layer, or a failed call.</summary>
 /// <param name="Type">Info, warning or error, as NRI classified it.</param>

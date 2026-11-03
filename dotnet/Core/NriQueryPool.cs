@@ -1,8 +1,8 @@
 // L2 — a query pool.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>A pool of queries of one type. Results are copied to a buffer with <c>CopyQueries</c>.</summary>
 public sealed unsafe class NriQueryPool : NriObject

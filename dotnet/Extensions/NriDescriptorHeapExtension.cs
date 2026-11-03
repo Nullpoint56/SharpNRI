@@ -8,10 +8,10 @@
 // Threadsafe per NRI, except that writes to overlapping descriptor indices need external
 // synchronization. CmdSetDescriptorHeap follows the command buffer's rule: one recording thread.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>WriteResourceDescriptorsDesc</c> naming the wrapper.</summary>
 /// <param name="Resource">Any descriptor except <c>MUTABLE</c>, <c>INPUT_ATTACHMENT</c> and <c>SAMPLER</c>.</param>

@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    The bound-surface half of tools/coverage.ps1: which of NRI's functions PrismNRI's own code
-    calls and which native struct fields its API reaches. Reads the built PrismNRI.Descs.dll (the
-    interface tables and structs), PrismNRI.dll and its PDB (the calls and where they are). Not in
-    PrismNRI.slnx; built and run by the script.
+    The bound-surface half of tools/coverage.ps1: which of NRI's functions SharpNRI's own code
+    calls and which native struct fields its API reaches. Reads the built SharpNRI.Descs.dll (the
+    interface tables and structs), SharpNRI.dll and its PDB (the calls and where they are). Not in
+    SharpNRI.slnx; built and run by the script.
   -->
 
   <PropertyGroup>

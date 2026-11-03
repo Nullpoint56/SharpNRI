@@ -1,19 +1,20 @@
-# PrismNRI
+# SharpNRI
 
 [![NRI surface bound](docs/badges/bound-surface.svg)](docs/coverage.md#bound-surface)
 [![test coverage](docs/badges/test-coverage.svg)](docs/coverage.md#test-coverage)
 
 C# bindings over [NRI](https://github.com/NVIDIA-RTX/NRI), the NVIDIA Render Interface: Vulkan and
 D3D12 through one low-level API. NRI is a thin, explicit abstraction with no hidden management and
-no automatic barriers; PrismNRI exposes it as it is: NRI's objects as disposable handles, NRI's descs
+no automatic barriers; SharpNRI exposes it as it is: NRI's objects as disposable handles, NRI's descs
 as structs with NRI's field names, NRI's threading contract documented rather than papered over.
+An independent project, not affiliated with NVIDIA.
 Pure managed P/Invoke over a native library built from a pinned NRI release plus a small patch set,
 both in this repository.
 
 ## Status
 
-`0.4.0-alpha`, against NRI `v191` plus eleven patches ([patches/](patches/README.md)), on .NET 11. Releases come
-from master; the `next` branch follows NRI main between tags.
+`1.0.0-beta.1`, against NRI `v191` plus eleven patches ([patches/](patches/README.md)), on .NET 11. Beta:
+the API may still change between releases. Releases come from master; the `next` branch follows NRI main between tags.
 Windows x64, Linux x64, macOS arm64. On macOS the binding is Vulkan through MoltenVK; NRI's Metal
 backend is not built, only the Base package exists, the application provides the Vulkan loader and
 MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
@@ -33,32 +34,34 @@ code.
 
 | Package | Contents | Take it when |
 |---|---|---|
-| `PrismNRI` | the binding, plus `NRI.dll` / `libNRI.so` / `libNRI.dylib` with **no upscaler SDK**, AMD AGS (Windows), licences. MIT throughout, about 2 MB | always |
-| `PrismNRI.Descs` | every enum, desc struct and table layout, plus the managed desc forms; no native code | building layouts and descs without a device, in code that must not load the native library; `PrismNRI` references it, and so can any package of your own |
-| `PrismNRI.Testing` | a validated headless device per backend for tests; no test framework dependency | your own GPU tests |
-| `PrismNRI.Native.Upscalers` | `NRI.dll` / `libNRI.so` with NIS, FSR and XeSS compiled in, AMD AGS, licences | you want NRI's upscaler extension |
-| `PrismNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll`, Microsoft's licence | D3D12 on the Agility SDK instead of the inbox runtime (Windows) |
+| `SharpNRI` | the binding, plus `NRI.dll` / `libNRI.so` / `libNRI.dylib` with **no upscaler SDK**, AMD AGS (Windows), licences. MIT throughout, about 2 MB | always |
+| `SharpNRI.Descs` | every enum, desc struct and table layout, plus the managed desc forms; no native code | building layouts and descs without a device, in code that must not load the native library; `SharpNRI` references it, and so can any package of your own |
+| `SharpNRI.Testing` | a validated headless device per backend for tests; no test framework dependency | your own GPU tests |
+| `SharpNRI.Native.Upscalers` | `NRI.dll` / `libNRI.so` with NIS, FSR and XeSS compiled in, AMD AGS, licences | you want NRI's upscaler extension |
 
 The two NRI payloads are both a file named `NRI.dll`: take exactly one.
 
+D3D12 on the DirectX 12 Agility SDK: take Microsoft's `Microsoft.Direct3D.D3D12` package and copy its
+two runtime DLLs into `AgilitySDK/` beside your application, where SharpNRI looks by default
+([the guide](docs/guide.md#agility-sdk) has the snippet). No SharpNRI package carries Microsoft's runtime.
+
 ```xml
 <!-- default -->
-<PackageReference Include="PrismNRI" Version="0.4.0-alpha" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.1" />
 
-<!-- with upscalers and Agility -->
-<PackageReference Include="PrismNRI" Version="0.4.0-alpha" ExcludeAssets="native" />
-<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.4.0-alpha" />
-<PackageReference Include="PrismNRI.Native.Agility" Version="0.4.0-alpha" />
+<!-- with upscalers -->
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.1" ExcludeAssets="native" />
+<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.1" />
 ```
 
-The packages are [release](https://github.com/Nullpoint56/PrismNRI/releases) assets, not on
+The packages are [release](https://github.com/Nullpoint56/SharpNRI/releases) assets, not on
 NuGet.org. From a local feed: put the `.nupkg` files in a folder and add it beside your project:
 
 ```xml
 <!-- nuget.config -->
 <configuration>
   <packageSources>
-    <add key="prismnri" value="path/to/nupkg" />
+    <add key="sharpnri" value="path/to/nupkg" />
   </packageSources>
 </configuration>
 ```
@@ -72,8 +75,8 @@ application ships them beside its executable. DLSS is a build switch, not a pack
 NVIDIA's licence into `runtimes-upscalers-dlss/`. See [the guide](docs/guide.md#packages-and-install).
 
 ```csharp
-using PrismNRI;
-using PrismNRI.Native;
+using SharpNRI;
+using SharpNRI.Native;
 
 using var device = NriDevice.Create(new NriDeviceOptions
 {
@@ -96,7 +99,7 @@ var queue = device.GetQueue(QueueType.GRAPHICS);
 - The twelve flat exports (`nriConvert*Format*`, `nriGetFormatProps`, `nriGetGraphicsAPIString`,
   `nriFitPipelineLayoutSettingsIntoDeviceLimits`, `nriReportLiveObjects`, the three annotation
   calls, `nriSetThreadName`) as static helpers on `Nri`.
-- Every object exposes NRI's own pointer as `NriHandle`, for `PrismNRI.Native.NriApi` and the raw
+- Every object exposes NRI's own pointer as `NriHandle`, for `SharpNRI.Native.NriApi` and the raw
   tables.
 - Not bound: the D3D11, Metal and WebGPU backends and their wrapper headers. D3D11 is a
   compatibility backend with much of NRI's explicit model emulated, DXBC shaders, no ray tracing,
@@ -109,8 +112,8 @@ var queue = device.GetQueue(QueueType.GRAPHICS);
 git submodule update --init
 pwsh tools/build-native.ps1                      # NRI + patches -> runtimes/<rid>/native (Base), runtimes-agility/ on Windows
 pwsh tools/build-native.ps1 -Variant Upscalers   # optional -> runtimes-upscalers/<rid>/native
-dotnet build PrismNRI.slnx -c Release
-dotnet test --solution PrismNRI.slnx -c Release --no-build
+dotnet build SharpNRI.slnx -c Release
+dotnet test --solution SharpNRI.slnx -c Release --no-build
 ```
 
 | OS | Needs |
@@ -133,8 +136,9 @@ from the pinned, patched headers (needs `ClangSharpPInvokeGenerator` 21.1.8.4).
 
 ## Licence
 
-MIT. The native payload carries its components' own licences, listed in `THIRD-PARTY-NOTICES.md`.
-NRI (MIT) is built with VMA and D3D12MA (MIT), NVAPI and AMD AGS (MIT); the Upscalers package adds
-NIS (MIT), FSR (MIT) and XeSS (Intel licence) SDK code; the Agility package is Microsoft's runtime
-under Microsoft's licence. Not shipped: ClangSharp, dxc, xunit, and Microsoft's code coverage
-extension (`tools/coverage.ps1` only; Microsoft .NET Library licence).
+MIT ([LICENSE.md](LICENSE.md)). The native payload carries its components' own licences, listed in
+`THIRD-PARTY-NOTICES.md`. NRI (MIT) is built with VMA and D3D12MA (MIT), NVAPI and AMD AGS (MIT); the
+Upscalers package adds NIS (MIT), FSR (MIT) and XeSS (Intel licence) SDK code. The Agility SDK runtime
+is not shipped: applications take Microsoft's package under Microsoft's licence. Not shipped either:
+ClangSharp, dxc, xunit, and Microsoft's code coverage extension (`tools/coverage.ps1` only; Microsoft
+.NET Library licence).

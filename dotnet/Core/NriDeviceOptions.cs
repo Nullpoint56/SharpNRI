@@ -4,9 +4,9 @@
 // (queue families, extension name arrays, the adapter desc, the callback structs) has to be
 // pinned by the caller. The names are NRI's; the defaults are NRI's.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>One family of queues to create: a type and how many.</summary>
 /// <param name="Type">Graphics, compute, copy, video decode or encode.</param>
@@ -74,7 +74,7 @@ public sealed class NriDeviceOptions
 
     /// <summary>
     /// D3D12: the directory holding the Agility SDK's <c>D3D12Core.dll</c>. Null means the
-    /// <c>AgilitySDK</c> directory beside the PrismNRI assembly when it exists (the native package
+    /// <c>AgilitySDK</c> directory beside the SharpNRI assembly when it exists (the native package
     /// stages it there), otherwise the inbox runtime. An empty string forces the inbox runtime.
     /// A managed host cannot export <c>D3D12SDKVersion</c>, so this is the only way the SDK loads;
     /// see CLAUDE.md: D3D12 and the Agility SDK, and patches/0001.

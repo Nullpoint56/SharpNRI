@@ -7,7 +7,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace PrismNRI.Interop;
+namespace SharpNRI.Interop;
 
 internal static unsafe class Utf8
 {

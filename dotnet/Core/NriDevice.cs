@@ -10,10 +10,10 @@
 // and copy queues, so call it before creating resources that cross queues).
 
 using System.Runtime.InteropServices;
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>An NRI device on one backend. Create with <see cref="Create"/>; dispose last.</summary>
 public sealed unsafe partial class NriDevice : NriObject

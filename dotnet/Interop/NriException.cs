@@ -10,9 +10,9 @@
 // was reported there is no detail. The text also went to the message handler the device was
 // created with, which sees every message on every thread.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>An NRI call returned something other than <see cref="Result.SUCCESS"/>.</summary>
 /// <remarks>

@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 public partial struct VideoAV1LoopRestorationDesc
 {

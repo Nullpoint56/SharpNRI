@@ -22,10 +22,10 @@
 // scratch memory for the call, so recording allocates nothing in steady state. Decode host
 // bitstream data is pinned, not copied.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>VideoSessionParametersDesc</c> naming the session and holding the codec parameters by value.</summary>
 public sealed class NriVideoSessionParametersDesc

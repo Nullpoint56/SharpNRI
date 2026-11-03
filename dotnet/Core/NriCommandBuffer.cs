@@ -8,11 +8,11 @@
 //
 // Not thread safe, per NRI: one thread records into one command buffer at a time.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
-using Buffer = PrismNRI.Native.Buffer;
+using SharpNRI.Interop;
+using SharpNRI.Native;
+using Buffer = SharpNRI.Native.Buffer;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>BufferBarrierDesc</c> naming the wrapper.</summary>
 /// <remarks>

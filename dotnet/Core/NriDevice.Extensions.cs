@@ -5,7 +5,7 @@
 // a capability answer: the Try* form reports it as false, the property form throws
 // NriUnsupportedException.
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 public sealed unsafe partial class NriDevice
 {

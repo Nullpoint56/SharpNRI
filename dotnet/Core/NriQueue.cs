@@ -4,9 +4,9 @@
 // not an NriObject: it has no Dispose, and the device hands out the same wrapper for the same
 // (type, index) every time.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>
 /// <c>TextureSubresourceUploadDesc</c>: one mip of one layer. <c>SliceNum</c> slices at

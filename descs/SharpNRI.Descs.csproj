@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SharpNRI.Descs - NRI's vocabulary as data, with no native dependency.
+
+    Every enum, descriptor struct, function table and opaque handle type the generator emits lives
+    here: everything in dotnet/Native except NriApi.cs, which is the only file that names the native
+    library. A project that builds pipeline layouts from shader reflection needs
+    PipelineLayoutDesc and DescriptorRangeDesc and must not carry NRI.dll to name them. This is the
+    assembly it references.
+
+    The split is by file, decided once in ../NativeSplit.props so the two projects cannot disagree
+    about where a type lives. SharpNRI references this and adds the imports and the hand-written
+    layers on top. One definition of each type.
+  -->
+
+  <Import Project="$(MSBuildThisFileDirectory)..\NativeSplit.props" />
+
+  <PropertyGroup>
+    <RootNamespace>SharpNRI</RootNamespace>
+    <PackageId>SharpNRI.Descs</PackageId>
+    <Version>1.0.0-beta.1</Version>
+    <Description>NRI (NVIDIA Render Interface) descriptor structs, enums and function-table layouts as plain .NET types, generated from the pinned NRI headers. No native dependency: reference this to build NRI descriptors without the library.</Description>
+    <PackageTags>nri;vulkan;d3d12;rhi;graphics</PackageTags>
+    <NoWarn>$(NoWarn);CS0169;CS0649;CS1591;CS8981;NU5128</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="@(SharpNRIGeneratedDesc)" />
+    <!-- Hand-written managed forms of the pointer-bearing descs; see NriPipelineLayoutDesc.cs. -->
+    <Compile Include="$(MSBuildThisFileDirectory)*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="NriVersion" Value="$(NriVersion)" />
+    <InternalsVisibleTo Include="SharpNRI" />
+    <InternalsVisibleTo Include="SharpNRI.Tests" />
+  </ItemGroup>
+
+</Project>

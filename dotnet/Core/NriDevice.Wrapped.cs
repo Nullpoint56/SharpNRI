@@ -13,10 +13,10 @@
 // native device.
 
 using System.Runtime.InteropServices;
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>Options for <see cref="NriDevice.CreateFromVulkan"/>. Property names follow <c>DeviceCreationVKDesc</c>.</summary>
 public sealed class NriVulkanDeviceOptions

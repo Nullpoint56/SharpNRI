@@ -1,8 +1,8 @@
 // L2 — a texture.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>A texture. Unbound until placed in memory unless created committed or placed.</summary>
 public sealed unsafe class NriTexture : NriObject

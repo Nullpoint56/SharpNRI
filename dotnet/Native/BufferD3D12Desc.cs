@@ -1,4 +1,4 @@
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 public unsafe partial struct BufferD3D12Desc
 {

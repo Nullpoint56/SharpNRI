@@ -18,7 +18,7 @@
 // The dispatch "changes descriptor pool, pipeline layout and pipeline"; barriers are the caller's.
 // Threadsafe per NRI.
 //
-// Vendor runtimes. No PrismNRI package ships them (CLAUDE.md: Native packages): the PrismNRI.Native.Upscalers
+// Vendor runtimes. No SharpNRI package ships them (CLAUDE.md: Native packages): the SharpNRI.Native.Upscalers
 // build of NRI compiles FSR and XeSS in, and the application puts the vendor's DLLs beside its
 // executable. NRI loads FSR by name and fails with a Result when it is absent, but XeSS is a
 // delay-loaded import whose absence is a native SEH exception inside xessD3D12CreateContext
@@ -26,10 +26,10 @@
 // and loads them by full path so NRI's bare-name LoadLibrary finds them under any host;
 // IsRuntimeInstalled lets a caller ask before trying.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>UpscalerDesc</c> with the optional command buffer as a wrapper.</summary>
 public sealed class NriUpscalerDesc
@@ -307,7 +307,7 @@ public sealed unsafe class NriUpscalerExtension
         {
             if (FindMissingRuntimeFile(upscalerDesc.Type, Device.GraphicsApi) is { } missing)
                 throw new NriUnsupportedException("CreateUpscaler",
-                    $"{upscalerDesc.Type} needs the vendor runtime '{missing}' beside the application ({AppContext.BaseDirectory}). PrismNRI does not ship it; the application does.");
+                    $"{upscalerDesc.Type} needs the vendor runtime '{missing}' beside the application ({AppContext.BaseDirectory}). SharpNRI does not ship it; the application does.");
             PreloadRuntime(upscalerDesc.Type, Device.GraphicsApi);
         }
 
@@ -331,9 +331,9 @@ public sealed unsafe class NriUpscalerExtension
             UpscalerType.DLSR => [linux ? "libnvidia-ngx-dlss.so.*" : "nvngx_dlss.dll"],
             UpscalerType.DLRR => [linux ? "libnvidia-ngx-dlssd.so.*" : "nvngx_dlssd.dll"],
             UpscalerType.XESS => ["libxess.dll"],
-            // NRI loads the loader by name on D3D12; the loader loads the upscaler.
+            // NRI loads the loader by name (UpscalerInterface.hpp); the loader loads the upscaler.
             UpscalerType.FSR when graphicsApi == GraphicsAPI.D3D12 => ["amd_fidelityfx_loader_dx12.dll", "amd_fidelityfx_upscaler_dx12.dll"],
-            UpscalerType.FSR => ["amd_fidelityfx_vk.dll"],
+            UpscalerType.FSR => ["amd_fidelityfx_loader_vk.dll", "amd_fidelityfx_upscaler_vk.dll"],
             _ => [],
         };
     }

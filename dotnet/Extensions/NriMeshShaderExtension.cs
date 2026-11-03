@@ -6,10 +6,10 @@
 //
 // Not thread safe, per NRI: one thread records into one command buffer at a time.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>NRI's <c>MeshShaderInterface</c>. Acquire through <see cref="NriDevice.MeshShader"/>.</summary>
 public sealed unsafe class NriMeshShaderExtension
