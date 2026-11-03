@@ -297,8 +297,8 @@ public sealed class TextureCopyTests
     /// takes 0x12345678 there and mip 0 keeps its bytes; an RGBA32_SFLOAT array view of layer 1 of a
     /// two-layer texture takes (1.5, -2.25, 0.125, 1000) there and layer 0 keeps its bytes.
     /// Each view names exactly one subresource, the layer through STORAGE_TEXTURE_ARRAY (a
-    /// STORAGE_TEXTURE view of layer 1 is refused,
-    /// <see cref="A_non_array_view_of_a_layer_other_than_the_first_is_refused"/>). A view of two mips
+    /// STORAGE_TEXTURE view of a layer addresses it too, since NRI v191:
+    /// <see cref="A_non_array_view_of_a_layer_other_than_the_first_addresses_that_layer"/>). A view of two mips
     /// clears both on Vulkan (vkCmdClearColorImage over the view's levels) and the first on D3D12, a
     /// UAV being one mip (measured, no message from either), so each view here is one mip.
     /// </summary>
@@ -360,44 +360,57 @@ public sealed class TextureCopyTests
     }
 
     /// <summary>
-    /// A non-array view of a layer other than the first, TEXTURE or STORAGE_TEXTURE with
-    /// layerOffset 1 of a two-layer texture and TEXTURE_CUBE with layerOffset 6 of a twelve-layer
-    /// one, is refused with INVALID_ARGUMENT and an error naming layerOffset and the _ARRAY types:
-    /// by NRI's validation on both backends, and by the D3D12 backend itself without it. The same
-    /// views of the first layer are created. D3D12's non-array 1D, 2D and cube views have no array
-    /// slice, so it cannot express such a view; the _ARRAY types can, on both backends. Before patch
-    /// 0029 NRI's D3D12 backend dropped layerOffset (N5): a STORAGE_TEXTURE view of layer 1 cleared
-    /// layer 0 there and layer 1 on Vulkan, with no message from either layer.
+    /// A non-array view of a layer other than the first addresses that layer on both backends: a
+    /// STORAGE_TEXTURE view with layerOffset 1 of a two-layer RGBA32_SFLOAT texture, cleared with
+    /// CmdClearStorage, fills layer 1 and leaves layer 0's bytes; TEXTURE with layerOffset 1 and
+    /// TEXTURE_CUBE with layerOffset 6 of a twelve-layer texture are created without a message. NRI
+    /// v190 dropped layerOffset in D3D12's non-array views (N5): the same clear filled layer 0 there and
+    /// layer 1 on Vulkan, with no message from either layer. NRI #306 (71d3c586, v191) builds such a
+    /// view on D3D12 as a one-layer array view.
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
-    public void A_non_array_view_of_a_layer_other_than_the_first_is_refused(Backend backend)
+    public void A_non_array_view_of_a_layer_other_than_the_first_addresses_that_layer(Backend backend)
     {
         TestDevice.RequireAvailable(backend);
-        foreach (var nriValidation in new[] { true }) // NRI validation refuses it; the backends carry no input checks (NRI's coding standard), so without it the view is the caller's problem
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        Assert.SkipWhen((device.GetFormatSupport(Format.RGBA32_SFLOAT) & FormatSupportBits.STORAGE_TEXTURE) == 0, $"{backend}: RGBA32_SFLOAT lacks STORAGE_TEXTURE");
+
+        (ushort Mip, ushort Layer)[] layers = [(0, 0), (0, 1)];
+        using var floats = CreateTexture(device, Format.RGBA32_SFLOAT, 4, 4, layers: 2, usage: TextureUsageBits.SHADER_RESOURCE | TextureUsageBits.SHADER_RESOURCE_STORAGE);
+        using var cubes = CreateTexture(device, Format.RGBA8_UNORM, 4, 4, layers: 12);
+        using var upload = new TextureUpload(device, floats, layers, s => Pattern(71 + s, Size(floats, layers[s])));
+        using var readback = new TextureReadback(device, floats, layers);
+
+        using var storageLayer1 = floats.CreateView(new TextureViewDesc { type = TextureView.STORAGE_TEXTURE, format = Format.RGBA32_SFLOAT, mipNum = 1, layerOffset = 1, layerNum = 1, planes = PlaneBits.ALL });
+        using var textureLayer1 = floats.CreateView(new TextureViewDesc { type = TextureView.TEXTURE, format = Format.RGBA32_SFLOAT, mipNum = 1, layerOffset = 1, layerNum = 1, planes = PlaneBits.ALL });
+        using var cube1 = cubes.CreateView(new TextureViewDesc { type = TextureView.TEXTURE_CUBE, format = Format.RGBA8_UNORM, mipNum = 1, layerOffset = 6, layerNum = 6, planes = PlaneBits.ALL });
+        using var layout = StorageLayout(device, DescriptorType.STORAGE_TEXTURE);
+        using var pool = device.CreateDescriptorPool(new DescriptorPoolDesc { descriptorSetMaxNum = 1, storageTextureMaxNum = 2 }); // StorageLayout's range holds two
+        var set = pool.AllocateDescriptorSet(layout, 0);
+        set.UpdateRange(0, 0, [storageLayer1, storageLayer1]); // both slots of the range: D3D12 requires a static range initialised (646)
+
+        var value = new Color { f = new Color32f { x = 1.5f, y = -2.25f, z = 0.125f, w = 1000f } };
+        Run(device, cmd =>
         {
-            var messages = new List<NriMessage>();
-            using var device = TestDevice.Create(backend.Api, messages, o => o.EnableNriValidation = nriValidation);
-            using var layered = CreateTexture(device, Format.RGBA8_UNORM, 4, 4, layers: 2, usage: TextureUsageBits.SHADER_RESOURCE | TextureUsageBits.SHADER_RESOURCE_STORAGE);
-            using var cubes = CreateTexture(device, Format.RGBA8_UNORM, 4, 4, layers: 12);
-            foreach (var (texture, type, offset, num) in new[] { (layered, TextureView.TEXTURE, 1, 1), (layered, TextureView.STORAGE_TEXTURE, 1, 1), (cubes, TextureView.TEXTURE_CUBE, 6, 6) })
-            {
-                TextureViewDesc View(int layerOffset) => new() { type = type, format = Format.RGBA8_UNORM, mipNum = 1, layerOffset = (ushort)layerOffset, layerNum = (ushort)num, planes = PlaneBits.ALL };
-                int start;
-                lock (messages) start = messages.Count;
-                var refused = Assert.Throws<NriException>(() => texture.CreateView(View(offset)).Dispose()); // a view created after all is disposed at once, so the failure is this one
-                List<NriMessage> provoked;
-                lock (messages) provoked = messages.Skip(start).ToList();
-                Record($"{backend}, NRI validation {(nriValidation ? "on" : "off")}: {type} with layerOffset {offset}: {refused.Message}");
-                Assert.Equal(Result.INVALID_ARGUMENT, refused.Result);
-                var error = Assert.Single(provoked, m => m.IsError);
-                Assert.Contains("layerOffset", error.Text, StringComparison.Ordinal);
-                Assert.Contains("_ARRAY", error.Text, StringComparison.Ordinal);
-                lock (messages) messages.RemoveRange(start, messages.Count - start);
-                using var first = texture.CreateView(View(0));
-            }
-            Assert.DoesNotContain(messages, m => m.IsError);
-        }
+            cmd.Barrier([], [], [new NriTextureBarrier(floats, Undefined, TextureCopyDestination)]);
+            upload.Record(cmd);
+            cmd.Barrier([], [], [new NriTextureBarrier(floats, TextureCopyDestination, ClearStorageTarget)]);
+            cmd.SetPipelineLayout(BindPoint.COMPUTE, layout);
+            cmd.SetDescriptorSet(0, set, BindPoint.COMPUTE);
+            cmd.ClearStorage(storageLayer1, value, 0, 0, 0);
+            cmd.Barrier([], [], [new NriTextureBarrier(floats, ClearStorageTarget, TextureCopySource)]);
+            readback.Record(cmd);
+        }, pool);
+
+        var images = readback.Read();
+        var cleared = new byte[Size(floats, layers[1])];
+        var texels = MemoryMarshal.Cast<byte, float>(cleared);
+        for (var i = 0; i < texels.Length; i += 4) (texels[i], texels[i + 1], texels[i + 2], texels[i + 3]) = (1.5f, -2.25f, 0.125f, 1000f);
+        AssertBytes(Pattern(71, Size(floats, layers[0])), images[0], "layer 0, outside the view");
+        AssertBytes(cleared, images[1], "layer 1, the STORAGE_TEXTURE view's layer");
+        Assert.DoesNotContain(messages, m => m.IsError);
     }
 
     /// <summary>
