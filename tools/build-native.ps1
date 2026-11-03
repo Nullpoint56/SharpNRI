@@ -272,6 +272,16 @@ $cmakeArgs += @(
 if ($dlssDir) { $cmakeArgs += "-DFETCHCONTENT_SOURCE_DIR_NGX=$(& $fwd $dlssDir)" }
 foreach ($kv in $opt.GetEnumerator()) { $cmakeArgs += "-D$($kv.Key)=$($kv.Value)" }
 
+# A new NRI commit, patch set or option set starts the variant's tree from scratch, downloads included.
+# NRI declares pins as cache variables (NRI_AGILITY_SDK_VERSION_MAJOR / _MINOR), and a cache entry
+# outlives the default that created it: v191 moved Agility 1.619.6 to 1.620.1, and an existing tree
+# kept compiling and staging 1.619 while a fresh one (CI) got 1.620. With only the cache cleared,
+# FetchContent kept the extracted 1.619 package in _deps, and NRI.dll built for 1.620 met a 1.619
+# runtime: every D3D12 device failed INVALID_SDK (measured 2026-11-03). CI builds fresh trees anyway.
+if (-not $offline -and (Test-Path (Join-Path $build "CMakeCache.txt"))) {
+    Write-Host "==> NRI commit, patches or options changed since the last configure: fresh build tree, downloads again"
+    Remove-Item -Recurse -Force $build
+}
 Write-Host "==> configure -> $build$(if ($offline) { ' (deps cached, offline)' })"
 foreach ($kv in $opt.GetEnumerator()) { Write-Host ("    {0,-40} {1}" -f $kv.Key, $kv.Value) }
 if ($delayLoad) { Write-Host ("    {0,-40} {1}" -f "/DELAYLOAD:$($delayLoadDlls -join ',')", "(tools/cmake/delayload.cmake)") }
