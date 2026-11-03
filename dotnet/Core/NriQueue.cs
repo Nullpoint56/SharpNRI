@@ -49,10 +49,10 @@ public sealed unsafe class NriQueue
     public uint Index { get; }
 
     /// <summary>
-    /// The external queue family (patch 0002): use as <see cref="NriTextureBarrier.DstQueue"/> to
-    /// release a shared texture before another device or process imports it, or as
-    /// <see cref="NriTextureBarrier.SrcQueue"/> to acquire it afterwards. Vulkan maps it to
-    /// <c>VK_QUEUE_FAMILY_EXTERNAL</c>; D3D12 ignores it. Valid nowhere else.
+    /// The external queue family (<c>EXTERNAL_QUEUE</c>): use as <see cref="NriTextureBarrier.DstQueue"/> or
+    /// <see cref="NriBufferBarrier.DstQueue"/> to release a shared texture or buffer before another device or
+    /// process imports it, or as the <c>SrcQueue</c> to acquire it afterwards, with the local queue on the
+    /// other side. Vulkan maps it to <c>VK_QUEUE_FAMILY_EXTERNAL</c>; D3D12 ignores it. Valid nowhere else.
     /// </summary>
     public static NriQueue External { get; } = new(null!, NriApi.EXTERNAL_QUEUE, QueueType.GRAPHICS, uint.MaxValue);
 

@@ -6,8 +6,9 @@ handled. User-facing usage and caveats are in `docs/guide.md`; keep the two cons
 changes. The chronological record these notes were distilled from is in git history under
 `docs/design.md` and `docs/findings.md` (removed after folding; `git log --follow` on either path).
 
-Facts below are measured against NRI v190 unless stated. Numbers are kept where they identify a
-recurrence.
+Both branches pin NRI v191 since 2026-11-03. Facts below were measured against NRI v190 unless
+they name NRI main or v191; a v190 line number is history, kept where it identifies a recurrence.
+Numbers are kept where they identify a recurrence.
 
 ---
 
@@ -19,7 +20,7 @@ integer-versioned, breaks between versions and promises no ABI. .NET 11 / C# 14,
 
 | Path | What |
 |---|---|
-| `nri/` | submodule at tag `v$(NriVersion)`. Never edit; never stage. Normally sits with every patch applied (`git -C nri status` shows modified files; expected) |
+| `nri/` | submodule at tag `v$(NriVersion)` on master, at a commit of NRI's main on `next` (Branches). Never edit; never stage. Normally sits with every patch applied (`git -C nri status` shows modified files; expected) |
 | `patches/` | `git diff`s against the tag, applied in name order. Do not edit without the owner |
 | `dotnet/Native/` | L0, generated. Do not edit by hand |
 | `dotnet/Interop/` | L1 |
@@ -45,14 +46,23 @@ read; nothing is pushed to it from here until an upstream PR is planned.
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, held by the submodule pointer and moved on purpose | the patches still needed on that commit | integration: testing against current NRI, upstream reports and PRs written against what the maintainer reads |
 
+- **Now.** Both branches pin NRI v191 (46c93d79, 2026-10-30; on 2026-11-03 also NRI main's head),
+  with eleven patches: adopted on `next` and merged into master through a pull request
+  (2026-11-03). PR #294 (our 0002) and the twelve filed issues (#295-#306) are all in v191. Verified
+  at d2a2b51 (2026-11-03) on a fresh v191 payload (Agility 1.620.1): Windows (NVIDIA RTX 4070 SUPER, VK
+  and D3D12) 535 tests, 0 failed, 13 skipped; WARP 535, 0, 33; lavapipe in WSL (layer 1.4.363, a
+  fresh tree) 534, 0, 294. The first verification, at bfa4a703, ran on a stale tree with Agility 1.619
+  (Build: the fresh tree) and missed NRI #307's warnings, which CI's fresh tree found. Before, on NRI main b5f5c62 with sixteen
+  patches (8f1abefc, 2026-10-27): 535 and 534 tests, 13 and 294 skipped. `next` moves to NRI main
+  again when main moves past v191.
 - **Direction.** Binding work that does not depend on the NRI version lands on master and is
   merged forward into `next` often (`git merge master` on `next`). After a forward merge,
   regenerate L0 on `next` instead of resolving conflicts in `dotnet/Native` by hand. NRI-side work
   (new patches, re-cuts, upstream reports) starts on `next`; a patch reaches master only when a
   consumer needs it before the next tag.
-- **Upstream document.** `docs/upstream.md` on master is the v190 document: the report text for
-  master's patch set, with the status it had when the branches split. The live status, filings,
-  replies and drafts are in `next`'s copy.
+- **Upstream document.** `docs/upstream.md` on master is the document of master's tag: since v191
+  (2026-11-03) `next`'s copy at the adoption, which kept the v190 reports and their history. Between
+  tags the live status, filings, replies and drafts are in `next`'s copy.
 - **Adopting a tag.** On `next`: point `nri` at the tag, set `<NriVersion>`, drop the patches the
   tag carries, regenerate, run both legs. Then merge `next` into master through a pull request and
   release from master.
@@ -91,7 +101,7 @@ L0  dotnet/Native/       ClangSharp output. Never referenced above L1 except des
   Exception texts); `[UnmanagedCallersOnly]` thunks for `CallbackInterface` and `AllocationCallbacks`
   recovering the receiver from a `GCHandle` in `userArg` (no managed exception crosses a native
   frame: a throwing handler loses that one message; a throwing allocator returns null, which fails
-  an object's creation with `OUT_OF_MEMORY` (patch 0034) and still crashes NRI inside a container,
+  an object's creation with `OUT_OF_MEMORY` (NRI main 9d276c3; patch 0034 on master) and still crashes NRI inside a container,
   see Device creation and callbacks; bridges outlive the native device until
   `nriDestroyDevice` returns); lifetime (`NriObject`).
 - L2: names are `Nri` + NRI's name; `Cmd*` methods drop the prefix and keep argument order. Desc
@@ -115,8 +125,10 @@ structs filled by `nriGetInterface(device, "Name", sizeof(Name), &table)`; no re
 `Create*` free-threaded, `Destroy*` / `Cmd*` externally synchronized; nothing implicit. v190 surface
 (excluding D3D11/Metal/WebGPU wrappers): 13 interface tables with 229 functions, plus the two
 structs the caller fills (`CallbackInterface`, `AllocationCallbacks`: 5), so 234 function pointers;
-with patch 0002's `SharedHandleInterface` 14 tables, 233 functions, 238 function pointers (the ABI
-oracle's count). 19 flat exports (20 with patch 0024's `nriEnumerateAdapters2`), 246 named structs
+with master's patch 0002 (`SharedHandleInterface`) 14 tables, 233 functions, 238 function pointers;
+on `next`, NRI main since #294 (eb4ed356: three getters in Core; f18c6df9: `DestroySharedHandle`)
+13 tables, 233 functions, 238 function pointers (the ABI oracle's count on each). 19 flat exports (20 on master with patch 0024's `nriEnumerateAdapters2`; main's `nriEnumerateAdapters`
+takes the backends to probe since 962615b), 246 named structs
 + 33 nested anonymous + 2 unions, 95 enums (57 `NriEnum` + 38 `NriBits`), 4 bitfields (all in
 `TopLevelInstance`).
 
@@ -202,21 +214,21 @@ From the owner. Do not relitigate.
 - **A patch is NRI-shaped**: a field on an existing desc, a new desc, or a new interface struct in
   NRI's style, comment in NRI's voice; or a bug fix. Never a semantic change to an existing call.
   Every patch must apply cleanly to the next upstream tag. **And it follows NRI's own standard**
-  (`.agents/skills/nri-coding-standard/SKILL.md` on NRI main since 83fd010, not in v190; the
-  maintainer pointed at it on PR #294, 2026-10-26; his review bot reads `nri-review/SKILL.md` beside
-  it). The parts that decide a patch's shape: public-input checks live in `Source/Validation` only
-  (`NRI_RETURN_ON_FAILURE` there; a backend assumes validated descriptors and keeps native work,
-  native-result macros and capability answers; debug-only `NRI_CHECK` for impossible states),
-  Validation never checks device ownership, a new public function updates the table,
-  `FillFunctionTable`, Validation, every backend, the Creation glue and the capabilities together;
-  file-local helpers are `static inline` in the helper section at the top of the file; `Scratch<T>`
-  for variable-sized temporaries; no hidden barriers, synchronization, allocation or caching; an
-  empty line before `return`, `if`, `for`, `while`, `switch` in touched code; compound `?:`
-  conditions parenthesized; a single-sentence comment has no trailing period; `Include/` files are
-  edited by hand, never clang-formatted; `git diff --check` clean, the repository's line endings
-  kept. Applied: 0029's D3D12 backend half was dropped on both branches (2026-10-26); 0014's
-  check inside `SwapChainVK::Create` is a v190 bug fix that upstream replaced with a clamp (PR #285)
-  and goes with the tag.
+  (`nri/.agents/skills/nri-coding-standard/SKILL.md`, since main 83fd010; the maintainer pointed at
+  it on PR #294, 2026-10-26; his review bot reads `nri-review/SKILL.md` beside it). The parts that
+  decide a patch's shape: public-input checks live in `Source/Validation` only (`NRI_RETURN_ON_FAILURE`
+  there; a backend assumes validated descriptors and keeps native work, native-result macros and
+  capability answers; debug-only `NRI_CHECK` for impossible states), Validation never checks device
+  ownership, a new public function updates the table, `FillFunctionTable`, Validation, every backend,
+  the Creation glue and the capabilities together; file-local helpers are `static inline` in the
+  helper section at the top of the file; `Scratch<T>` for variable-sized temporaries; no hidden
+  barriers, synchronization, allocation or caching; an empty line before `return`, `if`, `for`,
+  `while`, `switch` in touched code; compound `?:` conditions parenthesized; a single-sentence
+  comment has no trailing period; `Include/` files are edited by hand, never clang-formatted;
+  `git diff --check` clean, the repository's line endings kept. Applied: 0029 carried the same
+  `layerOffset` refusal in `DescriptorD3D12` and in Validation, and the backend half was dropped on
+  both branches (2026-10-26); 0002's Vulkan `features.shared*` early-outs were dropped for it
+  (fork 0a7f3b2b).
 - **Every NRI defect found is patched on master, test first** (decided 2026-10-22). The test
   asserts the right answer and is run red against the unpatched build; the patch makes it green.
   Never a test shaped around the defect, a workaround or a skip with a "to fix" note. Master stays
@@ -280,7 +292,13 @@ dotnet test --project tests/PrismNRI.Tests -c Release --no-build
 
 - It checks the submodule tag against `NriVersion`, applies `patches/` (skipping applied ones),
   configures, builds, stages, and prints a table. A matching `_deps` makes configure run with
-  `FETCHCONTENT_FULLY_DISCONNECTED=ON`.
+  `FETCHCONTENT_FULLY_DISCONNECTED=ON`. When the key (NRI commit, patches, options) differs from the last configure, the
+  variant's tree is deleted first, downloads included (bcbfced8): NRI keeps its Agility pin in CMake
+  cache variables, and after the move to v191 an existing tree kept compiling and staging Agility
+  1.619 while CI, on a fresh tree, got 1.620. Clearing only the cache left FetchContent's extracted
+  1.619 package in `_deps`, and NRI.dll built for 1.620 then met a 1.619 runtime (`INVALID_SDK` on
+  every D3D12 device). So a local verification after moving NRI needs that fresh tree; the WSL clone
+  likewise (`rm -rf _build/linux-x64-base` once, or `-Clean`).
 - Only options that exist on the target are passed: NRI declares most with
   `cmake_dependent_option`, and an option whose condition is false is silently ignored.
 - NRI's generated `Include/NRIAgilitySDK.h` is moved into the build tree after configure.
@@ -323,7 +341,7 @@ SKIP_APT=1 bash tools/ci/verify-linux.sh    # in a Linux-filesystem clone, e.g. 
   commits only; copy uncommitted edits by hand.
 - From the Bash tool, `$VAR`, `$?` and `$(...)` inside an inline `wsl -d Ubuntu -- bash -lc '...'`
   arrive stripped. Write a script file, `cp` it into WSL, `sed -i 's/\r$//'`, run it.
-- Keep the distribution's 1.3 loader: patch 0004 is for exactly that pairing.
+- Keep the distribution's 1.3 loader: patch 0004 (master; NRI a4e562e on `next`) is for exactly that pairing.
 
 ### macOS (CI `osx-arm64` job)
 
@@ -408,7 +426,12 @@ configured per machine: the adapter named is whichever one the suite picked on t
   Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields 1,611 of 1,612
   (`vkInstanceCreateInfoNext` added); lavapipe 517, 286 skipped, 0 failed. With 0029's D3D12 backend
   half dropped (4e074ef): Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields
-  1,611 of 1,612; lavapipe 517, 286 skipped, 0 failed. The committed report is measured where its
+  1,611 of 1,612; lavapipe 517, 286 skipped, 0 failed. On NRI v191 with eleven patches (731a65b,
+  2026-11-03) (731a65b ran on Agility 1.619 from a stale tree; the same figures at d2a2b51 on the
+  1.620.1 payload): Windows 535 tests, 13 skipped, lines 98.1%, branches 82.1%, 252 of 252 functions
+  bound (the merged shared handles: three Core getters and `DestroySharedHandle` instead of the
+  extension table; 19 flat exports without `nriEnumerateAdapters2`), 250 of 252 call sites run,
+  fields 1,646 of 1,647; lavapipe 534, 294 skipped, 0 failed. The committed report is measured where its
   header says; CI does not run it.
 
 ---
@@ -418,43 +441,80 @@ configured per machine: the adapter named is whichever one the suite picked on t
 | Patch | What | Why |
 |---|---|---|
 | 0001 agility-sdk-device-factory | `DeviceCreationDesc::d3d12AgilitySdkPath`; `D3D12GetInterface(CLSID_D3D12SDKConfiguration)` -> `ID3D12SDKConfiguration1::CreateDeviceFactory(NRI_AGILITY_SDK_VERSION_MAJOR, path)` -> `ApplyToGlobalState()` before any other D3D12 call | a managed host cannot export `D3D12SDKVersion`, so the SDK never loads otherwise |
-| 0002 shared-handle-extension | `NRISharedHandle.h`: `CreateSharedTexture`, `CreateSharedFence`, `GetTextureSharedHandle`, `GetFenceSharedHandle`; Vulkan opaque win32/fd, D3D12 NT, NONE dummy, through validation; `EXTERNAL_QUEUE` sentinel for barriers to/from `VK_QUEUE_FAMILY_EXTERNAL`; `CreateSharedFence(SWAPCHAIN_SEMAPHORE)` = exportable binary VkSemaphore (D3D12 `UNSUPPORTED`, silently; validation marks it a swap-chain semaphore) | upstream has no export path; compositors import binary semaphores |
-| 0003 validation-has-buffer-sentinel | validation's geometry conversion passes `HAS_BUFFER` through | upstream bug: access violation on the documented sentinel with NRI validation on |
-| 0004 vulkan-clamp-minor-version-to-instance | `DeviceVK::Create` caps `m_MinorVersion` at the instance version (14 lines; wrapper path keeps the caller's) | upstream bug: old loader + new driver -> null core 1.4 entry points |
-| 0005 helper-memoryheap-alignment-init | `MemoryHeap::alignment` initialised | upstream bug: GCC 13 `-O2 -Werror` `maybe-uninitialized` |
-| 0006 vulkan-portability-sampler-lod-bias | `samplerLodBiasMax = 0` with `VK_KHR_portability_subset` and no `samplerMipLodBias` (6 lines beside NRI's `imageView2DOn3DImage` read) | upstream bug: MoltenVK reports 15.999 and forbids any bias |
 | 0007 cmake-vulkan-loader-link-option | `NRI_ENABLE_VULKAN_LOADER_LINKING` (default ON) wraps the Apple `find_package(Vulkan)` + link; we pass OFF | shipped dylib otherwise needs the build machine's loader path; NRI PR 134 added it for an IDE case, maintainer: "just not needed" |
-| 0008 vulkan-format-table-compressed | `VK_FORMAT_TABLE` extended from 131 to 185 entries: VkFormat 131-184 (BC, ETC2/EAC, ASTC LDR) map to NRI's formats; BC1 RGB (131, 132) stay `UNKNOWN` | upstream gap: `nriConvertVKFormatToNRI` returned `UNKNOWN` for all 52 compressed formats while the reverse table produces them |
-| 0009 vulkan-swapchain-out-of-date-not-an-error | `AcquireNextTexture` / `Present` return `OUT_OF_DATE` for exactly `VK_ERROR_OUT_OF_DATE_KHR` before `NRI_RETURN_ON_BAD_VKRESULT` (no report); return values unchanged | upstream reporting defect: a documented, expected result reported as `Message::ERROR` on every resize |
-| 0010 streamer-block-compressed-rows | `StreamTextureData` sizes and copies compressed formats in rows of blocks: `ceil(w / blockWidth) * stride` per row, `ceil(h / blockHeight)` rows; other formats (the planar video ones included) unchanged | upstream bug: texel rows, 16x the dynamic-buffer space for 4x4 blocks and a read past the end of the caller's data; the texels still landed right (same oversized pitch on both sides) |
 | 0012 streamer-dynamic-buffer-initial-size | `StreamerDesc::dynamicBufferDesc.size` is the initial per-frame size of the dynamic buffer, allocated in `Create` through `Grow` (`size` rounded up to 64 KiB, times `queuedFrameNum`); 0 keeps the on-demand growth | upstream ignores the field (header: `"size" is ignored`) and grows from empty, one committed buffer per new per-frame high-water mark, each parked and destroyed `queuedFrameNum` frames later inside `EndStreamerFrame`; a consumer measured 222 stream calls at 477 ms and `EndStreamerFrame` at 189 ms per level load from that |
 | 0013 vulkan-exclusive-image-no-family-indices | `DeviceVK::FillCreateInfo` passes `queueFamilyIndexCount = 0` and null indices for `VK_SHARING_MODE_EXCLUSIVE` images | upstream passes every active family's index whatever the sharing mode; Vulkan ignores them for EXCLUSIVE, and the Khronos best-practices checks report `BestPractices-vkCreateImage-sharing-mode-exclusive` ("queueFamilyIndexCount of 3", measured) per image |
-| 0014 vulkan-swapchain-scaled-extent-check | `SwapChainVK::Create` checks the requested extent against `VkSurfacePresentScalingCapabilitiesKHR::min/maxScaledImageExtent` when it creates the swap chain with present scaling, the unscaled range otherwise | upstream always checked the unscaled range, which on Windows is exactly the current client size, so with scaling (where Vulkan allows the scaled range) a size that lagged a resize was refused with `INVALID_ARGUMENT`; measured: 100x80 on a 64x64 window creates and presents |
 | 0015 vulkan-message-id-name | the debug-utils callback forwards `pMessageIdName` as `[id] name: text` when the layer provides one | upstream forwards number and text; current Khronos layers keep the VUID / check name only in `pMessageIdName`, so the forwarded text had no name |
-| 0016 validation-pipeline-layout-all-stages | `DeviceVal::CreatePipelineLayout` and `CreateGraphicsPipeline` read a layout `shaderStages` of `ALL` (0) as `ALL_SHADERS`, as `PipelineLayoutD3D12` does | upstream masked the ranges' stages with 0: a layout with `ALL` refused every range with explicit stages ("not compatible with 'shaderStages'") and every graphics pipeline ("not enabled in the pipeline layout") |
 | 0017 swapchain-latest-ready-bit | `SwapChainBits::LATEST_READY` + `DeviceDesc::features.latestReadySwapChain` (VK: swap chain + `fifoLatestReady`); with `VSYNC` the capped list is FIFO_LATEST_READY, FIFO_RELAXED/FIFO, FIFO; the bit is cleared from `m_Flags` unless that mode was chosen; D3D11/D3D12 clear it | upstream reaches FIFO_LATEST_READY only without `VSYNC` and after MAILBOX, which NVIDIA always offers, so it is never chosen there; NRI never reports the chosen mode |
 | 0018 d3d12-break-on-error-switch | `DeviceCreationDesc::disableD3D12BreakOnError` ("enabled by default" switches) wraps the two `SetBreakOnSeverity` calls in `DeviceD3D12::Create` (7 lines); the binding passes it unless `BreakOnError` and a debugger is attached | upstream sets the info-queue break on ERROR and CORRUPTION for every debug-layer device: without a debugger the first D3D12 error is an `SEHException` out of the NRI call, or a dead headless process, although the message callback already reports it |
 | 0019 d3d12-gpu-based-validation-switch | `DeviceCreationDesc::enableD3D12GpuBasedValidation` ("disabled by default", beside `enableD3D12RayTracingValidation`): `ID3D12Debug1::SetEnableGPUBasedValidation(true)` after `EnableDebugLayer` (9 lines) | upstream never enables GPU-based validation, which must be enabled before the device is created; the alternative is a D3D12 COM sequence in the binding |
-| 0020 d3d12-texture-barrier-no-access-sync-none | `CommandBufferD3D12::Barrier` sets `SyncBefore` / `SyncAfter` to `SYNC_NONE` for a texture barrier side whose access is `NONE` and whose layout is not `UNDEFINED` (4 lines + comment, `CommandBufferD3D12.hpp:2447`) | upstream derives the sync from the stages alone; the debug layer refuses `NO_ACCESS` with a defined layout and any other sync (1331) and `Close` fails `E_INVALIDARG`, while the same barrier is legal on Vulkan |
-| 0021 vulkan-copy-stage-covers-fill-buffer | `StageBits::COPY` maps to `VK_PIPELINE_STAGE_2_COPY_BIT \| VK_PIPELINE_STAGE_2_CLEAR_BIT` (`ConversionVK.h:427`); the `COPY` comment in `NRIDescs.h` names `CmdZeroBuffer` | `CmdZeroBuffer` is `vkCmdFillBuffer`, a clear command whose stage is `CLEAR_BIT`, on Vulkan and `CopyBufferRegion` (sync `COPY`) on D3D12, so no NRI stage covered it on both; syncval reported the hazards (Barriers) |
-| 0022 d3d12-copy-list-layouts-common | `CommandBufferD3D12::Barrier` records `COPY_SOURCE` / `COPY_DESTINATION` as `D3D12_BARRIER_LAYOUT_COMMON` in a copy command list, on the before side of a texture barrier whose `srcQueue` is a copy queue and on the after side of one whose `dstQueue` is (`IsCopyQueue`, `GetBarrierLayout`'s new argument; 13 lines added, 3 changed) | the copy layouts were refused on D3D12 copy lists (1334, `Close` fails) while Vulkan's copies need them; mapping copy lists alone moved the mismatch to the other queue's barrier, checked at `ExecuteCommandLists` (Barriers) |
-| 0023 vulkan-concurrent-image-no-queue-family-transfer | `CommandBufferVK::Barrier` writes `VK_QUEUE_FAMILY_IGNORED` for every side of a texture barrier that is not `EXTERNAL_QUEUE` when the image is `CONCURRENT`; `TextureVK` records the active family count at construction (`IsConcurrent()`, the rule of `DeviceVK::FillCreateInfo`; wrapped images, swap chain ones included, count as unknown and keep the indices); `DeviceVK::GetActiveFamilyIndexNum()` (20 lines added, 1 changed) | upstream wrote both queues' family indices whatever the sharing mode; the Khronos layer tracks any pair of differing indices as an ownership transfer, so a CONCURRENT hand-off whose release and acquire named different transitions was VUID-vkCmdDraw-None-09600 and a sampled-only one `BestPractices-PipelineBarrier-unneeded-QFOT` twice (Barriers) |
-| 0024 enumerate-adapters-by-graphics-api | `nriEnumerateAdapters2(GraphicsAPI graphicsAPIs, AdapterDesc*, uint32_t&)` in `NRIDeviceCreation.h`: the body of `nriEnumerateAdapters` with each backend pass guarded by its bit (D3D pass for D3D11 or D3D12); `nriEnumerateAdapters` calls it with every bit; `nriCreateDevice` with a null `adapterDesc` enumerates `VK` only for a VK device and everything for the others (21 lines added, 5 removed) | every enumeration ran every pass, so creating a Vulkan device created a DXGI factory and D3D12 devices and loaded `D3D12Core.dll` for the process's life; a D3D-only enumeration would change a D3D12 device's desc (queue counts), so D3D keeps the full one (Device creation and callbacks) |
-| 0025 vulkan-vertex-attribute-binding-slot | `PipelineVK::Create` binds each attribute to `vi->streams[attribute.streamIndex].bindingSlot` (`PipelineVK.hpp:167`, 1 line); `DeviceVal::CreatePipeline` refuses an attribute whose `streamIndex` is not below `streamNum` (2 lines) | upstream wrote the stream's index as the binding, while D3D12 goes through the stream: streams declared out of slot order drew nothing on Vulkan, VUID-vkCmdBindVertexBuffers2-pStrides-06209; nothing checked `streamIndex`, and both backends read `streams[]` past the array (N1, Draws, render state and attachments) |
-| 0026 vulkan-empty-vertex-input-no-dynamic-stride | `VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE` only when the vertex input has streams (`PipelineVK.hpp:378`, 1 line) | upstream made the stride dynamic for any non-null vertex input, so every draw with an empty one reported VUID-vkCmdDraw-pStrides-04913 (N2, Draws, render state and attachments) |
-| 0027 d3d12-clear-attachments-stencil-only-pass | `ClearAttachments` takes the depth-stencil view from `m_Depth`, else `m_Stencil` (`CommandBufferD3D12.hpp:1758`, 2 lines) | upstream dereferenced the null depth attachment of a stencil-only pass: an access violation (N3, Draws, render state and attachments) |
-| 0028 d3d12-depth-attachment-clears-stencil | `BeginRendering` clears the stencil when a stencil attachment exists and the attachment providing it (`stencil` if given, else `depth`) has `LoadOp::CLEAR`, with that attachment's clear value (`CommandBufferD3D12.hpp:1828-1832`, 4 lines added, 2 removed) | upstream took the stencil clear from `RenderingDesc::stencil` only, so a depth-stencil view passed as `depth` kept its stencil on D3D12 while Vulkan, whose stencil attachment is then the depth one, cleared it (N4, Draws, render state and attachments) |
-| 0029 non-array-texture-view-layer-offset | `DeviceVal::CreateDescriptor` refuses `TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` and `TEXTURE_CUBE` views of a non-3D texture with `layerOffset` != 0 on every backend (`INVALID_ARGUMENT`, error naming the `_ARRAY` types; 4 lines; the D3D12 backend half was dropped 2026-10-26 for NRI's coding standard, which keeps input checks out of backends) | D3D12's non-array 1D, 2D and cube views have no array slice, and upstream dropped `layerOffset` silently: the view addressed the first layer on D3D12 and the asked one on Vulkan (N5, Multisampling, copies and queries) |
-| 0030 d3d12-micromap-write-barrier-sync | `GetBarrierSyncFlags` adds no `EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO` when the access holds `ACCELERATION_STRUCTURE_WRITE` or `MICROMAP_WRITE` (`CommandBufferD3D12.hpp:142`, 2 lines) | `MICROMAP_WRITE` maps to the same D3D12 write access, and the debug layer refuses the pair (1331): `Close` failed after every micromap build whose barrier named the `MICROMAP` stage (N6, Ray tracing) |
-| 0031 d3d12-acceleration-structure-alignment | `GetAccelerationStructureMemoryDesc2` and `AccelerationStructureD3D12::GetMemoryDesc` raise the alignment to `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT` (`ImplD3D12.cpp:1023`, `AccelerationStructureD3D12.hpp:52`, 2 lines added); micromaps keep their 128 | since 3371cdb the desc is a plain buffer's, 128 under tight alignment, which NRI validation accepts for a placement and the acceleration-structure SRV refuses (31) (N7, Ray tracing) |
-| 0032 d3d12-av1-required-auto-segmentation | `VideoSessionD3D12` keeps the AV1 encoder's `RequiredFeatureFlags` (`GetAV1RequiredFeatureFlags`); `EncodeVideo` enables automatic segmentation when they hold `AUTO_SEGMENTATION`, as well as for pictures with `SEGMENTATION_ENABLED` (`CommandBufferD3D12.hpp:1442`, 9 lines added, 1 removed) | upstream enabled it for the picture flag only, and the session merged the required flags into the supported ones; NVIDIA's encoder requires it, so NRI's default picture flags failed `Close` (1306) (N8, Extensions) |
-| 0033 video-av1-key-frame-and-d3d12-metadata | `VideoAV1EncodeDecodeInfoDesc::keyFrame` (`NriOptional bool`, `NRIVideo.h:885`): the references are not used; D3D12's `GetVideoAV1EncodeDecodeInfo` no longer parses `encodedPayloadHeader` and describes the frame from the metadata (`VideoSessionD3D12.hpp:128`, `:193`; 4 lines added, 4 removed) | the D3D12 payload is tile data with no OBUs, so the header path answered `FAILURE` without a message where Vulkan requires the header, and a key frame described with references came back as P (N9, Extensions) |
-| 0034 allocation-failure-out-of-memory | every unchecked `Allocate` in the VK, D3D12, validation and shared paths answers `OUT_OF_MEMORY` and destroys what the call made: `CreateImplementation`, device creation, command allocators, swap chains (D3D12's texture is also destroyed when its `Create` fails), Imgui, Streamer, Upscaler and its parts, the validation wrappers (14 files, 413 lines added, 53 removed; the two shared-handle wrappers are in 0002) | upstream used the null as the object: an access violation in the call (N10, Device creation and callbacks). NRI's containers (`StdAllocator`, `noexcept`) are unchanged and still cannot report a null |
-| 0035 helper-sort-every-resource | `GroupByMemoryType` sorts `[0, bufferNum)` and `[0, textureNum)` (`HelperInterface.hpp:559`, `:571`, 2 lines) | upstream ended the range at the last element, which `std::sort` excludes, so the last resource of each kind was packed unsorted and the packing depended on the order passed (N11, Memory and resources) |
-| 0036 d3d12-attachment-resolve-mip-and-layers | `EndRendering` indexes the resolve destination with its `MipLevels` and resolves each layer of the view (`CommandBufferD3D12.hpp:1959-1961`, 6 lines added, 2 removed): the part of NRI main's 48d4a33 that fixes them, backported | v190 used the array size as the mip count and resolved the first layer only: a resolve into a non-zero mip or layer landed in another subresource or failed `Close` (877), and a layered view resolved one layer (Multisampling, copies and queries). Dropped with the tag that carries 48d4a33 |
+| 0024 enumerate-adapters-by-graphics-api | on `next`: `nriCreateDevice` with a null `adapterDesc` calls `nriEnumerateAdapters` with `GraphicsAPI::VK` for a VK device and `ALL` otherwise (`Creation.cpp`, 2 lines); main's 962615b (#286) gave `nriEnumerateAdapters` the backends to probe, which master's 0024 did as `nriEnumerateAdapters2` | creating a Vulkan device with no adapter still probed every backend: a DXGI factory, D3D12 devices and `D3D12Core.dll` loaded for the process's life; a D3D-only probe would change a D3D12 device's desc (queue counts), so D3D keeps the full one (Device creation and callbacks) |
+| 0037 vulkan-swapchain-present-modes-info | `SwapChainVK::Create` chains `VkSwapchainPresentModesCreateInfoKHR` listing the chosen `presentMode` only, when the device has `swapchainMaintenance1` (`SwapChainVK.hpp:376`, 8 lines) | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (Extensions); one mode is what Vulkan assumes without the structure, so nothing else changes |
+| 0038 vulkan-instance-create-info-next | `DeviceCreationDesc::vkInstanceCreateInfoNext` (`NriOptional const void*`, next to `vkExtensions`): a caller's chain `DeviceVK::CreateInstance` appends to `VkInstanceCreateInfo::pNext` after NRI's `VkDebugUtilsMessengerCreateInfoEXT` and `VkValidationFeaturesEXT` (`DeviceVK.hpp:2122`; 1 header line, 3 source lines added, 3 changed) | NRI creates the instance and chained only its own structures, so `VkLayerSettingsCreateInfoEXT` could not reach the layer and layer settings went through environment variables: process-wide, and unseen on Linux and macOS when set from .NET (Device creation and callbacks); a phase 2 proposal |
 
-| 0037 vulkan-swapchain-present-modes-info | `SwapChainVK::Create` chains `VkSwapchainPresentModesCreateInfoKHR` listing the chosen `presentMode` only, when the device has `swapchainMaintenance1` (`SwapChainVK.hpp:372` at v190, `:376` on NRI main, 8 lines) | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (Extensions); one mode is what Vulkan assumes without the structure, so nothing else changes |
-| 0038 vulkan-instance-create-info-next | `DeviceCreationDesc::vkInstanceCreateInfoNext` (`NriOptional const void*`, next to `vkExtensions`): a caller's chain `DeviceVK::CreateInstance` appends to `VkInstanceCreateInfo::pNext` after NRI's `VkDebugUtilsMessengerCreateInfoEXT` and `VkValidationFeaturesEXT` (`DeviceVK.hpp:2104` at v190, `:2122` on NRI main; 1 header line, 3 source lines added, 3 changed) | NRI creates the instance and chained only its own structures, so `VkLayerSettingsCreateInfoEXT` could not reach the layer and layer settings went through environment variables: process-wide, and unseen on Linux and macOS when set from .NET (Device creation and callbacks); a phase 2 proposal |
+- **On `next` (NRI main 72f5f46, 2026-10-23) thirteen of master's patches are gone, fixed upstream**:
+  0003 (7915eca, which also refuses `HAS_BUFFER` at build time), 0004 (a4e562e, another shape:
+  `m_InstanceVersion`; ours still applied on top, so it was removed by hand), 0005 (9b45d77), 0008
+  (5ed8bb6, our table), 0010 (bc3ebe7), 0014 (81245bd, then replaced by PR #285's clamp,
+  Extensions), 0020 (48a14c3, another shape: `COMMON` access, Barriers), 0021 (1163658), 0022
+  (732f737, without the sentinel guard, which 0002 carried and #294 merged), 0023 (2603edc, the sharing mode
+  recorded at creation); and since 2f7a49f: 0032 (af45e72, merged 2026-10-22 in #264, the same
+  rule: automatic segmentation follows the required feature flags), 0033 (57d92ff and af45e72 in
+  the same merge, another shape: `VideoAV1EncodeDecodeInfoDesc::pictureDesc` / `av1PictureDesc`
+  carry the frame type and are required without a header, a key frame also without references;
+  9131c1b answers `UNSUPPORTED` for a payload header on D3D12), and master 0024's
+  `nriEnumerateAdapters2` (962615b, #286: `nriEnumerateAdapters` takes the backends to probe).
+  `next`'s 0024 is the two lines main did not take (`nriCreateDevice` with no adapter probes VK
+  only for a VK device). 0029 and 0034 are re-cut over main's `textureViewDescFixed` (72f5f46)
+  and the creation rollback of #292 (0fade6e, 16f56f7). Their rows and the history are on master.
+  The twenty-two apply in order onto 72f5f46, each also alone, and each passes the scripts' `-C0`
+  reverse check (measured 2026-10-23). 0037 and 0038 (2026-10-24) are `next`'s own, cut from a
+  scratch clone at 72f5f46 with the twenty-two committed; all twenty-four apply in order onto
+  72f5f46, 0037 and 0038 also alone, and pass the `-C0` reverse check (measured 2026-10-24). 0036 (the D3D12 resolve backport) is dropped here, main
+  has 48d4a33. **On NRI main 83fd010 (2026-10-26) seven more are gone**, the filed N reports,
+  each fixed upstream two days after filing, and each test passes on 83fd010 without its patch
+  (Windows, NVIDIA, VK and D3D12; lavapipe; 2026-10-26): 0025 (N1, #295, 0593d91: our line, plus
+  validation of `streamIndex` and of `bindingSlot` and the `SetVertexBuffers` slot range against
+  `streamMaxNum`), 0026 (N2, #296, 8a8fc2b: the same rule through `streamNum`), 0027 (N3, #297,
+  909a139: the same fallback to the stencil attachment), 0028 (N4, #298, c8fe3b2: the same rule,
+  also in D3D11), 0030 (N6, #299, 1dc13b2: the same mask; its message says "fixed #300"), 0031
+  (N7, #300, 561e2be, another shape: `GetResourceDesc` asks for
+  `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT` for an `ACCELERATION_STRUCTURE_STORAGE`
+  buffer, and the micromap one for `MICROMAP_STORAGE`, under tight alignment, and `GetMemoryDesc`
+  keeps the requested floor; the placed-TLAS test traces at 2,816), 0034 (N10, #301, 9d276c3 and
+  aa23763: `CreateImplementation` returns `OUT_OF_MEMORY` for a null allocation in every backend,
+  and validation wraps through `DeviceVal::WrapImplementation`, which destroys the backend object
+  when its wrapper allocation fails; `AllocationFailureTests` pass). Upstream's helper covers the
+  shared objects of `next`'s 0002 too (they are created through the ordinary `CreateCommitted*`
+  and `CreateFence` paths); 0002 has no allocation checks of its own since its 2026-10-23
+  rewrite. 0002 is re-cut over 9d276c3, which creates the Vulkan latency fence through
+  `CreateImplementation<FenceVK>(m_LatencyFence, 0)`: the re-cut passes a `FenceDesc` (0002's
+  `FenceVK::Create` takes one), nothing else changed. 0006, 0009, 0013, 0015-0019, 0024, 0029, 0035
+  and 0038 are re-cut for line offsets only (a scratch clone at 83fd010 with the earlier patches
+  committed, `git diff` against that commit), 0007, 0012 and 0037 unchanged. All seventeen apply
+  in order onto 83fd010, each also alone, and each passes the `-C0` reverse check (measured
+  2026-10-26). 0029 (N5) and 0035 (N11) were not filed and main has not touched those lines.
+  **On NRI main b5f5c62 (2026-10-27) 0002 is gone too**: PR #294 was merged as eb4ed356 (with the
+  maintainer's eecb4cfd and 93a542a8 on the branch) and polished on main in f18c6df9 and d0f5ce49
+  (Shared handles). 0001, 0006, 0013, 0015, 0017 and 0038 are re-cut for line offsets only (a
+  scratch clone at b5f5c62 with the earlier patches committed, `git diff` against that commit;
+  only `@@` and `index` lines changed), the other ten unchanged. All sixteen apply in order onto
+  b5f5c62, each also alone, and each passes the `-C0` reverse check (measured 2026-10-27).
+  **At v191 (46c93d79, 2026-11-03) five more are gone**, the issues filed on 2026-10-27, each fixed
+  upstream within a day: 0016 (#302, 9764221e, another shape: `GetEffectiveShaderStages` resolves
+  `ALL` and `ALL_SHADERS` to the layout's stages in every backend and in validation, which also
+  refuses a mask with non-shader bits), 0006 (#303, 0682d020, our lines), 0009 (#304, c1261950: our
+  two lines, a third for `WaitForPresent`, and `ReportMessage` demotes an `OUT_OF_DATE` report to
+  `WARNING`), 0035 (#305, 14a61d47, our lines), 0029 (#306, 71d3c586, another shape: D3D11 and D3D12
+  build a `TEXTURE` / `STORAGE_TEXTURE` / `TEXTURE_CUBE` view of a later layer as a one-layer array
+  view, so the view addresses the asked layer; validation now refuses `layerOffset` only for a 3D
+  texture and for a D3D11 `STORAGE_TEXTURE`). Their tests pass on v191 without the patches, the
+  layer test rewritten to assert the layer is addressed (Multisampling, copies and queries). 0007
+  and 0017 are re-cut for line offsets, 0012, 0013, 0015, 0037 and 0038 for `index` lines only
+  (a scratch clone at v191 with the earlier patches committed, `git diff` against that commit), the
+  other four unchanged. All eleven apply in order onto v191, each also alone, and each passes the
+  `-C0` reverse check (measured 2026-11-03). Master went from v190 with thirty-seven patches to
+  v191 with these eleven.
 - Applied by `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0), each skipping already-applied patches: the reverse check runs with `-C0`,
   because a later patch may change a line inside an earlier patch's context, and with full
@@ -463,13 +523,9 @@ configured per machine: the adapter named is whichever one the suite picked on t
 - 0002 was produced as a diff against the tree with 0001 applied, through a temporary index, so the
   patches stay independent; verified by applying in order onto a clean checkout. Re-cut the same way
   for the binary fence (a scratch clone at the tag with 0001 committed, old 0002 applied, edited,
-  `git diff --cached HEAD`); 0003-0021 each also apply alone onto the bare tag (0022 does not: its context is 0020's lines and it names 0002's `EXTERNAL_QUEUE`; nor does 0023: its context in `CommandBufferVK.hpp` and `TextureVK.h` is 0002's lines; 0024 does, though it is cut over 0001-0023, and so do 0025-0036, cut over 0001-0024 and each other, and 0037 and 0038, cut on `next` over NRI main 72f5f46 and its patches: both apply onto v190 + 0001-0036 and alone onto the bare tag, measured 2026-10-24). Patches to a
-  file an earlier patch touches (0012-0038 all are, or are cut the same way) are cut from a scratch clone at the tag with
-  the earlier patches committed, `git diff` against that commit. A later patch must not change
-  lines an earlier patch adds (the `-C0` reverse check of the earlier one then fails and the
-  scripts refuse the tree): 0034's checks for the two shared-handle validation wrappers are in
-  0002, re-cut for them on 2026-10-22 (a scratch clone at the tag with 0001 committed, 0002
-  applied and edited, `git add -A`, `git diff --cached HEAD`). There is no 0011: it corrected
+  `git diff --cached HEAD`); on master 0003-0021 and 0024-0036 each also apply alone onto the bare tag (0022 and 0023 do not: their context is 0020's and 0002's lines); on `next` all but 0034 did at 72f5f46 (2026-10-23: 0034's `CreateFence` hunk sat on 0002's lines), and all seventeen do at 83fd010 (2026-10-26). 0002 was re-cut once more on `next` (a scratch clone at 2f7a49f with 0001 committed, the old 0002 applied with `--3way`, the conflict and two stale spots fixed, `git diff --cached HEAD`), and again on 2026-10-22 for the null-wrapper checks that 0034 cannot add, and rewritten on 2026-10-23 in the maintainer's shape (a scratch clone at 72f5f46 with 0001 committed, the shape written in place, `git diff` against that commit; 0034 re-cut over it, with the `-C0` rule shaping `DeviceVal::CreateFence`, see Shared handles): a later patch must not change lines an earlier patch adds (the earlier one's `-C0` reverse check then fails and the scripts refuse the tree). Patches to a
+  file an earlier patch touches (0012-0035 all are, or are cut the same way) are cut from a scratch clone at the tag with
+  the earlier patches committed, `git diff` against that commit; 0025-0035 are master's cuts over v190 + 0001-0024, which applied onto 2f7a49f with line offsets (2026-10-22); on 72f5f46 0029 and 0034 are re-cut (2026-10-23). There is no 0011: it corrected
   the `queuedFrameNum` header comment only, and a comment is knowledge, not a patch (owner,
   2026-10-16); the fact lives below under Extensions and in the binding's docs.
 - Patch 0007 inserts three lines at `CMakeLists.txt:126`; upstream line numbers past that are three
@@ -545,11 +601,16 @@ configured per machine: the adapter named is whichever one the suite picked on t
   errors, types gone.)
 - NRI's headers have zero C++ default member initializers (`NriDefault` unused), so generator-dropped
   defaults cannot happen here. C `bool` is `byte` with `[NativeTypeName("bool")]`.
-- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 273 structs, 1,845 offsets (1,844 before
-  patch 0038 added a field; 1,840 before patches 0017-0019 and 0033 added one each), 55 fixed buffers, 96 enums, 4 bitfields (exact
-  bytes written), 238 function-pointer fields, 20 `DllImport`s (19 before patch 0024); zero
-  mismatches on x64 (win-x64 at 1,845, 2026-10-24) and arm64 (the macOS CI job, last run before
-  patch 0017). Blind to calling convention, `const`, reference vs pointer,
+- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang): 275 structs, 1,880 offsets, 56 fixed
+  buffers and 95 enums on both branches at v191 (bfa4a703, 2026-11-03; unchanged from `next` at 8f1abefc on NRI main b5f5c62, 2026-10-27; 1,879 at 9fa9e14 on 83fd010 + 0002, before
+  f18c6df9's `CoreInterface::DestroySharedHandle`; 1,877 before 0002's `BufferBarrierDesc` queues; main's video descs, `DescriptorSetBits` gone,
+  the `shared` fields, `FenceDesc` and feature bits; 1,876 before 0038's `vkInstanceCreateInfoNext`); 273 structs, 1,845 offsets, 55 fixed buffers and 96 enums on master at v190
+  (1,844 before patch 0038, 1,840 before patches 0017-0019 and 0033 added a field each); 4 bitfields (exact bytes
+  written),
+  238 function-pointer fields on `next` (237 before `DestroySharedHandle`) and 238 on master (the
+  extension table), 19 `DllImport`s on
+  `next` (20 on master, with patch 0024's `nriEnumerateAdapters2`); zero mismatches on x64
+  (win-x64, 2026-11-03 at v191; before, 2026-10-27 on `next` and 2026-10-24 on master at v190) and arm64 (the macOS CI job, last run before patch 0017). Blind to calling convention, `const`, reference vs pointer,
   `bool` vs `uint8_t`. The anonymous union in `BottomLevelGeometryDesc` is checked as outer offsets.
 - **`nriGetInterface` checks the table size itself**: mismatch = `INVALID_ARGUMENT` after both sizes
   are reported through the message callback (`Source/Creation/Creation.cpp`). A drifted table fails
@@ -572,13 +633,13 @@ configured per machine: the adapter named is whichever one the suite picked on t
   caller's and NRI cannot write into its tail. It must not repeat NRI's two structures
   (VUID-VkInstanceCreateInfo-sType-unique). Binding: `NriDeviceOptions.VkInstanceCreateInfoNext`,
   a raw pointer the caller owns until `NriDevice.Create` returns; `CreateFromVulkan` has no such
-  option (the instance is the caller's). Measured at bf88835 on `next` and on master at v190 + 0001-0036 (2026-10-24;
-  `LayerSettingsTests`; NVIDIA RTX 4070 SUPER, layer 1.4.341, Windows; lavapipe, layer 1.4.363, WSL): a `VkLayerSettingsCreateInfoEXT`
+  option (the instance is the caller's). Measured at bf88835 (`LayerSettingsTests`; NVIDIA RTX
+  4070 SUPER, layer 1.4.341, Windows; lavapipe, layer 1.4.363, WSL): a `VkLayerSettingsCreateInfoEXT`
   with `VK_LAYER_KHRONOS_validation` / `validate_best_practices` = `VK_TRUE` gives the committed
   64 KiB buffer's `BestPractices-vkBindBufferMemory-small-dedicated-allocation` warning, a device
   created just before without it does not, no ERROR either way and no `VK_EXT_layer_settings`
   in the enabled extensions needed. With the header but `CreateInstance` unpatched the setting is
-  ignored and the test fails, on NRI main and on v190 alike. So unlike the environment-variable tests this one runs on Linux.
+  ignored and the test fails. So unlike the environment-variable tests this one runs on Linux.
 - **Null `AbortExecution` kills the process.** NRI's `CheckAndSetDefaultCallbacks` installs a
   handler that calls `DebugBreak()`; `ReportMessage` calls it for every report whose result is
   positive (`FAILURE`, `INVALID_ARGUMENT`, ..., `SharedExternal.hpp:927`), which is every ERROR
@@ -607,10 +668,11 @@ configured per machine: the adapter named is whichever one the suite picked on t
   desc from the physical device. A consumer measured on an RTX 4070 SUPER (their numbers): 53-57
   ms for the D3D probe, about 60 ms per Vulkan device creation, `D3D12Core.dll` resident for the
   process's life after a windowless Vulkan run, and RivaTuner labelling the process D3D12 until the
-  Vulkan swap chain appears. Patch 0024: `nriEnumerateAdapters2(graphicsAPIs, ...)` runs only the
-  passes of the asked APIs; `nriEnumerateAdapters` is it with every bit; `nriCreateDevice` with a
-  null desc enumerates VK only for a VK device and everything otherwise (a D3D-only enumeration
-  would change the D3D12 desc above). Measured here (`AdapterEnumerationTests`, NVIDIA RTX 4070
+  Vulkan swap chain appears. Master's patch 0024 added `nriEnumerateAdapters2(graphicsAPIs, ...)`,
+  which runs only the passes of the asked APIs; NRI main's 962615b (#286) gives
+  `nriEnumerateAdapters` itself the backends to probe (`GraphicsAPI::ALL` by default), and
+  `next`'s 0024 is the two lines left: `nriCreateDevice` with a null desc probes VK only for a VK
+  device and everything otherwise (a D3D-only enumeration would change the D3D12 desc above). Measured here (`AdapterEnumerationTests`, NVIDIA RTX 4070
   SUPER, Windows, children of the test executable): `d3d12.dll` and `dxgi.dll` were loaded as soon
   as NRI.dll was (load-time imports, before any enumeration; delay-loaded since 54e3637, see
   "NRI.dll loads no D3D module" below); a VK-only enumeration (1 adapter)
@@ -813,9 +875,10 @@ configured per machine: the adapter named is whichever one the suite picked on t
     allocations, each refusing with 3, then with 2 once a buffer is disposed.
 - **`NriSharedHandle` is a sealed class whose `Dispose` closes once.** As a `readonly record
   struct`, disposing it twice or disposing a copy closed the value again, and the process may by
-  then have reused that value for another handle. `Dispose` now takes the value with
-  `Interlocked.Exchange` and closes it; later calls find 0 (`Handle` reads 0, `IsValid` false). No
-  finalizer, as everywhere. Measured (`InteropTests`): Windows hands a closed value to the next
+  then have reused that value for another handle. `Dispose` now releases the object with
+  `Interlocked.Exchange` and closes the handle (since 2026-10-27 on `next` through NRI's
+  `DestroySharedHandle`, Shared handles); later calls find it released (`Handle` reads 0, `Type`
+  `NONE`, `IsValid` false). No finalizer, as everywhere. Measured (`InteropTests`): Windows hands a closed value to the next
   handle the process opens (every time in 20,000 close-and-create pairs, also with four threads
   churning handles), and a second `Dispose` leaves that handle open.
 
@@ -835,7 +898,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
   256 for acceleration-structure storage; Vulkan textures 1,024. D3D12 buffers 128 for every usage;
   textures 4 KiB up to a 64x64 RGBA8 shader resource, 64 KiB when larger or an attachment, 4 MiB
   with 4 samples.
-- **`AllocateAndBindMemory` packed the last buffer and the last texture unsorted (N11, patch 0035).**
+- **`AllocateAndBindMemory` packed the last buffer and the last texture unsorted (N11, patch 0035; NRI
+  #305, 14a61d47, v191).**
   - NRI's helper sorts each kind by memory type, then ascending alignment, before packing, but ends
     the range at `&buffers[bufferNum - 1]` and `&textures[textureNum - 1]`, which `std::sort`
     excludes (`HelperInterface.hpp:559`, `:571` at v190, `:558`, `:570` on main; since b5e2b07,
@@ -871,7 +935,11 @@ configured per machine: the adapter named is whichever one the suite picked on t
   barriers"); `PipelineLayoutD3D12` maps it to `ALL_SHADERS`, `PipelineLayoutVK` never reads it,
   and upstream `DeviceVal` masked each range's stages with it (0), refusing any explicit range
   ("not compatible with 'shaderStages'") and, in `CreateGraphicsPipeline`, every shader ("not
-  enabled in the pipeline layout"). The patch maps it the D3D12 way in both checks.
+  enabled in the pipeline layout"). The patch maps it the D3D12 way in both checks. NRI #302
+  (9764221e, v191) resolves `ALL` and `ALL_SHADERS` to the layout's stages everywhere, and the
+  header now says so (`NRIDescs.h`: "For descriptor and root visibility, ALL and ALL_SHADERS resolve
+  to PipelineLayoutDesc::shaderStages"); `PipelineTests.A_layout_with_ShaderStages_ALL_takes_explicit_range_stages_and_pipelines`
+  passes on v191 without the patch.
 - **Vertex stride**: `VertexBufferDesc::stride` is what the draw uses on D3D12 (always) and on
   Vulkan with `features.extendedDynamicState` (forced on for 1.3+; `vkCmdBindVertexBuffers2`),
   where the pipeline's `VertexStreamDesc::stride` is not even written into the pipeline;
@@ -913,7 +981,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
 
 ### Barriers
 
-- **D3D12 texture barrier side with access `NONE` and a defined layout (patch 0020).**
+- **D3D12 texture barrier side with access `NONE` and a defined layout (master: patch 0020;
+  `next`: NRI 48a14c3, another shape, end of this entry).**
   `GetBarrierSyncFlags(stages, access)` (`CommandBufferD3D12.hpp:84`) derives `D3D12_BARRIER_SYNC`
   from the stages alone (NONE -> `SYNC_NONE`, ALL -> `SYNC_ALL`, else bits) and
   `GetBarrierAccessFlags` maps `AccessBits::NONE` to `ACCESS_NO_ACCESS`; the texture conversion
@@ -939,8 +1008,14 @@ configured per machine: the adapter named is whichever one the suite picked on t
   and useful after a semaphore wait, so the Vulkan translation stays). NRI validation does not
   check the rule. Buffer and global barriers have no layout and the layer accepts them: not
   touched. A consumer hit it on the first submit of a frame for textures another queue had
-  finished.
-- **`CmdZeroBuffer`'s stage (patch 0021).** D3D12 `ZeroBuffer` (`CommandBufferD3D12.hpp:2160`) is
+  finished. Upstream fixed it differently (48a14c3, #281): such a side with stages gets
+  `D3D12_BARRIER_ACCESS_COMMON` and keeps the stages' sync ("conservative COMMON access to preserve
+  execution dependencies (may flush caches)", `NRIDescs.h`), and only a side with stages `NONE`
+  stays `NO_ACCESS` / `SYNC_NONE`. The maintainer's reason: forcing `SYNC_NONE` discards the
+  execution dependency the caller asked for, which Vulkan needs anyway after a semaphore wait.
+  Measured on `next` (same test, Agility 1.619): all six shapes clean, and not a single message,
+  so no warning for `COMMON` as a before-access, which the enhanced-barriers spec advises against.
+- **`CmdZeroBuffer`'s stage (master: patch 0021; `next`: NRI 1163658, the same change).** D3D12 `ZeroBuffer` (`CommandBufferD3D12.hpp:2160`) is
   `CopyBufferRegion` from a zero buffer: sync scope `COPY`. Vulkan `ZeroBuffer`
   (`CommandBufferVK.hpp:2496`) is `vkCmdFillBuffer`; the spec puts it in the Clear Commands chapter
   ("Filling Buffers") and its page calls it a "transfer" operation for barriers;
@@ -972,7 +1047,9 @@ configured per machine: the adapter named is whichever one the suite picked on t
   `TRANSFER_WRITE`) already covers the fill. A `COPY` barrier now also orders the clear commands
   `CmdClearStorage` records: a wider scope, not a different one.
 - **Copy queues: `COPY_SOURCE` / `COPY_DESTINATION` on every queue, `srcQueue` / `dstQueue` on
-  the hand-off (patch 0022).** Two backend facts meet here. Vulkan's copies hard-code the transfer
+  the hand-off (master: patch 0022; `next`: NRI 732f737, the same mapping, plus a header line
+  asking for both queues on a hand-off whatever the sharing mode; patch 0002 adds the sentinel
+  guard upstream has no reason to have).** Two backend facts meet here. Vulkan's copies hard-code the transfer
   layouts: `CommandBufferVK.hpp` `CopyTexture` (`:2207-2224`), `ResolveTexture` (`:2291-2324`),
   `UploadBufferToTexture` (`:2394`, `:2408`) and `ReadbackTextureToBuffer` (`:2477`, `:2492`) pass
   `VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL` / `TRANSFER_DST_OPTIMAL`, so a texture in `GENERAL` cannot
@@ -1033,7 +1110,11 @@ configured per machine: the adapter named is whichever one the suite picked on t
   `CrossQueueCopyTests.A_texture_uploaded_on_the_COPY_queue_is_read_on_GRAPHICS_with_the_copy_layouts`
   holds it on both backends with the layers on, CONCURRENT and EXCLUSIVE, and compares the
   readback with the upload.
-- **No queue family ownership transfer on `CONCURRENT` images (patch 0023).** The spec defines a
+- **No queue family ownership transfer on `CONCURRENT` images (master: patch 0023; `next`: NRI
+  2603edc, which records `m_IsConcurrent` from `info.sharingMode` right after `FillCreateInfo`,
+  writes `IGNORED` on both sides for such an image and keeps the indices for wrapped images, with a
+  TODO; patch 0002 keeps the external family there and sets the flag in its own create path).**
+  The spec defines a
   transfer for an EXCLUSIVE image whose two indices differ, or for a CONCURRENT image with
   `VK_QUEUE_FAMILY_EXTERNAL` / `FOREIGN` on one side and `IGNORED` on the other (VUIDs 09117 /
   09118 constrain EXCLUSIVE images only); `NRIDescs.h` says "Queue ownership transfer is
@@ -1085,7 +1166,13 @@ configured per machine: the adapter named is whichever one the suite picked on t
   through `VK_KHRONOS_VALIDATION_VALIDATE_BEST_PRACTICES` in the process environment, skips where
   .NET does not write it, the 64 KiB buffer marker as in `TextureTests`) and
   `A_release_and_acquire_naming_different_transitions_is_an_error_only_on_an_EXCLUSIVE_image`.
-- **The limit of 0020's layout-only side.** `SYNC_NONE` / `NO_ACCESS` on a before side says the
+- **The limit of a layout-only side.** On `next` (48a14c3) only a side with stages `NONE` is
+  layout-only, and the refusal below applies only there: measured
+  (`D3D12DebugLayerTests.After_an_access_in_the_same_list_only_a_before_side_without_stages_is_refused_on_D3D12`)
+  after an upload in the same list, `{NONE, COPY_DESTINATION, COPY}` is clean, `{NONE,
+  COPY_DESTINATION, NONE}` draws 1417, `{COPY_DESTINATION, COPY_DESTINATION, COPY}` is clean; the
+  header says "StageBits::NONE requires no accesses or barriers to the affected subresources on
+  that side within the same QueueSubmit scope". On master, patch 0020's: `SYNC_NONE` / `NO_ACCESS` on a before side says the
   subresource was not accessed earlier in the same `ExecuteCommandLists`; the debug layer checks
   it against the list. Measured (`D3D12DebugLayerTests.A_layout_only_side_after_an_access_in_the_same_list_is_refused_on_D3D12`,
   NVIDIA, Agility 1.619): `{UNDEFINED}` -> `{COPY_DESTINATION}`, `UploadBufferToTexture`, then
@@ -1099,7 +1186,25 @@ configured per machine: the adapter named is whichever one the suite picked on t
   resource another submit finished with, otherwise name the access that came before. Reported by
   a consumer; documentation, not a patch.
 - **From the consumer's runs (2026-10-16):** patch 0021 holds;
-  patch 0020's barrier has not yet been exercised by a frame with a texture to transition.
+  patch 0020's barrier has not yet been exercised by a frame with a texture to transition. On
+  `next` both are upstream's.
+- **Attachment resolves are explicit in barriers (NRI 48d4a33, `next` only).** New stage
+  `RESOLVE_ATTACHMENT` and accesses `RESOLVE_ATTACHMENT_SOURCE` / `_DESTINATION`, umbrellas
+  `ALL_ATTACHMENT` and `ALL_RESOLVE`; `GRAPHICS` and `ALL_ATTACHMENT` no longer include resolves.
+  Every `StageBits` value from bit 20 up and every `AccessBits` value from bit 22 up moved (`COPY`
+  20 -> 22, `CLEAR_STORAGE` access 22 -> 24, ...): a managed build from one branch and an
+  `NRI.dll` from the other disagree on those bits without any check failing (Branches). The
+  header now asks to add `RESOLVE_ATTACHMENT_SOURCE` access and the `RESOLVE_ATTACHMENT` stage to
+  a multisampled attachment's barriers, to prepare `resolveDst` with `RESOLVE_ATTACHMENT_DESTINATION`
+  and `RESOLVE_ATTACHMENT`, and says resolve views cannot use `GENERAL` or `INPUT_ATTACHMENT`
+  layouts and `SIMULTANEOUS` textures are not supported. Vulkan maps the stage onto
+  `COLOR_ATTACHMENT_OUTPUT` (`ConversionVK.h:394`); D3D12 reads the resolve access to drive its own
+  transitions around the resolve at `EndRendering` (`CommandBufferD3D12.hpp:458`, `:480`).
+  Measured (`AttachmentResolveTests`, NVIDIA, Agility 1.619, VVL 1.4.341): a 4x RGBA8 triangle
+  resolved through `resolveDst` into a single-sample texture and read back, once with the new
+  names and once with v190's colour-attachment barriers on both textures: all four clean, the same
+  pixels. Barriers written for v190 keep working for a plain attachment resolve; the new names are
+  what the header asks for.
 - **One recording command buffer per allocator (knowledge, not patched).** D3D12 `Begin`
   (`CommandBufferD3D12.hpp:856`) is `ID3D12GraphicsCommandList::Reset(m_CommandAllocator)`, refused
   for a second open list on the same allocator. Measured (`D3D12DebugLayerTests.A_second_command_buffer_of_one_allocator_cannot_begin_while_the_first_records_on_D3D12`,
@@ -1207,19 +1312,18 @@ Measured by `MultisampleTests`, `TextureCopyTests` and `QueryTests`.
     integer format reports `MULTISAMPLE_RESOLVE` there, so integer MIN/MAX cannot pass NRI
     validation.
   - An attachment resolve equals `ResolveTexture` byte for byte.
-- **D3D12 non-array views ignored `layerOffset` (N5, patch 0029: refused).** A `STORAGE_TEXTURE`
-  view of layer 1 cleared layer 0 on D3D12 and layer 1 on Vulkan, with no message (v190). D3D12's
-  non-array 1D, 2D, 2DMS and cube views have no array slice (`DescriptorD3D12.hpp:164-167` for
-  the 2D SRV; since the initial commit, 0c5f574), so no D3D12 view of that type can address
-  another layer, and an array view would not match the shader's non-array declaration. Patch 0029
-  refuses such a view (`TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE`, `TEXTURE_CUBE` of a 1D or 2D
-  texture with `layerOffset` != 0) in NRI validation on every backend, naming the `_ARRAY` types.
-  Until 2026-10-26 the D3D12 backend refused it too; that half was dropped for NRI's coding
-  standard (public-input checks live in Validation only, a backend assumes validated descriptors),
-  so without NRI validation D3D12 silently addresses the first layer as upstream does.
-  `TextureCopyTests.A_non_array_view_of_a_layer_other_than_the_first_is_refused` checks TEXTURE
-  and STORAGE_TEXTURE at layer 1 and TEXTURE_CUBE at layer 6, with NRI validation on both backends.
-  Use the `_ARRAY` view types.
+- **D3D12 non-array views ignored `layerOffset` (N5; patch 0029 refused them; NRI #306 addresses
+  the layer since v191).** A `STORAGE_TEXTURE` view of layer 1 cleared layer 0 on D3D12 and layer 1
+  on Vulkan, with no message (v190): D3D12's non-array 1D, 2D, 2DMS and cube views have no array
+  slice (`DescriptorD3D12.hpp:164-167` for the 2D SRV at v190; since the initial commit, 0c5f574).
+  Patch 0029 refused such a view in NRI validation (and, until 2026-10-26, in the D3D12 backend).
+  NRI #306 (71d3c586, v191) took another shape: D3D11 and D3D12 build the view as an array view of
+  one layer (six for a cube), so the view addresses `layerOffset` on every backend, and validation
+  refuses `layerOffset` only for a 3D texture and for a D3D11 `STORAGE_TEXTURE`.
+  `TextureCopyTests.A_non_array_view_of_a_layer_other_than_the_first_addresses_that_layer` holds
+  both backends to it: the `STORAGE_TEXTURE` view of layer 1 cleared with `CmdClearStorage` fills
+  layer 1 and leaves layer 0's bytes, and `TEXTURE` at layer 1 and `TEXTURE_CUBE` at layer 6 are
+  created without a message (NVIDIA, VK and D3D12, 2026-11-03).
 - **A storage view over several mips** is cleared whole by Vulkan's `ClearStorage` and only at mip 0
   by D3D12, whose UAV addresses one mip. Use one mip per storage view.
 - **Occlusion queries.** NRI begins Vulkan occlusion queries without `VK_QUERY_CONTROL_PRECISE_BIT`,
@@ -1277,6 +1381,23 @@ Measured by `DebugAidTests`.
 
 ### D3D12 and the Agility SDK
 
+- **Agility 1.620 reports every legacy `CheckFeatureSupport` as deprecated (NRI #307, D3D12MA #102).**
+  v191 moved NRI's Agility pin from 1.619.6 to 1.620.1 (c33dd915), whose debug layer reports each
+  `ID3D12Device::CheckFeatureSupport` as `D3D12_MESSAGE_ID_DEPRECATED_API` (989), a WARNING:
+  "ID3D12Device::CheckFeatureSupport is superseded by ID3D12Device16::CheckFeatureSupport1. Move to
+  CheckFeatureSupport1 and pass your Agility SDK version ...". 33 per D3D12 device creation on NVIDIA
+  and WARP (2026-11-03); the answers are unchanged. NRI v191 has 29 such calls in `DeviceD3D12.hpp`
+  (the `ID3D12VideoDevice` and DXGI `CheckFeatureSupport` calls are other interfaces and do not warn)
+  and D3D12MA, which NRI builds in, six in its initialisation. Filed upstream by another user on
+  Intel Arc (#307, 2026-11-03); D3D12MA's maintainer fixed his part on his fork (#102: the SDK
+  version from `ID3D12DeviceConfiguration::GetDesc().SDKVersion`, the legacy call when it is 0), to
+  be merged later. A prototype of NRI's part (not committed; `ID3D12DeviceBest` =
+  `ID3D12Device16`, the SDK version taken the way D3D12MA does, one helper the 29 calls go through)
+  left 6 warnings per device, D3D12MA's; device, device-lost and Agility tests passed on NVIDIA and
+  WARP, and the whole suite on NVIDIA but for `AgilityFactoryRouteTests`, which expects `Using
+  ID3D12Device15` and then reads 16. The device-lost child, which fails on any warning during
+  creation (a DRED warning means no diagnostics), allows exactly these, matched by ID and text, and
+  fails when none remain, so the allowance goes when both fixes reach NRI (Tests and skips).
 - **Agility does not load in a managed process.** NRI's CMake writes `Include/NRIAgilitySDK.h`
   declaring `D3D12SDKVersion` / `D3D12SDKPath` exports for the host executable; `dotnet.exe`,
   `testhost.exe` and apphosts export nothing, so the inbox runtime runs. Symptom:
@@ -1368,7 +1489,7 @@ Measured by `DebugAidTests`.
 
 ### Vulkan loader and validation layers
 
-- **Old loader, new driver: patch 0004.** Ubuntu 24.04's stock loader 1.3.275 with Mesa 25 lavapipe
+- **Old loader, new driver: patch 0004 (master; on `next` NRI a4e562e, which caps the version the same way in the non-wrapped branch).** Ubuntu 24.04's stock loader 1.3.275 with Mesa 25 lavapipe
   reporting 1.4.318. NRI took `m_MinorVersion = 4` from the physical device; Mesa returns null for
   core 1.4 entry points when the instance is 1.3. Two failures:
   `DescriptorTests.Several_sets_are_allocated_and_written_...` SIGSEGV at address 0 in
@@ -1395,15 +1516,16 @@ Measured by `DebugAidTests`.
 ### Lavapipe
 
 - Mesa 25.2.8 "llvmpipe (LLVM 20.1.2, 256 bits)", Vulkan 1.4.318, on the stock 1.3 loader -> NRI runs
-  it as a 1.3 device (patch 0004).
+  it as a 1.3 device (patch 0004 on master, a4e562e on `next`).
 - **No external semaphores**: has `VK_KHR_external_memory_fd`, not `VK_KHR_external_semaphore_fd`;
-  `SharedHandleInterface` is `UNSUPPORTED`, `TrySharedHandles` null; `SharedHandleTests` skip naming
-  both extensions (`SharedHandleTests.cs`).
+  on `next` `features.sharedResources` is 1 and `features.sharedFences` 0, so shared buffers and
+  textures export (fd) and the fence tests skip naming the extension (`SharedHandleTests.cs`).
+  On master (the extension shape) `SharedHandleInterface` is `UNSUPPORTED` and `TrySharedHandles` null.
 - **Slow first submit**: shaders are JIT-compiled when the command buffer executes; with a cold Mesa
   shader cache a ray tracing submit took 0.6 s on a Ryzen 9700X and passed NRI's 5 s fence timeout
   under load. That was the "ray query miss" (CI runners and flakes, item 1), not a traversal bug.
 - **One queue family**: GRAPHICS and COPY queues are both family 0 (`CrossQueueCopyTests`), so no
-  barrier is a queue family ownership transfer there; the two 0023 tests skip naming it.
+  barrier is a queue family ownership transfer there; the two concurrent-image tests skip naming it.
 - `GALLIUM_OVERRIDE_CPU_CAPS=avx` or `sse4.1` makes lavapipe die with an illegal instruction before
   any test runs; not usable for narrowing.
 
@@ -1444,7 +1566,8 @@ extensions.
 - **Sampler LOD bias, patch 0006**: VUID-VkSamplerCreateInfo-samplerMipLodBias-04467 "mipLodBias
   (portability error) is 0.500000, but samplerMipLodBias not supported". MoltenVK:
   `samplerMipLodBias = false`, `maxSamplerLodBias = 15.999`. After the patch the device reports 0;
-  `DescriptorTests.Sampler_is_created_from_a_filled_desc` uses `min(0.5, samplerLodBiasMax)`.
+  `DescriptorTests.Sampler_is_created_from_a_filled_desc` uses `min(0.5, samplerLodBiasMax)`. NRI #303
+  (0682d020, v191) carries the patch's lines.
 - **`HOST_TRANSFER` image crash**: SIGSEGV (exit 139) in
   `TextureTests.Committed_2D_texture_is_created_with_each_usage(VK, HOST_TRANSFER)`. lldb:
   `EXC_BAD_ACCESS (address=0xc)` in `AppleParavirtGPUMetalIOGPUFamily` <-
@@ -1479,7 +1602,7 @@ extensions.
 
 ### Ray tracing
 
-- **`HAS_BUFFER` crash in validation (patch 0003)**: `NRIRayTracing.h` defines `HAS_BUFFER` as
+- **`HAS_BUFFER` crash in validation (master: patch 0003; `next`: NRI 7915eca, which also refuses the sentinel in `CmdBuildBottomLevelAccelerationStructures`)**: `NRIRayTracing.h` defines `HAS_BUFFER` as
   `(Buffer*)1`; backends test for it, validation's `ConvertBottomLevelGeometries` passed it through
   `NRI_GET_IMPL` -> method call on address 1 -> access violation with no message, first
   `CreateCommittedAccelerationStructure` with the sentinel. `NriBuffer.HasBuffer` is the binding's
@@ -1594,36 +1717,157 @@ extensions.
 
 ### Shared handles
 
-- Vulkan backend (patch 0002) enables `VK_KHR_external_memory_win32`/`_fd` and
+- **Shape on `next`: NRI's own since #294** (merged 2026-10-27 as eb4ed356; the shape the
+  maintainer chose on #49, our 0002 until then): `shared` on `BufferDesc` and `TextureDesc`,
+  `FenceDesc { initialValue, shared }` for `CreateFence`, the three Core getters beside
+  `Get*NativeObject`, `CoreInterface::DestroySharedHandle` (f18c6df9), `features.sharedResources`
+  / `sharedFences`, `EXTERNAL_QUEUE` in `NRIDescs.h`. Binding: `NriDevice.CreateSharedBuffer` /
+  `CreateSharedTexture` (committed, `DEVICE`), `CreateSharedFence` / `CreateSharedBinaryFence`,
+  `NriBuffer` / `NriTexture` / `NriFence.GetSharedHandle()`, `NriSharedHandle { Handle, Type,
+  Size }` in `dotnet/Core`; no extension object. v191 carries the merged form, and master took it
+  with v191 (2026-11-03); master's extension shape (`NRISharedHandle.h`, `device.SharedHandles`) is gone.
+- **What the maintainer changed when merging** (eecb4cfd and 93a542a8 on the branch, f18c6df9 and
+  d0f5ce49 on main, 2026-10-27):
+  - `CoreInterface::DestroySharedHandle(SharedHandle&)`: a `static inline` helper in
+    `SharedExternal.h`, the same entry in every backend's table and Validation's, that closes the
+    handle by its type (`CloseHandle` for `OPAQUE_WIN32` / `D3D12_RESOURCE` / `D3D12_FENCE` on
+    Windows, `close` for `OPAQUE_FD` elsewhere) and clears the struct. It takes no device.
+  - Export support is asked before a shared object is created: `BufferVK::Create`
+    `vkGetPhysicalDeviceExternalBufferProperties`, `TextureVK::Create`
+    `vkGetPhysicalDeviceImageFormatProperties2` with `VkPhysicalDeviceExternalImageFormatInfo`
+    and the image's sample count, extent, mips and layers against the limits, `FenceVK::Create`
+    `vkGetPhysicalDeviceExternalSemaphoreProperties` for its semaphore type
+    (`DeviceVK::IsSharedFenceSupported`); not exportable is `UNSUPPORTED`, without a message.
+    `features.sharedFences` is reported only when a timeline or a binary semaphore exports.
+  - One `GetQueueFamilyIndex` helper for both barrier kinds (our rules), the video-only-buffer
+    test shared (`IsVideoOnly`; 93a542a8: the shared allocation path queried the device address
+    of a video-only buffer, which the ordinary path skips), `CloseSharedHandle` moved to
+    `SharedVK.h`, `EXTERNAL_QUEUE` moved up beside `WHOLE_SIZE` / `REMAINING`.
+  - The comments rewritten: `GetQueue` and `SharingMode` (buffers "follow D3D12: ownership
+    transfers are only needed to or from an external user"), `BufferBarrierDesc::srcQueue` /
+    `dstQueue` ("Only for ownership transfers of shared buffers to or from an external user: use
+    `EXTERNAL_QUEUE` and the local queue executing the barrier"), `SharedHandle` ("After an FD
+    import takes ownership, clear `SharedHandle` instead of destroying it"; "FD 0 is valid").
+
+  Measured here (2026-10-27; NVIDIA, VK and D3D12; lavapipe): every shared-handle test passes
+  unchanged, `features.sharedFences` is 1 on NVIDIA VK and 0 on lavapipe as before; no test needed
+  a change for the new behaviour. No configuration that answers `UNSUPPORTED` has been measured.
+- **`NriSharedHandle` disposes through NRI** (8f1abefc): it captures the device's
+  `DestroySharedHandle` when created and `Dispose` calls it, once (`Interlocked.Exchange`, no
+  finalizer); the handle may outlive its device
+  (`InteropTests.A_shared_handle_outlives_its_device_and_still_closes`). Released, it reads as
+  NRI's cleared struct: `Handle` 0, `Type` `NONE`, `Size` 0. `Detach()` returns the value without
+  closing it and releases the object, for an import that takes ownership (an FD into Vulkan or
+  CUDA), as the header asks; a later `Dispose` does nothing and a second `Detach` throws
+  `ObjectDisposedException` (`InteropTests.Detaching_a_shared_handle_gives_it_up_without_closing_it`,
+  Windows: `GetHandleInformation` still accepts the handle after `Detach` and `Dispose`).
+  `IsValid` takes FD 0 as valid (`OPAQUE_FD`), NT handle 0, -1 and `NONE` as not. The public
+  constructor takes the device whose table closes the handle.
+- Vulkan backend enables `VK_KHR_external_memory_win32`/`_fd` and
   `VK_KHR_external_semaphore_win32`/`_fd` itself (55 device extensions on NVIDIA, up from 53) and
-  allocates the shared texture's memory directly (not VMA) to chain the export info.
-- NVIDIA VK: second `vkGetMemoryWin32HandleKHR` on the same memory returned the same handle value.
-  Tests assert nothing about distinctness.
-- Ordinary texture asked for a handle: `INVALID_ARGUMENT` through validation.
+  allocates a shared resource's memory directly (`DeviceVK::AllocateSharedMemory`, not VMA) to
+  chain the export info; the features report the extensions (and, since d0f5ce49, `sharedFences`
+  only when a timeline or binary semaphore exports). D3D12 reports both true.
+- `SharedHandle::size` is the allocation size on both backends (VK: `VkMemoryAllocateInfo`;
+  D3D12: `D3D12MA::Allocation::GetSize`, what `CUDA_EXTERNAL_MEMORY_HANDLE_DESC::size` takes); 0
+  for a fence.
+- **One Win32 export per object (PR #294 review, item 1).** Vulkan allows one NT-handle export per
+  object and handle type (VUID-VkMemoryGetWin32HandleInfoKHR-handleType-00663,
+  VUID-VkSemaphoreGetWin32HandleInfoKHR-handleType-01127): a repeated `vkGetMemoryWin32HandleKHR` /
+  `vkGetSemaphoreWin32HandleKHR` returns the same `HANDLE` (NVIDIA here, 2026-10-13; the
+  maintainer on an RTX 4080, 2026-10-26: closing the first invalidated the second, no layer
+  message), while NRI's getters promise a caller-owned handle each call. Since the fix NRI exports
+  once per object (`DeviceVK::GetSharedMemoryHandle` / `GetSharedSemaphoreHandle`, the first
+  export under `m_SharedHandleLock`), keeps that handle in the object (`m_SharedHandle`) until the
+  object is destroyed (`CloseSharedHandle` in the destructors) and hands every `GetSharedHandle`
+  a `DuplicateHandle` of it; FD exports stay one per call. `SharedHandleTests` assert two handles
+  of a buffer, texture and fence differ, and `SharedHandleImportTests` close the first before the
+  second imports (VK texture and semaphore). Red before the fix on NVIDIA VK (equal values),
+  green after; D3D12's `CreateSharedHandle` was a new handle each call already.
+- An object that is not shared asked for a handle: `INVALID_ARGUMENT` "'shared' is false"
+  (validation only, from the desc for buffers and textures and `FenceVal`'s `shared` flag for
+  fences; PR #294 review, item 4: the D3D12 and VK backends keep no input checks, only the native
+  work and its error handling). A `shared`
+  resource through `CreateBuffer` / `CreateTexture` / `CreatePlaced*`, or committed outside
+  `DEVICE`: `INVALID_ARGUMENT` from validation naming the rule (D3D12 cannot share an upload or
+  readback heap; Vulkan's shared allocation is not mapped).
 - Import proofs (`SharedHandleImportTests`, Windows): VK texture into a second VK device as a
   dedicated allocation, 16,384 bytes match (same SHA-256); timeline semaphore both ways; D3D12 fence
   both ways; D3D12 texture opens on a second D3D12 device.
+- **CUDA** (`CudaInteropTests`, Windows, the NVIDIA adapter, nothing shipped): the CUDA driver API
+  in `nvcuda.dll` (installed by the driver; the test skips naming it when absent and on a
+  non-NVIDIA adapter) imports a shared buffer (`cuImportExternalMemory`: `OPAQUE_WIN32` for
+  Vulkan, `D3D12_RESOURCE` with `CUDA_EXTERNAL_MEMORY_DEDICATED` for D3D12, `size` = the
+  handle's) and the shared timeline fence (`cuImportExternalSemaphore`: `TIMELINE_SEMAPHORE_WIN32`
+  for Vulkan, `D3D12_FENCE` for D3D12); NRI copies 0x11 in and signals 1, CUDA waits 1, reads 0x11,
+  writes 0x5A and signals 2, NRI's queue waits 2, copies out and signals 3: both directions of
+  memory and synchronisation in one test; a second test renders the triangle into a shared
+  texture, releases it to the external family, and CUDA imports the memory as a mipmapped array
+  (`cuExternalMemoryGetMappedMipmappedArray`, the format, size and `CUDA_ARRAY3D_COLOR_ATTACHMENT`
+  restated, `CUDA_EXTERNAL_MEMORY_DEDICATED` on both backends) and copies level 0 out: 16,384 bytes
+  identical to NRI's readback on VK and D3D12. The CUDA device is matched to the adapter by LUID
+  (`cuDeviceGetLuid` = `adapterDesc.uid.low`). The structs are declared by hand with the offsets
+  of cuda.h 12.9 on x64, measured with a C++ probe (`CUDA_EXTERNAL_MEMORY_HANDLE_DESC` 104 bytes:
+  type 0, handle 8, size 24, flags 32; `..._BUFFER_DESC` 88: offset 0, size 8, flags 16;
+  `..._SEMAPHORE_HANDLE_DESC` 96: type 0, handle 8, flags 24; signal and wait params 144: value
+  0, flags 72; `..._MIPMAPPED_ARRAY_DESC` 120: offset 0, width 8, height 16, depth 24, format 32,
+  channels 36, flags 40, levels 48; `CUDA_MEMCPY2D` 128). `CUDAAPI` is `__stdcall` on Windows.
 - **D3D11 refuses D3D12 shared textures**: `OpenSharedResource1` -> `E_INVALIDARG`, isolated to the
   format: NRI creates every texture `TYPELESS` (`DeviceD3D12::GetResourceDesc`), D3D11 opens typed
-  only. The test asserts the refusal; if D3D11 ever opens it, the header comment in
-  `NRISharedHandle.h` needs revisiting.
-- **Binary shared fence** (`CreateSharedBinaryFence`, patch 0002): VK binary semaphore with
-  `VkExportSemaphoreCreateInfo`; NRI's `QueueSubmit` passes the value, which a binary semaphore
-  ignores, as for swap-chain semaphores. Import proof (Windows, NVIDIA): imported into a binary
-  VkSemaphore on a second device; NRI queue signals -> second queue waits, second queue signals ->
-  NRI queue waits; second device's Khronos layer and NRI's messages clean. D3D12: `UNSUPPORTED`,
-  no message. Upstream 0002 refused the sentinel in validation ("a shared fence can't be a swap
-  chain semaphore"); the extended patch passes it through and marks the `FenceVal` a swap-chain
-  semaphore.
+  only. The test asserts the refusal; if D3D11 ever opens it, the `D3D12_RESOURCE` comment in
+  `NRIDescs.h` needs revisiting.
+- **Binary shared fence** (`CreateSharedBinaryFence`, `FenceDesc { SWAPCHAIN_SEMAPHORE, shared }`):
+  VK binary semaphore with `VkExportSemaphoreCreateInfo`; NRI's `QueueSubmit` passes the value,
+  which a binary semaphore ignores, as for swap-chain semaphores. Import proof (Windows, NVIDIA):
+  imported into a binary VkSemaphore on a second device; NRI queue signals -> second queue waits,
+  second queue signals -> NRI queue waits; second device's Khronos layer and NRI's messages clean.
+  D3D12: `UNSUPPORTED`, no message.
 - Exclusive VK images need a release to `VK_QUEUE_FAMILY_EXTERNAL`; `NriQueue.External` (patch
-  0002's `EXTERNAL_QUEUE`) expresses it. NVIDIA tolerated the omission before.
+  0002's `EXTERNAL_QUEUE`) expresses it. NVIDIA tolerated the omission before. **Buffers too (PR
+  #294 review, item 2)**: `BufferBarrierDesc::srcQueue` / `dstQueue` (binding
+  `NriBufferBarrier.SrcQueue` / `DstQueue`), with the texture rules: `BufferVK` records its sharing
+  mode at creation (`IsConcurrent`; NRI makes a buffer `CONCURRENT` only with more than one active
+  queue family, `EXCLUSIVE` otherwise), an `EXCLUSIVE` buffer's side names the queue's family, a
+  `CONCURRENT` one's is `VK_QUEUE_FAMILY_IGNORED`, and `EXTERNAL_QUEUE` is
+  `VK_QUEUE_FAMILY_EXTERNAL` for either; validation passes the sentinel through as for textures;
+  D3D12 ignores both. The first cut wrote `IGNORED` for every local side, and the CUDA buffer round
+  trip (one queue fetched, so an `EXCLUSIVE` buffer) drew "[1298576651]
+  VUID-vkCmdPipelineBarrier2-srcQueueFamilyIndex-10387: ... pBufferMemoryBarriers[0] has
+  srcQueueFamilyIndex 4294967295 (VK_QUEUE_FAMILY_IGNORED) and dstQueueFamilyIndex 4294967294
+  (VK_QUEUE_FAMILY_EXTERNAL). The command buffer's command pool is associated with family index 0.
+  Source or destination queue family must match queue family associated with the command buffer's
+  command pool." (NVIDIA, layer 1.4.341, 2026-10-26); with the family named it is clean. That round
+  trip now releases to the external family after NRI's write and acquires from it before NRI's
+  read, on both backends. `EXTERNAL_QUEUE` itself is `static NriPtr(Queue) const` (item 3: as a pointer
+  to a const `Queue` it was not assignable to the fields, MSVC C2440); the ABI probe assigns it to
+  a `Queue*`, red before the fix (clang: "cannot initialize a variable of type 'Queue *' with an
+  lvalue of type 'const Queue *'").
+- **Other backends**: D3D11, WGPU and Metal take `FenceDesc.initialValue` and answer `UNSUPPORTED`
+  for `shared` and for the three getters. The D3D11 build was compiled once from the scratch clone
+  with `NRI_ENABLE_D3D11_SUPPORT=ON` against the staged `_deps` (2026-10-24, 0 errors); WGPU
+  (needs the wgpu-native download) and Metal (macOS) are not compiled here, the maintainer's CI
+  covers them.
+- **Patch-file rule met the hard way** (history, 0034 is gone since NRI main 9d276c3): 0034 wrapped
+  validation's `CreateFence` allocation in the `OUT_OF_MEMORY` check, so 0002's hunk there had to
+  end before that line, and 0002 kept upstream's `Allocate` line byte for byte behind a
+  `const uint64_t initialValue` alias; 0034 was the one patch on `next` that did not apply alone.
+- **PR #294 review (2026-10-26, the maintainer, through the Codex connector and confirmed by
+  hand): NoGo with four items**, `FenceDesc` accepted, D3D11 sharing allowed as a follow-up. He
+  merged main 83fd010 into the PR branch himself (038cecbc), so the fixes are four commits on top
+  of his merge, never a force-push: `5e413361` (item 3, the const), `2320cc63` (item 4, checks
+  into Validation), `3a49e381` (item 1, one export + duplicates), `44aff46c` (item 2, buffer
+  barrier queues), then `0a7f3b2b` (the Vulkan `features.shared*` early-outs dropped for the coding
+  standard). Patch 0002 was their squash with the earlier content, re-cut over 83fd010 +
+  0001. Compiled from the scratch clone with D3D11, D3D12 (Agility) and VK on (0 errors). The
+  reply was posted 2026-10-26; **merged 2026-10-27** as eb4ed356 and polished (above), and 0002
+  dropped on `next` at b5f5c62.
 
 ### Extensions
 
 - Availability: NONE supports every extension except the two wrappers; VK everything except
   `WrapperD3D12`; D3D12 everything except `WrapperVK` (feature bits permitting).
 - `Window` in `NRISwapChain.h` is five members side by side, not a union (`descs/NriWindow.cs`).
-- **OUT_OF_DATE (patch 0009, binding `AcquireNextTexture` / `QueuePresent` -> `NriSwapChainStatus.OutOfDate`; an enum so a later suboptimal value needs no API break; VK_SUBOPTIMAL_KHR is SUCCESS in NRI and not surfaced, pending owner decision).**
+- **OUT_OF_DATE (patch 0009; NRI #304, c1261950, v191: no report from acquire, present or `WaitForPresent`, and `ReportMessage` demotes any `OUT_OF_DATE` report to `WARNING`, binding `AcquireNextTexture` / `QueuePresent` -> `NriSwapChainStatus.OutOfDate`; an enum so a later suboptimal value needs no API break; VK_SUBOPTIMAL_KHR is SUCCESS in NRI and not surfaced, pending owner decision).**
   Upstream reports `Message::ERROR` through `NRI_RETURN_ON_BAD_VKRESULT` for it. The validation
   layer passes both results through; D3D12 never returns it from these calls. Measured on NVIDIA
   (RTX 4070 SUPER, driver's VK 1.4), `SwapChainResizeTests`: an NRI-created device has
@@ -1660,7 +1904,7 @@ extensions.
   kept the comment. Fixed the comment, not the code: the code has been the behaviour since, and a +1
   would grow every caller's ring. `StreamerExtensionTests`: with 2, frame 2 reuses frame 0's offset
   (VK, D3D12). Raised by a consumer that sized from the header.
-- **Streamer BC staging (patch 0010).** v190's `StreamTextureData` used `w * stride` per row and `h`
+- **Streamer BC staging (master: patch 0010; `next`: NRI bc3ebe7, the same rows of blocks).** v190's `StreamTextureData` used `w * stride` per row and `h`
   rows (texels; 1c70f5b, v172, replaced the caller's `dataRowPitch` with that). 64x64 BC1 with 7
   mips, measured: mips 0-3 staged in 16 times their block footprint on VK and D3D12 (mip 0 32,768 B
   instead of 2,048); the one-block mips 4x4, 2x2, 1x1 in 128, 32, 16 B on VK (footprint 16 after
@@ -1687,7 +1931,7 @@ extensions.
   flush range per `BufferVK`, which two unlocked callers would clobber), and a reserve-then-fill or
   fence-retired mode (a second allocator inside NRI's streamer; the same ring on core objects
   belongs above NRI).
-- **Swap chain extent with present scaling (patch 0014).** `SwapChainVK::Create` queried
+- **Swap chain extent with present scaling (master: patch 0014; `next`: upstream's clamp, end of this entry).** `SwapChainVK::Create` queried
   `VkSurfacePresentScalingCapabilitiesKHR` but validated `width`/`height` against
   `surfaceCaps.minImageExtent/maxImageExtent` (on Windows both equal the current client size),
   then decided `isScalingSupported` after the check; `minScaledImageExtent` was never read. With
@@ -1696,7 +1940,18 @@ extensions.
   resize child (NVIDIA): a 100x80 swap chain on a 64x64 window, refused before
   ("swapChainDesc.width is out of [64, 64] range"), now creates 100x80 textures and presents 2 of
   2; the wrapped device without scaling still refuses, as it must. Not a clamp: a silently
-  resized swap chain would change what `GetSwapChainDesc` answers.
+  resized swap chain would change what `GetSwapChainDesc` answers. Upstream took our check
+  (81245bd, #277), then a community PR replaced it with exactly such a clamp (PR #285, 2f7a49f,
+  `next`): with present scaling the extent is clamped to the scaled range, without it the surface's
+  current extent is used when defined (the client area on Windows), and a zero extent returns
+  `Result::NOT_READY` (`NRIDescs.h`: "VK: zero surface extent during swap chain creation", a
+  negative result, never reported). Nothing is refused any more. Measured on `next` in the resize
+  child (NVIDIA): 100x80 on a 64x64 window gives 100x80 textures with scaling and 64x64 without;
+  on a 0x0 window the wrapped device without scaling answers `NOT_READY`, while NRI's own device
+  with scaling creates a swap chain anyway, because the driver reports a non-zero scaled range
+  there (the requested 64x64). The binding on `next`: `TryCreateSwapChain` returns
+  `NriSwapChainStatus.NotReady` with no swap chain; `CreateSwapChain` throws `NriException`
+  (`NOT_READY`). Read the real size from the swap chain's textures, not from the desc.
 - **FIFO_LATEST_READY with `VSYNC` (patch 0017).** Upstream `SwapChainVK::Create`
   (`SwapChainVK.hpp:233-242`, since 50d103b, the commit that hooked the mode up) has a capped list
   for `VSYNC` (FIFO_RELAXED with `ALLOW_TEARING`, else FIFO; then FIFO) and an uncapped one
@@ -1721,10 +1976,10 @@ extensions.
 - **Swap chain present modes (patch 0037).** With `swapchainMaintenance1` (NRI enables
   `VK_EXT_swapchain_maintenance1`, `features.resizableSwapChain`), `SwapChainVK::Create` chains
   `VkSwapchainPresentScalingCreateInfoKHR` but not `VkSwapchainPresentModesCreateInfoKHR`
-  (`SwapChainVK.hpp:363-369` at v190, `:368-374` at 72f5f46). Without it Vulkan treats the swap chain as listing its
+  (`SwapChainVK.hpp:368-374` at 72f5f46). Without it Vulkan treats the swap chain as listing its
   `presentMode` only, which is all NRI uses (it never switches modes on present), but the
   Khronos best-practices checks report it once per swap chain. Measured at 204c09c (`next`
-  without the patch) and on master at v190 + 0001-0036 without it (2026-10-24, the same text; NVIDIA RTX 4070 SUPER, layer 1.4.341,
+  without the patch; NVIDIA RTX 4070 SUPER, layer 1.4.341,
   `SwapChainResizeTests.A_Vulkan_swap_chain_with_present_scaling_lists_its_present_modes`, a
   child process with `VK_KHRONOS_VALIDATION_VALIDATE_BEST_PRACTICES=true` in its environment and
   the 64 KiB buffer marker): "[2429328340]
@@ -1733,7 +1988,7 @@ extensions.
   VkCreateSwapchainKHR. When VK_KHR_swapchain_maintenance1 is enabled, a
   VkSwapchainPresentModesCreateInfoKHR should be provided to inform the implementation that the
   application is aware of the new features in a backward compatible way." The patch chains it
-  with the chosen mode alone; with it (66c123c on `next`, master 2026-10-24) the warning is gone and both frames present. The same
+  with the chosen mode alone; at 66c123c the warning is gone and both frames present. The same
   run also showed "BestPractices-vkCreateSwapchainKHR-suboptimal-swapchain-image-count" (the
   test's `TextureNum = 2`, the caller's choice) and, only with implicit layers on, two
   "BestPractices-ImageBarrierAccessLayout: vkCmdPipelineBarrier(): ... accessMask is
@@ -1767,7 +2022,8 @@ extensions.
   - D3D12's AV1 and H.265 encode need no feedback resolve, so `ResolveVideoEncodeFeedback` runs
     nowhere here; Vulkan encode is skipped.
   - H.265 and AV1 decodes record and close, and NRI validation names each broken field.
-- **D3D12 AV1 encode with NRI's default picture flags failed (N8, patch 0032).**
+- **D3D12 AV1 encode with NRI's default picture flags failed (N8; patch 0032 on master, fixed on
+  main by af45e72, merged 2026-10-22 in #264, with the same rule, so `next` has no 0032).**
   - The encoder requires `AUTO_SEGMENTATION`, `LOOP_RESTORATION_FILTER` and `CDEF_FILTERING`. NRI
     enabled automatic segmentation only for pictures holding `SEGMENTATION_ENABLED`
     (`CommandBufferD3D12.hpp:1442` at v190, since 2741780), and the session merged the required
@@ -1779,13 +2035,21 @@ extensions.
   - Under CQP the picture desc's base q index is ignored, so set it through the rate control. Key
     frames at q 40 and 160 come out as 22 and 21 bytes of bare tile data; NRI's defaults at q 40,
     22 bytes.
-- **`GetVideoAV1EncodeDecodeInfo` on D3D12 (N9, patch 0033).** The payload-header path answered
+- **`GetVideoAV1EncodeDecodeInfo` on D3D12 (N9; patch 0033 on master, another shape on main).**
+  The payload-header path answered
   FAILURE silently, since the payload has no OBUs, and with a reference snapshot a key frame was
   described as inter (`VideoSessionD3D12.hpp:128`, `:193` at v190, since 39ce136). Patch 0033
   describes the frame from the metadata whether a header is given or not, and adds
   `VideoAV1EncodeDecodeInfoDesc::keyFrame` (`NriOptional`; binding `KeyFrame`): set, the
   references are not used. Measured with the patch: the header case describes the frame as
-  without it; two agreeing references still give P, and IDR with `KeyFrame`.
+  without it; two agreeing references still give P, and IDR with `KeyFrame`. NRI main (57d92ff
+  and af45e72, merged 2026-10-22; 9131c1b) takes another shape, which `next` follows:
+  `VideoAV1EncodeDecodeInfoDesc::pictureDesc` and `av1PictureDesc` (the submitted descs) are
+  required without a header and give the frame type, a frame without references is a key frame,
+  `savedFrameStates` (8, by slot) serve headers that inherit state, and a payload header on D3D12
+  answers `UNSUPPORTED`. The binding on `next`: `KeyFrame` gone, `PictureDesc`, `Av1PictureDesc`
+  and `SavedFrameStates` on `NriVideoAV1EncodeDecodeInfoDesc`; `VideoExtensionTests` passes the
+  descs, expects `NriUnsupportedException` for the header on D3D12 and records the P case.
 - **An H.265 decode capability query at 64x64 removed the device** on the development machine's
   D3D12 driver ("[233] ... DXGI_ERROR_DRIVER_INTERNAL_ERROR"), inside NRI's decoder-heap probe. The
   tests use 256x256.
@@ -1825,7 +2089,7 @@ extensions.
   `UNKNOWN` (`Creation.cpp` guards the table with `NRI_ENABLE_D3D11_SUPPORT ||
   NRI_ENABLE_D3D12_SUPPORT`); `FlatExportTests` measures that there. Windows: DXGI round trips hold
   except DXGI has none for the 38 ETC2/ASTC formats; DXGI 18 -> `RGB32_SINT`. NRI -> VK -> NRI is the
-  identity for all 108 formats (patch 0008; upstream v190 gave `UNKNOWN` for all 52 block-compressed
+  identity for all 108 formats (patch 0008 on master, NRI 5ed8bb6 on `next`; v190 gave `UNKNOWN` for all 52 block-compressed
   ones, table ending at 130); no format round-trips to a different one (sRGB/UNORM and the D24
   variants each map back to themselves; VK 125 `X8_D24` -> `D24_UNORM_S8_UINT` is one-way). BC1 RGB
   (131, 132) stay `UNKNOWN`: NRI has only BC1 RGBA.
@@ -1838,7 +2102,10 @@ extensions.
   Vulkan driver's refused micromap-size query pools, and lavapipe's clipping-primitive counter
   (`TestDevice.IsLavapipeVK`, owner 2026-10-22). That last one is a known bug to remove: on lavapipe
   the pipeline-statistics test asserts the wrong value 0 instead of skipping, so the day Mesa counts
-  the primitives the test fails, naming the exception, and it goes.
+  the primitives the test fails, naming the exception, and it goes. The same pattern for the D3D12 device-lost
+  child's allowance of the `[989]` `CheckFeatureSupport` deprecation warnings (NRI #307, D3D12MA
+  #102; D3D12 and the Agility SDK): every other warning still fails it, and when no such warning
+  remains it fails, naming the allowance to remove.
 - **No skip turns a wrong result into a pass on a software adapter** (lavapipe, WARP), or on any
   adapter: a skip names a missing capability only. A wrong answer fails, with enough in the message
   (the hit map for ray queries) to diagnose it. The two macOS device-name skips are the recorded
@@ -1941,7 +2208,7 @@ bug.
   and what they cost: Actions budget.
 - **GCC 13 rejects NRI**: `-Werror` + `maybe-uninitialized` at `Source/Shared/HelperInterface.h:44`
   (`MemoryHeap`), only at `-O2`+; upstream's Ubuntu job configures without `CMAKE_BUILD_TYPE`, so
-  unoptimised, so green. Patch 0005 fixes it (GCC 13.3.0 builds and the suite matches clang's
+  unoptimised, so green. Patch 0005 fixes it on master and NRI 9b45d77 on `next` (GCC 13.3.0 builds and the suite matches clang's
   numbers). `build-native.ps1` still picks clang on Linux when installed and `CXX` unset; CI installs
   `clang`, not `g++`.
 - **"Ray tracing, cold shader cache"** (`linux-x64`) runs the two ray tracing classes with
@@ -1999,4 +2266,4 @@ published. Artifacts are kept 90 days.
     "Re-run failed jobs".
 - **Ubuntu pinned to 24.04** in the Linux CI leg and the release's Linux build and consume job:
   `ubuntu-latest` moves to Ubuntu 26 from 2026-10-19. A payload built there needs its newer glibc,
-  and its 1.4 loader would stop exercising patch 0004. Moving is a decision.
+  and its 1.4 loader would stop exercising patch 0004 (on `next`, a4e562e). Moving is a decision.

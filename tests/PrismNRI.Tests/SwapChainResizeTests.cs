@@ -65,16 +65,18 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
         // throws) and on any ERROR message from NRI or the validation layer.
         Assert.True(child.ExitCode == 0, $"child exit code {child.ExitCode}: " + string.Join(" | ", lines.Where(l => l.StartsWith("FAIL ", StringComparison.Ordinal))));
         foreach (var result in lines.Where(l => l.StartsWith("RESULT ", StringComparison.Ordinal))) GpuWork.Record(result);
-        Assert.Equal(4, lines.Count(l => l.StartsWith("RESULT ", StringComparison.Ordinal)));
+        Assert.Equal(7, lines.Count(l => l.StartsWith("RESULT ", StringComparison.Ordinal)));
     }
 
     /// <summary>
-    /// A swap chain asked for at an extent that is not the window's current client size: with
-    /// present scaling (swapchain_maintenance1) Vulkan allows any extent in the surface's scaled
-    /// range, and patch 0014 makes NRI check that range instead of the unscaled one, which on
-    /// Windows is exactly the current size. Upstream v190 refused it with INVALID_ARGUMENT
-    /// ("swapChainDesc.width is out of [w, w] range"), so a size snapshot that lagged a resize, or a
-    /// window minimised at creation, threw. Without scaling the refusal is Vulkan's rule and stays.
+    /// A swap chain asked for at an extent that is not the window's current client size. NRI v190
+    /// refused it with INVALID_ARGUMENT ("swapChainDesc.width is out of [w, w] range") because it
+    /// checked the unscaled range, which on Windows is exactly the current size; 81245bd (our #277)
+    /// checked the scaled range with present scaling; NRI PR #285 (2f7a49f) clamps instead of
+    /// checking: with present scaling (swapchain_maintenance1) to the surface's scaled range, without
+    /// it to the surface's current extent. So no size is refused any more: with scaling the textures
+    /// take the requested size when the scaled range holds it, without scaling they take the
+    /// window's size, which the measurement asserts.
     /// </summary>
     private static bool StaleExtent(NriDevice device, List<NriMessage> messages)
     {
@@ -96,17 +98,8 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
                 TextureNum = 2,
                 Format = SwapChainFormat.BT709_G22_8BIT,
             };
-            NriSwapChain swapChain;
-            try
-            {
-                swapChain = device.SwapChain.CreateSwapChain(desc);
-            }
-            catch (NriException e) when (!scaling && e.Result == Result.INVALID_ARGUMENT)
-            {
-                Console.WriteLine($"RESULT stale extent {desc.Width}x{desc.Height} on a {width}x{height} window, features.resizableSwapChain=0: refused with INVALID_ARGUMENT, as Vulkan requires without present scaling");
-                messages.RemoveRange(firstMessage, messages.Count - firstMessage); // the refusal's ERROR is the expected answer here
-                return true;
-            }
+            var swapChain = device.SwapChain.CreateSwapChain(desc);
+            var created = (swapChain.Textures[0].Desc.width, swapChain.Textures[0].Desc.height);
 
             var presented = 0;
             using (swapChain)
@@ -131,7 +124,7 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
                 device.WaitIdle();
                 foreach (var f in release) f.Dispose();
                 Console.WriteLine($"RESULT stale extent {desc.Width}x{desc.Height} on a {width}x{height} window, features.resizableSwapChain={(scaling ? 1 : 0)}: " +
-                    $"swap chain created with textures {swapChain.Textures[0].Desc.width}x{swapChain.Textures[0].Desc.height}, {presented} of 2 frames presented");
+                    $"swap chain created with textures {created.width}x{created.height}, {presented} of 2 frames presented");
             }
             var ok = true;
             foreach (var m in messages.Skip(firstMessage))
@@ -139,7 +132,64 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
                 Console.WriteLine($"{(m.IsError ? "FAIL " : "")}message {m}");
                 ok &= !m.IsError;
             }
+            // Without scaling, a Win32 surface's current extent is the client area and the clamp takes it
+            if (!scaling && created != ((ushort)width, (ushort)height))
+            {
+                Console.WriteLine($"FAIL stale extent without scaling: expected the window's {width}x{height}, got {created.width}x{created.height}");
+                ok = false;
+            }
             return ok && presented == 2;
+        }
+        finally
+        {
+            DestroyWindow(hwnd);
+        }
+    }
+
+    /// <summary>
+    /// A window with no client area (created 0x0, as a minimised window reports). NRI's Vulkan swap
+    /// chain clamps the extent and answers NOT_READY when the clamp gives zero (NRI PR #285,
+    /// 2f7a49f), which <see cref="NriSwapChainExtension.TryCreateSwapChain"/> returns as
+    /// <see cref="NriSwapChainStatus.NotReady"/> with no swap chain and no message (NOT_READY is a
+    /// negative result, never reported). Without present scaling the clamp takes the surface's
+    /// current extent, 0x0, so the answer is NotReady. With present scaling it takes the scaled
+    /// range, which a driver may report non-zero for a 0x0 window, and then a swap chain is created
+    /// (measured on NVIDIA: the requested 64x64). Before PR #285 both were refused with
+    /// INVALID_ARGUMENT.
+    /// </summary>
+    private static bool ZeroExtent(NriDevice device, List<NriMessage> messages, string label)
+    {
+        var hwnd = CreateWindowExW(0, "STATIC", "PrismNRI zero extent", WS_POPUP, 0, 0, 0, 0, 0, 0, 0, 0);
+        if (hwnd == 0) throw new InvalidOperationException($"CreateWindowEx failed with error {Marshal.GetLastPInvokeError()}");
+        var firstMessage = messages.Count;
+        try
+        {
+            GetClientRect(hwnd, out var rect);
+            var status = device.SwapChain.TryCreateSwapChain(new NriSwapChainDesc
+            {
+                Window = new NriWindow { Windows = new NriWindowsWindow(Hwnd: hwnd) },
+                Queue = device.GetQueue(QueueType.GRAPHICS),
+                Width = 64,
+                Height = 64,
+                TextureNum = 2,
+                Format = SwapChainFormat.BT709_G22_8BIT,
+            }, out var swapChain);
+            var scaling = device.Desc.features.resizableSwapChain != 0;
+            var created = swapChain is null ? "none" : $"{swapChain.Textures[0].Desc.width}x{swapChain.Textures[0].Desc.height}";
+            swapChain?.Dispose();
+            Console.WriteLine($"RESULT zero-size window ({rect.Right - rect.Left}x{rect.Bottom - rect.Top} client area), {label}, features.resizableSwapChain={(scaling ? 1 : 0)}: " +
+                $"TryCreateSwapChain {status}, swap chain {created}");
+            // Without scaling the answer is fixed by NRI's code; with scaling it is the driver's scaled range
+            var ok = scaling
+                ? (status == NriSwapChainStatus.Ok) == (created != "none") && status != NriSwapChainStatus.OutOfDate
+                : status == NriSwapChainStatus.NotReady && created == "none";
+            if (!ok) Console.WriteLine($"FAIL zero-size window, {label}: {status}, swap chain {created}");
+            foreach (var m in messages.Skip(firstMessage))
+            {
+                Console.WriteLine($"{(m.IsError ? "FAIL " : "")}message {m}");
+                ok &= !m.IsError;
+            }
+            return ok;
         }
         finally
         {
@@ -253,6 +303,7 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
             if (!RunFrames(device, "NRI-created VK device", messages, [])) failed = true;
             if (!StaleExtent(device, messages)) failed = true;
             if (!LatestReady(device, messages)) failed = true;
+            if (!ZeroExtent(device, messages, "NRI-created VK device")) failed = true;
         }
 
         // 2. A raw VkDevice with VK_KHR_swapchain only, wrapped: no present scaling.
@@ -274,6 +325,8 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
         }))
         {
             if (!RunFrames(wrapped, $"wrapped VK device (VK_KHR_swapchain only, validation {(raw.Validated ? "on" : "unavailable")})", wrappedMessages, raw.Errors)) failed = true;
+            if (!StaleExtent(wrapped, wrappedMessages)) failed = true;
+            if (!ZeroExtent(wrapped, wrappedMessages, "wrapped VK device")) failed = true;
         }
         foreach (var e in raw.Errors)
         {

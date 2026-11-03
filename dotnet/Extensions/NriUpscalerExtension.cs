@@ -10,10 +10,10 @@
 // writes the one the upscaler's type selects:
 //
 //   guides.upscaler   FSR, XESS, DLSR, METALFX_TEMPORAL
-//   guides.denoiser   DLRR, METALFX_DENOISED
+//   guides.denoiser   DLRR, METALFX_DENOISER
 //   settings.nis      NIS
 //   settings.fsr      FSR
-//   settings.dlrr     DLRR, METALFX_DENOISED
+//   settings.dlrr     DLRR, METALFX_DENOISER
 //
 // The dispatch "changes descriptor pool, pipeline layout and pipeline"; barriers are the caller's.
 // Threadsafe per NRI.
@@ -93,7 +93,7 @@ public readonly record struct NriUpscalerGuides
     };
 }
 
-/// <summary><c>DenoiserGuides</c>: for DLRR, METALFX_DENOISED.</summary>
+/// <summary><c>DenoiserGuides</c>: for DLRR, METALFX_DENOISER.</summary>
 public readonly record struct NriDenoiserGuides
 {
     /// <summary>.xy: surface motion.</summary>
@@ -150,7 +150,7 @@ public readonly record struct NriDispatchUpscaleGuides
     /// <summary>FSR, XESS, DLSR, METALFX_TEMPORAL.</summary>
     public NriUpscalerGuides Upscaler { get; init; }
 
-    /// <summary>DLRR, METALFX_DENOISED (sRGB not supported).</summary>
+    /// <summary>DLRR, METALFX_DENOISER (sRGB not supported).</summary>
     public NriDenoiserGuides Denoiser { get; init; }
 }
 
@@ -166,7 +166,7 @@ public readonly record struct NriDispatchUpscaleSettings
     /// <summary>FSR.</summary>
     public FSRSettings Fsr { get; init; }
 
-    /// <summary>DLRR and METALFX_DENOISED.</summary>
+    /// <summary>DLRR and METALFX_DENOISER.</summary>
     public DLRRSettings Dlrr { get; init; }
 }
 
@@ -193,7 +193,7 @@ public readonly record struct NriDispatchUpscaleDesc
     /// <summary>Converts motion vectors to pixel space.</summary>
     public Float2_t MvScale { get; init; }
 
-    /// <summary>Optional multiplier already applied to the input colour; 0 means 1. FSR, XESS, DLSR, DLRR, METALFX_TEMPORAL, METALFX_DENOISED.</summary>
+    /// <summary>Optional multiplier already applied to the input colour; 0 means 1. FSR, XESS, DLSR, DLRR, METALFX_TEMPORAL, METALFX_DENOISER.</summary>
     public float PreExposure { get; init; }
 
     public DispatchUpscaleBits Flags { get; init; }
@@ -216,7 +216,7 @@ public readonly record struct NriDispatchUpscaleDesc
             case UpscalerType.FSR or UpscalerType.XESS or UpscalerType.DLSR or UpscalerType.METALFX_TEMPORAL:
                 native.guides.upscaler = Guides.Upscaler.ToNative();
                 break;
-            case UpscalerType.DLRR or UpscalerType.METALFX_DENOISED:
+            case UpscalerType.DLRR or UpscalerType.METALFX_DENOISER:
                 native.guides.denoiser = Guides.Denoiser.ToNative();
                 break;
         }
@@ -229,7 +229,7 @@ public readonly record struct NriDispatchUpscaleDesc
             case UpscalerType.FSR:
                 native.settings.fsr = Settings.Fsr;
                 break;
-            case UpscalerType.DLRR or UpscalerType.METALFX_DENOISED:
+            case UpscalerType.DLRR or UpscalerType.METALFX_DENOISER:
                 native.settings.dlrr = Settings.Dlrr;
                 break;
         }

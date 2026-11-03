@@ -11,10 +11,10 @@ while DeviceVK still dlopens "libvulkan.1.dylib" at device creation as on every 
 
 This patch wraps both lines in NRI_ENABLE_VULKAN_LOADER_LINKING, default ON on Apple so nothing
 changes for upstream's samples; a packager passes OFF and ships or finds the loader at runtime
-(docs/findings.md 9.1, 9.9). Applies on top of NRI v190 with patches 0001 to 0006.
+(docs/findings.md 9.1, 9.9). Applies on top of NRI v191 with patch 0001.
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 576f86e..2921053 100644
+index 3a0fbbd8..1d68bb8b 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -123,6 +123,9 @@ cmake_dependent_option(NRI_ENABLE_D3D11_SUPPORT "Enable D3D11 backend" ON "WIN32
@@ -27,7 +27,7 @@ index 576f86e..2921053 100644
  cmake_dependent_option(NRI_ENABLE_NIS_SDK "Enable NVIDIA Image Sharpening SDK" OFF "NOT IOS" OFF)
  cmake_dependent_option(NRI_ENABLE_WGPU_SUPPORT "Enable WebGPU backend" ${GITHUB_CI} "WGPU_BIN_ARCHITECTURE; NOT ANDROID; NOT IOS" OFF)
  cmake_dependent_option(NRI_ENABLE_METAL_SUPPORT "Enable Metal 4 backend" ${NRI_METAL_SUPPORT_DEFAULT} "APPLE" OFF)
-@@ -796,7 +799,7 @@ endif()
+@@ -780,7 +783,7 @@ endif()
  
  # VK
  if(NRI_ENABLE_VK_SUPPORT)
@@ -36,7 +36,7 @@ index 576f86e..2921053 100644
          find_package(Vulkan REQUIRED)
      endif()
  
-@@ -894,7 +897,7 @@ if(NRI_ENABLE_VK_SUPPORT)
+@@ -878,7 +881,7 @@ if(NRI_ENABLE_VK_SUPPORT)
      target_link_libraries(NRI_VK
          PRIVATE
              NRI_Shared

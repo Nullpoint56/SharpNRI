@@ -10,7 +10,7 @@ public partial struct AllocateMemoryDesc
 
     public float priority;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L814_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L840_C5")]
     public _vma_e__Struct vma;
 
     [NativeTypeName("bool")]

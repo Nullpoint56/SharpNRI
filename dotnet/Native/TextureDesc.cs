@@ -35,6 +35,12 @@ public partial struct TextureDesc
     [NativeTypeName("nri::VideoCodec")]
     public VideoCodec videoCodec;
 
+    [NativeTypeName("bool")]
+    public byte videoAV1FilmGrain;
+
     [NativeTypeName("nri::ClearValue")]
     public ClearValue optimizedClearValue;
+
+    [NativeTypeName("bool")]
+    public byte shared;
 }

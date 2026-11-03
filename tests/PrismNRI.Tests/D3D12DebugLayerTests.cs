@@ -140,17 +140,18 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// A texture barrier side with access NONE and a layout other than UNDEFINED is a layout-only
-    /// side, recorded on D3D12 with SYNC_NONE (patch 0020). Upstream derives the sync from the
-    /// stages alone, and the debug layer refuses NO_ACCESS with a defined layout and any sync but
-    /// SYNC_NONE: "[1331] ID3D12CommandList::Barrier: Invalid LayoutBefore value ... LayoutBefore
-    /// must be LAYOUT_UNDEFINED or SyncBefore must be SYNC_NONE when AccessBefore is
-    /// ACCESS_NO_ACCESS", then Close fails with E_INVALIDARG (four of the six shapes here; the two
-    /// with NONE stages were already clean). On Vulkan the same barrier is an execution dependency
-    /// with an empty access mask, legal as it is. One barrier on a 4x4 RGBA8 texture per command
-    /// buffer, with NRI validation and the graphics API's layer on; nothing is submitted. D3D12
-    /// skips without the debug layer: NRI validation does not check this rule, so a clean run
-    /// without the layer would show nothing.
+    /// A texture barrier side with access NONE and a layout other than UNDEFINED. The debug layer
+    /// refuses NO_ACCESS with a defined layout and any sync but SYNC_NONE: "[1331]
+    /// ID3D12CommandList::Barrier: Invalid LayoutBefore value ... LayoutBefore must be
+    /// LAYOUT_UNDEFINED or SyncBefore must be SYNC_NONE when AccessBefore is ACCESS_NO_ACCESS",
+    /// then Close fails with E_INVALIDARG; NRI v190 derived the sync from the stages alone and drew
+    /// that for the four shapes here with stages. Since 48a14c3 NRI records such a side with stages
+    /// as the conservative COMMON access and the stages' sync, and one without stages as SYNC_NONE /
+    /// NO_ACCESS (measured on next with Agility 1.619: all six clean, not even a warning). On
+    /// Vulkan the same barrier is an execution dependency with an empty access mask, legal as it
+    /// is. One barrier on a 4x4 RGBA8 texture per command buffer, with NRI validation and the
+    /// graphics API's layer on; nothing is submitted. D3D12 skips without the debug layer: NRI
+    /// validation does not check this rule, so a clean run without the layer would show nothing.
     /// </summary>
     [Theory]
     [MemberData(nameof(NoAccessBarrierCases))]
@@ -194,21 +195,24 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// The limit of patch 0020's layout-only side on D3D12: access NONE with a defined layout is
-    /// recorded as SYNC_NONE / NO_ACCESS, and NO_ACCESS means the subresource was not accessed
-    /// before the barrier in the same ExecuteCommandLists. In one command list: {UNDEFINED} ->
-    /// {COPY_DESTINATION}, UploadBufferToTexture, then {NONE, COPY_DESTINATION, COPY} ->
-    /// {SHADER_RESOURCE}; the debug layer refuses the second barrier with message 1417
-    /// (D3D12_MESSAGE_ID_INVALID_BARRIER_ACCESS; text in CLAUDE.md: Barriers). The positive control
-    /// names the real access, {COPY_DESTINATION, COPY_DESTINATION, COPY}, and is clean. The rule is
-    /// the caller's: a side with access NONE and a defined layout says "nothing touched it in this
-    /// submit", so use it only for the first barrier of a submit on a resource another submit
-    /// finished with; on Vulkan the same side is an execution-only dependency.
+    /// What a before side may claim after an access in the same command list, on D3D12. In one
+    /// list: {UNDEFINED} -> {COPY_DESTINATION}, UploadBufferToTexture, then the barrier under test
+    /// -> {SHADER_RESOURCE}. A side naming the real access, {COPY_DESTINATION, COPY_DESTINATION,
+    /// COPY}, is clean. A side with access NONE and stages, {NONE, COPY_DESTINATION, COPY}, is
+    /// recorded as COMMON access with the stages' sync (NRI 48a14c3) and is clean too. A side with
+    /// access NONE and no stages, {NONE, COPY_DESTINATION, NONE}, is layout-only: SYNC_NONE /
+    /// NO_ACCESS says the subresource was not accessed earlier in the same ExecuteCommandLists, and
+    /// the debug layer refuses it with 1417 (D3D12_MESSAGE_ID_INVALID_BARRIER_ACCESS; text in
+    /// CLAUDE.md: Barriers), as NRIDescs.h now says ("StageBits::NONE requires no accesses or
+    /// barriers to the affected subresources on that side within the same QueueSubmit scope").
+    /// With NRI v190 and patch 0020 the side with stages was the one refused, since 0020 recorded it
+    /// as SYNC_NONE.
     /// </summary>
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void A_layout_only_side_after_an_access_in_the_same_list_is_refused_on_D3D12(bool namesTheRealAccess)
+    [InlineData(BeforeSide.NamesTheRealAccess)]
+    [InlineData(BeforeSide.NoAccessWithStages)]
+    [InlineData(BeforeSide.NoAccessNoStages)]
+    public void After_an_access_in_the_same_list_only_a_before_side_without_stages_is_refused_on_D3D12(BeforeSide side)
     {
         TestDevice.RequireAvailable(new Backend(GraphicsAPI.D3D12));
         var messages = new List<NriMessage>();
@@ -234,7 +238,12 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
         using var upload = device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = slicePitch });
         var region = new TextureRegionDesc { width = (ushort)size, height = (ushort)size, depth = 1, planes = PlaneBits.ALL };
         var layout = new TextureDataLayoutDesc { offset = 0, rowPitch = rowPitch, slicePitch = slicePitch };
-        var before = namesTheRealAccess ? TextureCopyDestination : Triple(AccessBits.NONE, Layout.COPY_DESTINATION, StageBits.COPY);
+        var before = side switch
+        {
+            BeforeSide.NamesTheRealAccess => TextureCopyDestination,
+            BeforeSide.NoAccessWithStages => Triple(AccessBits.NONE, Layout.COPY_DESTINATION, StageBits.COPY),
+            _ => Triple(AccessBits.NONE, Layout.COPY_DESTINATION, StageBits.NONE),
+        };
 
         var queue = device.GetQueue(QueueType.GRAPHICS);
         using var allocator = queue.CreateCommandAllocator();
@@ -257,13 +266,21 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
         Record($"D3D12, before side {{{before.access}, {before.layout}, {before.stages}}} after an upload in the same list: " +
             $"{provoked.Count(m => m.IsError)} error(s), End {(end is null ? "succeeded" : "threw " + end.Message)}");
 
-        if (namesTheRealAccess)
+        if (side != BeforeSide.NoAccessNoStages)
         {
             Assert.DoesNotContain(messages, m => m.IsError);
             Assert.Null(end);
             return;
         }
         Assert.Contains(provoked, m => m.IsError && m.Text.Contains("[1417]", StringComparison.Ordinal));
+    }
+
+    /// <summary>The before sides <see cref="After_an_access_in_the_same_list_only_a_before_side_without_stages_is_refused_on_D3D12"/> tries.</summary>
+    public enum BeforeSide
+    {
+        NamesTheRealAccess,
+        NoAccessWithStages,
+        NoAccessNoStages,
     }
 
     /// <summary>

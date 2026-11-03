@@ -10,7 +10,4 @@ public unsafe partial struct DescriptorSetDesc
 
     [NativeTypeName("uint32_t")]
     public uint rangeNum;
-
-    [NativeTypeName("nri::DescriptorSetBits")]
-    public DescriptorSetBits flags;
 }

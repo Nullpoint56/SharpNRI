@@ -23,8 +23,8 @@ public unsafe partial struct CoreInterface
     [NativeTypeName("Result (*)(CommandAllocator &, CommandBuffer *&) __attribute__((stdcall))")]
     public delegate* unmanaged[Stdcall]<CommandAllocator*, CommandBuffer**, Result> CreateCommandBuffer;
 
-    [NativeTypeName("Result (*)(Device &, uint64_t, Fence *&) __attribute__((stdcall))")]
-    public delegate* unmanaged[Stdcall]<Device*, ulong, Fence**, Result> CreateFence;
+    [NativeTypeName("Result (*)(Device &, const FenceDesc &, Fence *&) __attribute__((stdcall))")]
+    public delegate* unmanaged[Stdcall]<Device*, FenceDesc*, Fence**, Result> CreateFence;
 
     [NativeTypeName("Result (*)(Device &, const DescriptorPoolDesc &, DescriptorPool *&) __attribute__((stdcall))")]
     public delegate* unmanaged[Stdcall]<Device*, DescriptorPoolDesc*, DescriptorPool**, Result> CreateDescriptorPool;
@@ -343,4 +343,16 @@ public unsafe partial struct CoreInterface
 
     [NativeTypeName("uint64_t (*)(const Descriptor *) __attribute__((stdcall))")]
     public delegate* unmanaged[Stdcall]<Descriptor*, ulong> GetDescriptorNativeObject;
+
+    [NativeTypeName("Result (*)(const Buffer &, SharedHandle &) __attribute__((stdcall))")]
+    public delegate* unmanaged[Stdcall]<Buffer*, SharedHandle*, Result> GetBufferSharedHandle;
+
+    [NativeTypeName("Result (*)(const Texture &, SharedHandle &) __attribute__((stdcall))")]
+    public delegate* unmanaged[Stdcall]<Texture*, SharedHandle*, Result> GetTextureSharedHandle;
+
+    [NativeTypeName("Result (*)(const Fence &, SharedHandle &) __attribute__((stdcall))")]
+    public delegate* unmanaged[Stdcall]<Fence*, SharedHandle*, Result> GetFenceSharedHandle;
+
+    [NativeTypeName("void (*)(SharedHandle &) __attribute__((stdcall))")]
+    public delegate* unmanaged[Stdcall]<SharedHandle*, void> DestroySharedHandle;
 }

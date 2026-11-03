@@ -19,7 +19,7 @@ presents with the Khronos layer clean; forcing the mode on a device without the 
 not enabled".
 
 diff --git a/Include/Extensions/NRISwapChain.h b/Include/Extensions/NRISwapChain.h
-index 6097871..b6b1b35 100644
+index 153fb433..45aebee2 100644
 --- a/Include/Extensions/NRISwapChain.h
 +++ b/Include/Extensions/NRISwapChain.h
 @@ -49,7 +49,8 @@ NriBits(SwapChainBits, uint8_t,
@@ -33,10 +33,10 @@ index 6097871..b6b1b35 100644
  
  NriStruct(WindowsWindow) {  // Expects "WIN32" platform macro
 diff --git a/Include/NRIDescs.h b/Include/NRIDescs.h
-index 247960d..68ee4dd 100644
+index 83a315ef..a6686a5b 100644
 --- a/Include/NRIDescs.h
 +++ b/Include/NRIDescs.h
-@@ -2229,6 +2229,7 @@ NriStruct(DeviceDesc) {
+@@ -2288,6 +2288,7 @@ NriStruct(DeviceDesc) {
          bool presentFromCompute;                                  // see "SwapChainDesc::queue"
          bool waitableSwapChain;                                   // see "SwapChainDesc::waitable"
          bool resizableSwapChain;                                  // swap chain can be resized without triggering an "OUT_OF_DATE" error
@@ -45,10 +45,10 @@ index 247960d..68ee4dd 100644
          // Multi view
          bool flexibleMultiview;                                   // see "Multiview::FLEXIBLE"
 diff --git a/Source/D3D11/SwapChainD3D11.hpp b/Source/D3D11/SwapChainD3D11.hpp
-index 16761da..81fe9e1 100644
+index 2367fa43..d09a7930 100644
 --- a/Source/D3D11/SwapChainD3D11.hpp
 +++ b/Source/D3D11/SwapChainD3D11.hpp
-@@ -164,6 +164,7 @@ Result SwapChainD3D11::Create(const SwapChainDesc& swapChainDesc) {
+@@ -163,6 +163,7 @@ Result SwapChainD3D11::Create(const SwapChainDesc& swapChainDesc) {
          m_Flags &= ~SwapChainBits::ALLOW_TEARING;
      if (!m_FrameLatencyWaitableObject)
          m_Flags &= ~SwapChainBits::WAITABLE;
@@ -57,7 +57,7 @@ index 16761da..81fe9e1 100644
      return Result::SUCCESS;
  }
 diff --git a/Source/D3D12/SwapChainD3D12.hpp b/Source/D3D12/SwapChainD3D12.hpp
-index 27c8a9c..1415b2f 100644
+index 640db660..4b2a7507 100644
 --- a/Source/D3D12/SwapChainD3D12.hpp
 +++ b/Source/D3D12/SwapChainD3D12.hpp
 @@ -163,6 +163,7 @@ Result SwapChainD3D12::Create(const SwapChainDesc& swapChainDesc) {
@@ -69,10 +69,10 @@ index 27c8a9c..1415b2f 100644
      return Result::SUCCESS;
  }
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index d772481..c97a530 100644
+index 4eb73f4b..444c62f4 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
-@@ -1596,6 +1596,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+@@ -1606,6 +1606,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
          m_Desc.features.presentFromCompute = true;
          m_Desc.features.waitableSwapChain = m_Desc.features.swapChain != 0 && PresentIdFeatures.presentId != 0 && PresentWaitFeatures.presentWait != 0;
          m_Desc.features.resizableSwapChain = m_Desc.features.swapChain != 0 && m_IsSupported.swapChainMaintenance1 != 0;
@@ -81,7 +81,7 @@ index d772481..c97a530 100644
          m_Desc.features.textureCompressionBC = features.features.textureCompressionBC;
          m_Desc.features.textureCompressionETC2 = features.features.textureCompressionETC2;
 diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
-index 70a947a..22fadb9 100644
+index 0531842f..416c1702 100644
 --- a/Source/VK/SwapChainVK.hpp
 +++ b/Source/VK/SwapChainVK.hpp
 @@ -230,8 +230,13 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
@@ -99,7 +99,7 @@ index 70a947a..22fadb9 100644
              VK_PRESENT_MODE_FIFO_KHR, // guaranteed to be supported
          };
  
-@@ -446,6 +451,8 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
+@@ -452,6 +457,8 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
          m_Flags &= ~SwapChainBits::ALLOW_LOW_LATENCY;
      if (!m_Device.GetDesc().features.waitableSwapChain)
          m_Flags &= ~SwapChainBits::WAITABLE;

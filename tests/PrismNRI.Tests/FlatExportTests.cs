@@ -17,8 +17,8 @@ public sealed class FlatExportTests
 
     /// <summary>
     /// NRI → Vulkan → NRI is the identity for every format: every NRI format has a VkFormat and
-    /// nriConvertVKFormatToNRI maps it back, the block-compressed ones included (patch 0008; on
-    /// NRI v190 without it the table ended at VkFormat 130 and all 52 came back UNKNOWN). The
+    /// nriConvertVKFormatToNRI maps it back, the block-compressed ones included (NRI 5ed8bb6; on
+    /// NRI v190 the table ended at VkFormat 130 and all 52 came back UNKNOWN). The
     /// VkFormats NRI never produces stay UNKNOWN, among them BC1's RGB variants (131, 132).
     /// </summary>
     [Fact]

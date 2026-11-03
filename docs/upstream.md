@@ -4,51 +4,131 @@ Each patch in `patches/` is either a bug upstream should fix or an extension ups
 This file holds the report text for each, so that filing is a copy and a link to a commit rather
 than a reconstruction. Status is updated as they are filed and answered.
 
-**This is master's copy: the v190 document.** It holds the report text for the patches master
-carries, with the status it had when the branches split on 2026-10-21. Filing status since then,
-the maintainer's replies, the patches upstream has fixed and the drafts of later rounds are in the
-copy on the `next` branch (CLAUDE.md: Branches). Patches 0025 to 0036 came to master
-on 2026-10-22, after the split; their status here is as of that day.
+**This is the live copy, on the `next` branch.** At a tag both branches carry the same copy:
+since v191 (2026-11-03) master's copy is this one as it stood at the adoption. Line numbers and
+measurements here are against the NRI commit `next` pins, and against v190 where they say so.
+
+2026-11-03: NRI v191 (46c93d79, 2026-10-30) carries every filed report: #295-#301 and #302-#306, and
+PR #294 (our 0002). On #306 the maintainer wrote "Your findings/fixes is one of the best things
+happened to NRI", reworked #302 and #306 in his own shape, and asked for the rest "PR or issue -
+whatever you prefer"; the owner answered PRs. Master and `next` both moved to v191 with eleven
+patches: 0001, 0007, 0012, 0013, 0015, 0017, 0018, 0019, 0024 (two lines), 0037, 0038. Unfiled by
+rule: 0007 (build option), 0013 and 0037 (layer warnings), 0015 (message format). The proposals
+(0038, 0018, 0019, 0017, 0012, 0024, 0001) go as pull requests, one feature each.
+
+2026-10-19: the maintainer fixed all six filed issues on main within the day ("Thanks! Good
+finding"), said on #277 "I like your short and clear form. PRs are OK too", and the phase 2 condition
+(he engages) is met. Main is ten commits past v190 at 8ee40ca, still `NRI_VERSION 190`, untagged.
+The other 17 patches apply in order onto 8ee40ca and every one is recognised by the scripts'
+`--reverse -C0` check. Measured with the six removed (a trial tree, not merged): native build
+clean, L0 drift `TextureViewDesc.layout` (3d8ca25) and `Result::NOT_READY` (8ee40ca, WGPU) plus
+anonymous-record renames, `NativeAbiTests` clean; Windows 292 tests, 0 failed (NVIDIA); Linux
+lavapipe on the stock 1.3 loader 292, 0 failed, the two tests 0004 was cut for passing on
+a4e562e; the dropped patches' own tests (BC staging, the format round trip, `HAS_BUFFER`, the
+stale-extent swap chain) pass on upstream's fixes. Line numbers in the drafts of the next round
+are main's.
+
+2026-10-21: the second round (#281-#284) was fixed on 2026-10-20, three as filed and #281
+differently: a texture side with access `NONE`, a defined layout and stages gets
+`D3D12_BARRIER_ACCESS_COMMON` and keeps the stages' sync, and only a side without stages stays
+`SYNC_NONE` ("forcing `SYNC_NONE` discards the caller's requested execution dependency and imposes
+additional restrictions on surrounding accesses and barriers. Using `COMMON` access preserves
+synchronization, at the cost of potentially extra cache work"). Main also took a community PR
+(#285) that turns the swap-chain extent check into a clamp and answers `NOT_READY` for a zero
+extent, and 48d4a33, which makes attachment resolves explicit in barriers and renumbers
+`StageBits` / `AccessBits`. `next` pinned 2f7a49f with thirteen patches, 0002 re-cut. Measured:
+Windows 297 tests, 0 failed (NVIDIA; the COMMON-access shapes draw no message at all, not even a
+warning); Linux lavapipe 297, 0 failed.
+
+**2026-10-23.** Main moved 46 commits to 72f5f46 ("Quality of life improvements and API
+simplifications": `DescriptorSetBits` removed, texture views inherit the texture format, Streamer
+pitches optional). In the range: #286 (962615b) gives `nriEnumerateAdapters` the backends to
+probe, master 0024's idea in his shape (the two `nriCreateDevice` lines stay as `next`'s 0024);
+#292 (0fade6e, 16f56f7) rolls back a failed committed or placed creation (0034 re-cut over it);
+#264 and #265 (merged 2026-10-22) fix the AV1 encode defects behind N8 and N9: af45e72 enables
+automatic segmentation from the required feature flags (0032 dropped), 57d92ff and af45e72 add
+`pictureDesc`, `av1PictureDesc` and `savedFrameStates` to `VideoAV1EncodeDecodeInfoDesc`, the
+frame type from the picture desc and a key frame without references (0033 dropped, the binding
+follows), 9131c1b answers `UNSUPPORTED` for a payload header on D3D12, and 9011264 works around
+the NVIDIA encode feedback query hang the suite skips H.264 encode for on Vulkan. 0029 re-cut
+over the renamed `textureViewDescFixed`. `next` pins 72f5f46 with twenty-two patches.
+
+**2026-10-27.** The maintainer merged PR #294 (0002) as eb4ed356, after two commits of his own on
+the branch: eecb4cfd (the shared-handle cleanup as a helper) and 93a542a8 (the shared allocation
+path queried the device address of a video-only buffer, which the ordinary path skips). He polished
+it on main the same day: f18c6df9 adds `CoreInterface::DestroySharedHandle`, which closes the
+caller-owned handle by its type (`CloseHandle` or `close`) and clears the struct; d0f5ce49 queries
+export support before creating a shared object (`vkGetPhysicalDeviceExternalBufferProperties`,
+`vkGetPhysicalDeviceImageFormatProperties2` with the external info and the image's limits,
+`vkGetPhysicalDeviceExternalSemaphoreProperties`) and answers `UNSUPPORTED` where Vulkan cannot
+export, reports `features.sharedFences` only when a timeline or binary semaphore exports, folds the
+queue-family choice of both barrier kinds into one helper, moves `EXTERNAL_QUEUE` beside the other
+constants and rewrites the comments of `GetQueue`, `SharingMode`, the barrier descs and
+`SharedHandle` ("After an FD import takes ownership, clear `SharedHandle` instead of destroying
+it"; FD 0 is valid). `next` pins b5f5c62 with sixteen patches, 0002 dropped; the binding disposes
+`NriSharedHandle` through `DestroySharedHandle` and adds `Detach` for imports that take ownership.
+Measured: Windows 535 tests, 0 failed, 13 skipped (NVIDIA RTX 4070 SUPER, VK and D3D12); lavapipe
+534, 0 failed, 294 skipped.
+
+On #49 he answered: "A PR would be very welcome! Regarding the API shape, I would prefer extending
+the existing `buffer`, `texture` and `fence` descs if the additions fit naturally and keep the API
+small. There's no need for a separate extension just to introduce parallel creation functions. If
+the functionality requires substantial new API surface or fits more cleanly into a separate
+interface, an extension would be preferable." Read against NRI main: textures and buffers can take
+an export field in `TextureDesc` / `BufferDesc`, plus `AllocateMemoryDesc` for placed resources,
+with `CreateCommittedTexture` / `CreateCommittedBuffer` as the dedicated path that 0002's
+`CreateSharedTexture` is today. Fences have no desc: `CreateFence` takes an initial value only, with
+`SWAPCHAIN_SEMAPHORE` as its one sentinel, so the fence desc he names would be a new `FenceDesc`
+that `CreateFence` takes (`initialValue` plus the export field), which is his API to change. The
+handle getters are not parallel creation functions and fit beside Core's `Get*NativeObject`; they
+are needed in any shape, because Core exposes no native fence or memory object for an application
+to export itself. The `EXTERNAL_QUEUE` sentinel follows `HAS_BUFFER`. Placed resources (the field on
+`AllocateMemoryDesc` plus a memory getter) can follow: some Vulkan drivers export images only from
+dedicated allocations, so they need a capability check first. Read this way, the reply needs no
+question; the draft states the shape and offers the PR.
 
 | Patch | Kind | Status |
 |---|---|---|
-| 0003 validation `HAS_BUFFER` crash | bug | filed 2026-10-16, [#279](https://github.com/NVIDIA-RTX/NRI/issues/279) |
-| 0004 Vulkan minor version above the instance's | bug | filed 2026-10-16, [#278](https://github.com/NVIDIA-RTX/NRI/issues/278) |
-| 0005 `MemoryHeap::alignment` uninitialised (read before written) | bug | filed 2026-10-16, [#275](https://github.com/NVIDIA-RTX/NRI/issues/275) |
-| 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | filed 2026-10-16, [#276](https://github.com/NVIDIA-RTX/NRI/issues/276) |
-| 0010 Streamer stages compressed textures in texel rows | bug | filed 2026-10-16, [#274](https://github.com/NVIDIA-RTX/NRI/issues/274) |
-| 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277) |
-| 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | phase 1 candidate, not filed: owner's trigger |
-| 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | phase 1 candidate, not filed: owner's trigger |
-| 0022 D3D12 copy layouts refused in copy command lists | bug | phase 1 candidate, not filed: owner's trigger |
-| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | phase 1 candidate, not filed: owner's trigger |
-| 0025 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` (N1) | bug | phase 1 candidate, not filed: owner's trigger |
-| 0026 Vulkan empty vertex input makes the binding stride dynamic (N2) | bug | phase 1 candidate, not filed: owner's trigger |
-| 0027 D3D12 `CmdClearAttachments` crashes in a stencil-only pass (N3) | bug (crash) | phase 1 candidate, not filed: owner's trigger |
-| 0028 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` (N4) | bug | phase 1 candidate, not filed: owner's trigger |
-| 0029 D3D12 non-array texture views ignore `layerOffset` (N5) | bug | phase 1 candidate, not filed: owner's trigger; refusing the view (the patch) or documenting it is his call |
-| 0030 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` (N6) | bug | phase 1 candidate, not filed: owner's trigger |
-| 0031 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 (N7) | bug | phase 1 candidate, not filed: owner's trigger |
-| 0032 D3D12 AV1 encode with the default picture flags fails `Close` (N8) | bug | phase 1 candidate, not filed: owner's trigger |
-| 0034 An allocator that returns null crashes NRI instead of failing the creation (N10) | bug (crash) | phase 1 candidate, not filed: owner's trigger |
-| 0002 SharedHandle extension | proposal | offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525) |
-| 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open | phase 2: after the maintainer engages; offer limit 0, a feature bit, or a clamp |
-| 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question | phase 2: validation and D3D12 disagree (`PipelineLayoutD3D12.hpp:27` maps `ALL`, `:83/:98/:308` do not); ask which is intended |
-| 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2: after the maintainer engages; the uncapped order is his and stays |
-| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | phase 2: after the maintainer engages; the default (break) is his and stays |
-| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2: after the maintainer engages |
-| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2: enhancement issue; per-frame vs total semantics is his call |
-| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | phase 2: after the maintainer engages |
-| 0033 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred; `VideoAV1EncodeDecodeInfoDesc::keyFrame` (N9) | bug, fix shape open | phase 2: the desc carries no frame type, so the fix is his API choice; the patch is our proposal |
-| 0001 Agility SDK from a path | proposal | phase 2: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
+| 0003 validation `HAS_BUFFER` crash | bug | filed 2026-10-16, [#279](https://github.com/NVIDIA-RTX/NRI/issues/279); fixed 2026-10-19 in 7915eca (also refuses `HAS_BUFFER` at build time); dropped on `next` 2026-10-21 |
+| 0004 Vulkan minor version above the instance's | bug | filed 2026-10-16, [#278](https://github.com/NVIDIA-RTX/NRI/issues/278); fixed 2026-10-19 in a4e562e (`m_InstanceVersion`, another shape); dropped on `next` 2026-10-21 (by hand: ours still applied on top) |
+| 0005 `MemoryHeap::alignment` uninitialised (read before written) | bug | filed 2026-10-16, [#275](https://github.com/NVIDIA-RTX/NRI/issues/275); fixed 2026-10-19 in 9b45d77; dropped on `next` 2026-10-21 |
+| 0008 `nriConvertVKFormatToNRI` misses every compressed format | bug | filed 2026-10-16, [#276](https://github.com/NVIDIA-RTX/NRI/issues/276); fixed 2026-10-19 in 5ed8bb6 (our table); dropped on `next` 2026-10-21 |
+| 0010 Streamer stages compressed textures in texel rows | bug | filed 2026-10-16, [#274](https://github.com/NVIDIA-RTX/NRI/issues/274); fixed 2026-10-19 in bc3ebe7; dropped on `next` 2026-10-21 |
+| 0014 Swap chain extent checked against the unscaled range with present scaling | bug | filed 2026-10-16, [#277](https://github.com/NVIDIA-RTX/NRI/issues/277); fixed 2026-10-19 in 81245bd; dropped on `next` 2026-10-21 |
+| 0020 D3D12 texture barrier side with access `NONE` and a defined layout keeps the stages' sync | bug | filed 2026-10-19 against main 8ee40ca, [#281](https://github.com/NVIDIA-RTX/NRI/issues/281); fixed 2026-10-20 in 48a14c3, another shape: a side with stages gets `COMMON` access and keeps its sync, one without stages stays `SYNC_NONE` ("forcing SYNC_NONE discards the caller's requested execution dependency"); dropped on `next` |
+| 0021 Vulkan `StageBits::COPY` does not cover `CmdZeroBuffer` (`vkCmdFillBuffer`) | bug | filed 2026-10-19 against main 8ee40ca, [#282](https://github.com/NVIDIA-RTX/NRI/issues/282); fixed 2026-10-20 in 1163658, ours verbatim; dropped on `next` |
+| 0022 D3D12 copy layouts refused in copy command lists | bug | filed 2026-10-19 against main 8ee40ca, [#283](https://github.com/NVIDIA-RTX/NRI/issues/283); fixed 2026-10-20 in 732f737, ours without the sentinel guard, which 0002 carried and #294 merged; dropped on `next` |
+| 0023 Vulkan queue family indices on `CONCURRENT` images make every hand-off an ownership transfer | bug | filed 2026-10-19 against main 8ee40ca, [#284](https://github.com/NVIDIA-RTX/NRI/issues/284); fixed 2026-10-20 in 2603edc, the sharing mode recorded at creation; dropped on `next`, 0002 kept the external family (merged as #294) |
+| 0002 shared buffers, textures and fences | proposal, PR | merged 2026-10-27 as eb4ed356, polished by the maintainer in f18c6df9 (`DestroySharedHandle`) and d0f5ce49 (export support queries, `UNSUPPORTED`, comments); dropped on `next` at b5f5c62. Offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs; re-cut in that shape on `next` 2026-10-23 (section below); filed 2026-10-24 as [PR #294](https://github.com/NVIDIA-RTX/NRI/pull/294) from the owner's fork (`Nullpoint56:shared-handles`, main 72f5f46 + 0002), the `FenceDesc` question asked in a [comment on #49](https://github.com/NVIDIA-RTX/NRI/issues/49) that links it; reviewed 2026-10-26, four items fixed on the branch |
+| 0006 `samplerLodBiasMax` above what a portability device allows | bug, fix shape open fixed in v191 by 0682d020 (2026-10-28, our lines), patch dropped on both branches 2026-11-03; | filed 2026-10-27 against main b5f5c626 as [#303](https://github.com/NVIDIA-RTX/NRI/issues/303), the fix of patch 0006 attached; the earlier status is in the section below |
+| 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | design question fixed in v191 by 9764221e (2026-10-28, another shape: `GetEffectiveShaderStages` resolves `ALL` and `ALL_SHADERS` to the layout's stages in every backend and in validation), patch dropped on both branches 2026-11-03; | filed 2026-10-27 against main b5f5c626 as [#302](https://github.com/NVIDIA-RTX/NRI/issues/302), the fix of patch 0016 attached; the earlier status is in the section below |
+| 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | phase 2, drafted 2026-10-19, not filed; the uncapped order is his and stays |
+| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | phase 2, drafted 2026-10-19, not filed; the default (break) is his and stays |
+| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | phase 2, drafted 2026-10-19, not filed |
+| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | phase 2, drafted 2026-10-19, not filed; per-frame vs total semantics is his call |
+| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | phase 2, drafted 2026-10-19, not filed; main took the idea in its own shape on 2026-10-22 (962615b, #286: `nriEnumerateAdapters` takes the backends to probe); `next` keeps two lines, `nriCreateDevice` with no adapter probing VK only for a VK device, a phase 2 note when #286 is discussed |
+| 0001 Agility SDK from a path | proposal | phase 2, drafted 2026-10-19, not filed: comment on his closed #157 ("it can't be improved, unfortunately, in a generic case") or a new issue; disclose the process-global semantics |
 | 0007 Apple loader link should be optional | build option | not filed: his PR 134 decision, a packaging case he does not have |
-| 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | not filed: `OUT_OF_DATE` is negative, so no `AbortExecution`; a misreport, not a stop |
+| 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting fixed in v191 by c1261950 (2026-10-28, our lines, a third for `WaitForPresent`, and `ReportMessage` demotes an `OUT_OF_DATE` report to `WARNING`; his comment: "You are not the first complaining about it"), patch dropped on both branches 2026-11-03; | filed 2026-10-27 against main b5f5c626 as [#304](https://github.com/NVIDIA-RTX/NRI/issues/304), the fix of patch 0009 attached; the earlier status is in the section below |
 | 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
 | 0015 Khronos message id name not forwarded | reporting | not filed: a format he changed on purpose in 59d0785 |
-| 0035 The memory helper's alignment sort leaves out the last buffer and the last texture (N11) | bug (packing) | not filed: packing only, so not phase 1 by the rules; owner's judgment |
-| 0036 D3D12 attachment resolve into a non-zero mip or layer, and of a layered view | backport | nothing to file: fixed on NRI main in 48d4a33; dropped with the tag that carries it |
 | 0037 Vulkan swap chain without `VkSwapchainPresentModesCreateInfoKHR` | layer warning | not filed: one present mode is what Vulkan assumes without the structure; the best-practices warning is cosmetic (drafted 2026-10-24, section below) |
 | 0038 `vkInstanceCreateInfoNext`: a caller's chain for `VkInstanceCreateInfo` | proposal | phase 2, drafted 2026-10-24, not filed (section below) |
+| N1 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` | bug | fixed upstream in 0593d91 (2026-10-26), dropped on next; patched on master as 0025 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#295](https://github.com/NVIDIA-RTX/NRI/issues/295); reproduced on main 2f7a49f (2026-10-22) |
+| N2 Vulkan empty vertex input makes the binding stride dynamic | bug | fixed upstream in 8a8fc2b (2026-10-26), dropped on next; patched on master as 0026 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#296](https://github.com/NVIDIA-RTX/NRI/issues/296); reproduced on main 2f7a49f (2026-10-22) |
+| N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | fixed upstream in 909a139 (2026-10-26), dropped on next; patched on master as 0027 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#297](https://github.com/NVIDIA-RTX/NRI/issues/297); reproduced on main 2f7a49f (2026-10-22) |
+| N4 D3D12 does not clear the stencil of a depth-stencil view passed as `depth` | bug | fixed upstream in c8fe3b2 (2026-10-26, D3D11 too), dropped on next; patched on master as 0028 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#298](https://github.com/NVIDIA-RTX/NRI/issues/298); reproduced on main 2f7a49f (2026-10-22) |
+| N5 D3D12 2D texture views ignore `layerOffset` | bug fixed in v191 by 71d3c586 (2026-10-28, another shape: D3D11 and D3D12 build the view as a one-layer array view, so it addresses the layer instead of being refused), patch dropped on both branches 2026-11-03; | filed 2026-10-27 against main b5f5c626 as [#306](https://github.com/NVIDIA-RTX/NRI/issues/306), the fix of patch 0029 attached; the earlier status is in the section below |
+| N6 D3D12 micromap barriers with `MICROMAP_WRITE` fail `Close` | bug | fixed upstream in 1dc13b2 (2026-10-26; its message says "fixed #300"), dropped on next; patched on master as 0030 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#299](https://github.com/NVIDIA-RTX/NRI/issues/299); reproduced on main 2f7a49f (2026-10-22) |
+| N7 D3D12 acceleration-structure memory reported 128-byte aligned; placements need 256 | bug | fixed upstream in 561e2be (2026-10-26, another shape: the buffer desc asks for 256 under tight alignment), dropped on next; patched on master as 0031 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#300](https://github.com/NVIDIA-RTX/NRI/issues/300); reproduced on main 2f7a49f (2026-10-22) |
+| N8 D3D12 AV1 encode with the default picture flags fails `Close` | bug | patched on master as 0032 (2026-10-22, PR #26); fixed on main by af45e72 (merged 2026-10-22, #264), the same rule, so dropped on next (2026-10-23); nothing to file; phase 1 candidate, not filed: owner's trigger; reproduced on main 2f7a49f (2026-10-22) |
+| N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | patched on master as 0033 (2026-10-22, PR #26); main chose another shape (57d92ff, af45e72, 9131c1b: the submitted picture descs in the desc, a key frame without references, `UNSUPPORTED` for a header on D3D12), so dropped on next (2026-10-23) and the binding follows; nothing to file; phase 2: the desc carries no frame type, so the fix is his API choice; the patch proposes `VideoAV1EncodeDecodeInfoDesc::keyFrame` and D3D12 describing from the metadata whether a header is given or not; reproduced on main 2f7a49f (2026-10-22) |
+| N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | fixed upstream in 9d276c3 and aa23763 (2026-10-26), dropped on next; patched on master as 0034 (2026-10-22, PR #26), re-cut on next for 72f5f46's creation rollback (#292, 2026-10-23) and carried until 83fd010; filed 2026-10-24 against main 72f5f46, [#301](https://github.com/NVIDIA-RTX/NRI/issues/301); reproduced on main 2f7a49f (2026-10-22) |
+| N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) fixed in v191 by 14a61d47 (2026-10-28, our lines), patch dropped on both branches 2026-11-03; | filed 2026-10-27 against main b5f5c626 as [#305](https://github.com/NVIDIA-RTX/NRI/issues/305), the fix of patch 0035 attached; the earlier status is in the section below |
+| `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
+| D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
+| Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
+| Draw-parameters emulation on Vulkan | design question | phase 2: validation demands `DrawBaseDesc` strides on every backend, while Vulkan reads plain records at `offset` |
 
 The texts as filed, and the audit that preceded them (every claim re-verified against the unpatched
 tree by reviewers given the patches but not these conclusions), are the sections below; the filed
@@ -108,6 +188,10 @@ clean under GCC and passes our suite.
 
 ## 0006 — `samplerLodBiasMax` permits a bias a portability device forbids
 
+**Status 2026-11-03.** Fixed in v191 by 0682d020 (our lines); the patch is dropped on master and `next`, which both pin v191.
+
+**Status 2026-10-27.** Filed as [#303](https://github.com/NVIDIA-RTX/NRI/issues/303) against main b5f5c626 (the macOS CI measurement; `DeviceVK.hpp:1554` there).
+
 **Title:** Vulkan on MoltenVK: `samplerLodBiasMax` ignores `VkPhysicalDevicePortabilitySubsetFeaturesKHR::samplerMipLodBias`
 
 `DeviceVK::Create` copies `VkPhysicalDeviceLimits::maxSamplerLodBias` into
@@ -163,6 +247,10 @@ formats. Patch attached (`patches/0008-vulkan-format-table-compressed.patch`), 5
 
 ## 0009 — `OUT_OF_DATE` from `AcquireNextTexture` / `QueuePresent` is reported as an error
 
+**Status 2026-11-03.** Fixed in v191 by c1261950 (our lines, a third for `WaitForPresent`, and `ReportMessage` demotes an `OUT_OF_DATE` report to `WARNING`; his comment: "You are not the first complaining about it"); the patch is dropped on master and `next`, which both pin v191.
+
+**Status 2026-10-27.** Filed as [#304](https://github.com/NVIDIA-RTX/NRI/issues/304) against main b5f5c626 (reproduced there: 6 of 8 resizes report `QueuePresentKHR(): failed, result = 0xC4653214`).
+
 **Title:** Vulkan swap chain: the documented `OUT_OF_DATE` result should not be reported as `Message::ERROR`
 
 `NRISwapChain.h` documents `OUT_OF_DATE` as a result of `AcquireNextTexture` ("VK only: may return
@@ -211,30 +299,69 @@ device from the factory and wrapping it with `nriCreateDeviceFromD3D12Device`, a
 what we fall back to; it loses `Robustness`, `DeviceLostInfoLevel` and ray-tracing validation,
 which only the NRI-created path offers. Patch attached, 1 header line and ~20 lines.
 
-## 0002 — SharedHandle extension
+## Not ours: NRI #307, Agility 1.620 deprecation warnings (2026-11-03)
 
-**Title:** Proposal: an extension to export textures and fences to other APIs and processes
+Filed by another user on Intel Arc. NRI v191 builds against Agility 1.620.1, whose debug layer reports
+each legacy `ID3D12Device::CheckFeatureSupport` as `D3D12_MESSAGE_ID_DEPRECATED_API` (989): 33 per D3D12
+device on NVIDIA and WARP, 27 from NRI (`DeviceD3D12.hpp`) and 6 from D3D12MA (its #102, fixed on
+sawickiap's fork, not yet upstream). It failed our Windows CI (the device-lost test refuses warnings at
+creation), so that test allows exactly these until both fixes reach NRI. A comment with the measurement and
+a prototype of NRI's part is drafted for the owner (scratchpad); nothing posted.
 
-NRI has no way to export a texture's memory or a fence: `TextureDesc` and `AllocateMemoryDesc`
-carry no exportable flag and `CreateFence` takes no desc. A compositor, an editor hosting the
-renderer, a capture tool or a second process importing a frame needs exactly that. The patch adds
-`NRISharedHandle.h`: `CreateSharedTexture` (committed, dedicated, exportable), `CreateSharedFence`,
-`GetTextureSharedHandle` and `GetFenceSharedHandle`, each returning a caller-owned handle
-(`OPAQUE_WIN32` / `OPAQUE_FD` on Vulkan, NT handles on D3D12), plus an `EXTERNAL_QUEUE` sentinel
-for barriers that release to or acquire from `VK_QUEUE_FAMILY_EXTERNAL`. `CreateSharedFence` with
-the `SWAPCHAIN_SEMAPHORE` initial value, the value NRI already uses to ask for a binary semaphore,
-creates an exportable binary semaphore on Vulkan, the signal-once/wait-once object external
-compositors import; D3D12 has no binary fences and answers `UNSUPPORTED`. Vulkan enables the
-external-memory and external-semaphore extensions itself and allocates the shared texture's memory
-directly so the export info can be chained; D3D12 uses `D3D12_HEAP_FLAG_SHARED` and
-`D3D12_FENCE_FLAG_SHARED`; NONE returns dummies; the validation layer wraps the four calls.
+## 0002 — Shared buffers, textures and fences
 
-Measured on v190, RTX 4070 SUPER: a Vulkan texture imports into a second Vulkan device byte for
-byte, the timeline semaphore signals both ways, and the binary semaphore, imported into a binary
-VkSemaphore, is signalled and waited by queue submits in both directions with the Khronos layer
-clean; a D3D12 fence opens on a second D3D12 device and signals
-both ways; a D3D12 texture opens on a second D3D12 device. One known limitation to state in the
-proposal: D3D11 refuses the typeless resource NRI creates. ~500 lines across 24 files.
+**Title:** Core: shared buffers, textures and fences (export to another device, API or process), the #49 request
+
+**Status 2026-10-27.** Merged as eb4ed356 (with the maintainer's eecb4cfd and 93a542a8 on the branch) and polished on main in f18c6df9 (`CoreInterface::DestroySharedHandle`) and d0f5ce49 (export support queries and `UNSUPPORTED`, `features.sharedFences` only when a semaphore type exports, the comments rewritten); dropped on `next` at b5f5c62. The text below is the PR as filed.
+
+**Status 2026-10-24.** Filed as PR #294 from the owner's fork, the `FenceDesc` question in a comment on #49. Re-cut in the shape the maintainer asked for on #49: no extension, fields
+on the existing descs, the getters in Core.
+
+**Status 2026-10-26.** Reviewed by the maintainer (through the Codex connector, then confirmed by hand): "NoGo until the following four items are addressed", `FenceDesc { initialValue, shared }` accepted, D3D11 sharing may stay a follow-up. He merged main 83fd010 into the branch himself (038cecbc). Items and the commits on top of his merge: (1) P1, repeated Win32 exports returned the same handle (VUID 00663 / 01127; reproduced on his RTX 4080): one export per object, retained until destruction, `DuplicateHandle` per caller, first export under a device lock, FD exports per call, `3a49e381`; (2) P1, no external ownership-transfer path for buffers: `BufferBarrierDesc::srcQueue` / `dstQueue`, the texture rules (an `EXCLUSIVE` buffer names the queue's family, a `CONCURRENT` one `IGNORED`, `EXTERNAL_QUEUE` is `VK_QUEUE_FAMILY_EXTERNAL` for either; the all-`IGNORED` first cut drew VUID-vkCmdPipelineBarrier2-srcQueueFamilyIndex-10387 on a one-family buffer), Validation passes the sentinel through, D3D12 ignores, `44aff46c`; (3) P2, `EXTERNAL_QUEUE` expanded to `const Queue*` (MSVC C2440): `static NriPtr(Queue) const`, `5e413361`; (4) the memory-location and shared-object checks moved out of the D3D12 and VK backends into Validation, `FenceVal` tracks `shared`, `2320cc63`; and, after his pointer to `.agents/skills/nri-coding-standard`, `0a7f3b2b` drops the Vulkan `Create` early-outs on `features.sharedResources` / `sharedFences` (Validation checks them) and moves `DuplicateSharedHandle` to the helper section. Reply posted on #294 (2026-10-26).
+
+What the PR added, against main 72f5f46:
+
+- `BufferDesc::shared`, `TextureDesc::shared`: a committed resource in `DEVICE` memory with a
+  dedicated, exportable allocation (VK: `VkExternalMemoryBufferCreateInfo` /
+  `VkExternalMemoryImageCreateInfo` and `VkExportMemoryAllocateInfo`, allocated outside VMA so the
+  export info can be chained, `DeviceVK::AllocateSharedMemory`; D3D12: `D3D12_HEAP_FLAG_SHARED`).
+- `FenceDesc { initialValue, shared }`, which `CreateFence` now takes (VK:
+  `VkExportSemaphoreCreateInfo`, timeline or binary; D3D12: `D3D12_FENCE_FLAG_SHARED`,
+  `UNSUPPORTED` for a binary semaphore). The one API break; the question for the maintainer is
+  whether he would rather keep `CreateFence(device, initialValue, fence)` and take the flag
+  another way.
+- `SharedHandleType`, `SharedHandle { handle, type, size }` and `CoreInterface::GetBufferSharedHandle`
+  / `GetTextureSharedHandle` / `GetFenceSharedHandle` beside the native-object getters: a new
+  caller-owned handle per call (VK: `vkGetMemory*` / `vkGetSemaphore*` `Win32HandleKHR` or
+  `FdKHR`; D3D12: `ID3D12Device::CreateSharedHandle`); `size` is the allocation size on both
+  backends, what an importer's `VkMemoryAllocateInfo::allocationSize` or
+  `CUDA_EXTERNAL_MEMORY_HANDLE_DESC::size` takes.
+- `DeviceDesc::features.sharedResources` / `sharedFences` (VK: the platform's external memory /
+  semaphore extension, which the backend enables itself; D3D12: true).
+- `EXTERNAL_QUEUE`, a sentinel for `TextureBarrierDesc::srcQueue` / `dstQueue` naming
+  `VK_QUEUE_FAMILY_EXTERNAL`, which the wrappers cannot express.
+- Validation refuses `shared` outside `CreateCommitted*` and outside `DEVICE` memory, a getter on
+  an object that is not shared, and a shared object on a device without the feature. NONE returns
+  zero handles. D3D11, WGPU and Metal answer `UNSUPPORTED`: the D3D11 stubs compiled here
+  (`NRI_ENABLE_D3D11_SUPPORT=ON`, 2026-10-24), WGPU and Metal are not compiled here.
+
+Measured on main 72f5f46, RTX 4070 SUPER, Windows: a Vulkan texture imports into a second Vulkan
+device byte for byte, the timeline semaphore signals both ways, the binary semaphore imported into
+a binary VkSemaphore is signalled and waited by queue submits in both directions with the Khronos
+layer clean; a D3D12 fence opens on a second D3D12 device and signals both ways; a D3D12 texture
+opens on a second D3D12 device; CUDA (the driver API, `cuImportExternalMemory` /
+`cuImportExternalSemaphore`) imports a shared buffer and the shared fence from both backends, reads
+what NRI wrote, writes, signals, and NRI's queue waits on CUDA's signal and reads CUDA's bytes;
+a shared texture NRI rendered imports as a mipmapped array, level 0 identical to NRI's readback
+(`CudaInteropTests`). Lavapipe: `sharedResources` 1, `sharedFences` 0 (no
+`VK_KHR_external_semaphore_fd`), buffer and texture export through fds. Known limitation to state:
+D3D11 refuses the typeless resource NRI creates. Not in the PR, a possible follow-up:
+`AllocateMemoryDesc::shared` and a memory getter for placed resources (some Vulkan drivers export
+images only from dedicated allocations, so it needs a capability check first).
+
+The earlier extension shape (`NRISharedHandle.h`, `CreateSharedTexture` / `CreateSharedFence` /
+`GetTextureSharedHandle` / `GetFenceSharedHandle`) is master's 0002 at v190; its measurements
+(2026-10-13 to 2026-10-16) are the same imports, without buffers and CUDA.
 
 ## 0010 — Streamer stages block-compressed textures in texel rows
 
@@ -298,6 +425,10 @@ enable extension VK_EXT_custom_border_color, ...`). Fix: `"[%u] %s: %s"` when `p
 non-null. Patch attached (`patches/0015-vulkan-message-id-name.patch`), four lines.
 
 ## 0016 — Validation refuses a pipeline layout whose `shaderStages` is `ALL`
+
+**Status 2026-11-03.** Fixed in v191 by 9764221e (another shape: `GetEffectiveShaderStages` resolves `ALL` and `ALL_SHADERS` to the layout's stages in every backend and in validation); the patch is dropped on master and `next`, which both pin v191.
+
+**Status 2026-10-27.** Filed as [#302](https://github.com/NVIDIA-RTX/NRI/issues/302) against main b5f5c626 (reproduced there: both messages, VK and D3D12).
 
 **Title:** Validation: `PipelineLayoutDesc::shaderStages = ALL` is treated as no stages
 
@@ -460,7 +591,7 @@ and the after side of one whose `dstQueue` is (the hand-off `TextureBarrierDesc`
 Vulkan the same barriers are the queue family release and acquire). With it the upload on COPY and
 the acquire on DIRECT are clean and the readback matches. Patch attached
 (`patches/0022-d3d12-copy-list-layouts-common.patch`), thirteen lines; the upstream form drops
-the `EXTERNAL_QUEUE` term, which is patch 0002's.
+the `EXTERNAL_QUEUE` term, which is patch 0002's (merged upstream as #294 on 2026-10-27).
 
 ## 0023 — Vulkan writes queue family indices into barriers on `CONCURRENT` images
 
@@ -483,10 +614,16 @@ remembers the number of active families at creation and, for a CONCURRENT image,
 is not the external family becomes `VK_QUEUE_FAMILY_IGNORED`; EXCLUSIVE and wrapped images keep
 the indices. With it both are clean, and the EXCLUSIVE case still reports the mismatch. Patch
 attached (`patches/0023-vulkan-concurrent-image-no-queue-family-transfer.patch`), twenty lines; the
-upstream form drops the `EXTERNAL_QUEUE` term, which is patch 0002's (keep
+upstream form drops the `EXTERNAL_QUEUE` term, which is patch 0002's, merged as #294 (keep
 `VK_QUEUE_FAMILY_EXTERNAL` sides if upstream ever has one).
 
 ## 0024 — Adapter enumeration filtered by graphics API (proposal, phase 2)
+
+Status 2026-10-23: main's 962615b (#286) gives `nriEnumerateAdapters` a `desiredGraphicsAPIs`
+mask, which is this proposal's first half in the maintainer's shape; the draft below is kept for
+the record. What `next` still patches (two lines) is the second half: `nriCreateDevice` with a
+null `adapterDesc` probes VK only for a VK device. If raised, it is a comment on #286, not an
+issue.
 
 **Title:** `nriEnumerateAdapters2`: enumerate only the asked graphics APIs' adapters
 
@@ -512,14 +649,14 @@ structure, so nothing behaves differently.
 
 **Title:** VK: `VkSwapchainPresentModesCreateInfoKHR` is not chained with `swapchainMaintenance1`
 
-`SwapChainVK::Create` (`Source/VK/SwapChainVK.hpp:368-374` at 72f5f46, `:363-369` at v190) chains
+`SwapChainVK::Create` (`Source/VK/SwapChainVK.hpp:368-374` at 72f5f46) chains
 `VkSwapchainPresentScalingCreateInfoKHR` when the device has `swapchainMaintenance1`, but not
 `VkSwapchainPresentModesCreateInfoKHR`, and the Khronos best-practices checks report
 `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every
 swap chain: "No VkSwapchainPresentModesCreateInfoKHR was provided to VkCreateSwapchainKHR. When
 VK_KHR_swapchain_maintenance1 is enabled, a VkSwapchainPresentModesCreateInfoKHR should be provided
 to inform the implementation that the application is aware of the new features in a backward
-compatible way." Measured on main 72f5f46 and on v190 + 0001-0036 (2026-10-24), NVIDIA, layer 1.4.341. Fix: chain it with the chosen
+compatible way." Measured on main 72f5f46, NVIDIA, layer 1.4.341. Fix: chain it with the chosen
 `presentMode` as the only entry (NRI never switches modes on present, and one entry is what Vulkan
 assumes without the structure):
 
@@ -541,13 +678,13 @@ Status: phase 2 proposal, drafted 2026-10-24, not filed.
 **Title:** `DeviceCreationDesc`: let the caller chain structures into `VkInstanceCreateInfo`
 
 NRI creates the Vulkan instance itself (`DeviceVK::CreateInstance`, `Source/VK/DeviceVK.hpp:2069`
-at 72f5f46, `:2051` at v190) and chains only its own `VkDebugUtilsMessengerCreateInfoEXT` and, with
+at 72f5f46) and chains only its own `VkDebugUtilsMessengerCreateInfoEXT` and, with
 `enableGraphicsAPIValidation`, `VkValidationFeaturesEXT`. So `VkLayerSettingsCreateInfoEXT`
 (`VK_EXT_layer_settings`) cannot be used, and the validation layer can be configured only
 through `VK_KHRONOS_VALIDATION_*` environment variables or `vk_layer_settings.txt`. Both apply to
 every instance in the process, and the environment is read at instance creation, so two devices
 cannot differ and a host that sets them at run time must do it before NRI creates the instance.
-Measured on main 72f5f46 and on v190 + 0001-0036 (2026-10-24), NVIDIA, layer 1.4.341: with the field below, a
+Measured on main 72f5f46, NVIDIA, layer 1.4.341: with the field below, a
 `VkLayerSettingsCreateInfoEXT` setting `validate_best_practices` switches the best-practices checks
 on for that device only (the 64 KiB committed buffer's
 `BestPractices-vkBindBufferMemory-small-dedicated-allocation` appears, and not on a device created
@@ -565,239 +702,228 @@ A question for him: whether he prefers a generic chain or a typed `VKLayerSettin
 
 ---
 
-## 0025 to 0036 — the coverage tests' findings (N1 to N11) and a backport
+## Found by the coverage tests (patched on master as 0025-0035, PR #26; N1-N4, N6, N7 and N10 filed 2026-10-24 as #295-#301)
 
-Found on 2026-10-21 and 2026-10-22 by the tests that close the coverage report's blind spots, and
-patched on master the same week (owner, 2026-10-22: master stays correct until upstream fixes them;
-the filing proposes these patches and asks his opinion). Each test asserts the right answer and was
-run red on v190 with master's earlier patches, then green with the patch. Line numbers are v190's;
-`next`'s copy has the same reports against NRI main, where they also reproduce, with their filing
-status. Measured on the development machine's discrete GPU (NVIDIA), and on WARP where it says so.
+**Status 2026-10-26.** All seven filed reports are fixed on NRI main, each in its own commit:
+N1 0593d91 (#295; our line, plus validation of `streamIndex`, of `bindingSlot` and of the
+`SetVertexBuffers` slot range), N2 8a8fc2b (#296), N3 909a139 (#297), N4 c8fe3b2 (#298, also in
+D3D11), N6 1dc13b2 (#299; the commit message says "fixed #300"), N7 561e2be (#300, another shape:
+`GetResourceDesc` asks for 256 for an acceleration-structure buffer, and 128 for a micromap one,
+under tight alignment, and `GetMemoryDesc` keeps that floor), N10 9d276c3 and aa23763 (#301,
+`CreateImplementation` and `DeviceVal::WrapImplementation` in every backend and validation).
+`next` moved to 83fd010 and dropped 0025-0028, 0030, 0031 and 0034; each test passes there
+without its patch (Windows, NVIDIA RTX 4070 SUPER, VK and D3D12; lavapipe in WSL). Master keeps
+them until the tag. N5 and N11 were not filed and main has not touched their lines.
 
-## 0025 — Vulkan: vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` (N1)
+Found on 2026-10-21 by the tests that close the coverage report's blind spots (branch
+`coverage-tests`, on master); N11 on 2026-10-22, reading the memory helper while the binding's
+disposal rule for its allocations was written, then measured. Measured on v190 with master's
+patches, none of which touch these lines, on the development machine's discrete GPU, and on WARP
+where it says so. Line numbers and code are NRI main's at 2f7a49f, where every line N1 to N11 cite
+is unchanged. N1 to N8, N10 and N11 are written in the filed form; N9 is a phase 2 question.
 
-**Title:** Vulkan: vertex attributes bind to streamIndex, not the stream's bindingSlot
+**Reproduced on NRI main** (2026-10-22): `next` at 7c57f89, NRI 2f7a49f with `next`'s 13 patches,
+none of which touch these lines, on the same GPU. Each probe is the shipped test without its
+workaround (temporary, not committed); N6 and N9 also come from the suite itself, whose micromap test
+skips quoting N6's `Close` failure and whose AV1 test records N9. Every item answers as on v190,
+with the same message texts:
+- N1: Vulkan draws 2,162 of the 4,096 pixels wrong, with VUID-vkCmdBindVertexBuffers2-pStrides-06209;
+  D3D12 is exact.
+- N2: VUID-vkCmdDraw-pStrides-04913 on the draw, the image unchanged; D3D12 is clean.
+- N3: D3D12 dies inside `CmdClearAttachments` with 0xC0000005; Vulkan clears, clean.
+- N4: over a stencil of 9, a pass with the view as `depth` only and a clear value of 5: Vulkan 5,
+  D3D12 9.
+- N5: `ClearStorage` through a `STORAGE_TEXTURE` view with `layerOffset` 1: Vulkan clears layer 1,
+  D3D12 layer 0, with no message.
+- N6: [1331] and the `Close` failure after `{MICROMAP_WRITE, MICROMAP}`; the build alone and the
+  build with `{MICROMAP_WRITE, ALL}` close; [1162] at the micromap's creation, as before.
+- N7: reported alignment 128; a TLAS placed at 2,688 (its address 128 past a multiple of 256) draws
+  [31] from `TryCreateShaderResourceView`.
+- N8: the encoder requires `LOOP_RESTORATION_FILTER | AUTO_SEGMENTATION | CDEF_FILTERING`; NRI's
+  default picture flags draw [1306], and `Close` fails.
+- N9: the payload-header path answers `FAILURE` with no message; two agreeing references describe
+  the key frame as P.
+- N10: `CreateFence` dies with 0xC0000005 on Vulkan and D3D12, NRI validation on and off.
+- N11: the layouts and allocation counts measured on v190, unchanged (Vulkan 1 or 2 allocations at
+  3,056 bytes, D3D12 1 or 2 at 128 KiB, by input order).
 
-**Observed.** Two vertex streams declared out of slot order (`streams[0]` in slot 1 with stride 4,
-`streams[1]` in slot 0 with stride 8), each attribute naming its stream by index: D3D12 draws the
-quad exactly; Vulkan draws nothing (2,162 of 4,096 pixels wrong), with
-VUID-vkCmdBindVertexBuffers2-pStrides-06209 "(attribute binding 1, attribute location 0) The
-pStrides value (4) ... is less than the extent of the binding for the attribute (8)". Streams
-declared in slot order hide it, because index and slot then agree.
+### N1: Vulkan: vertex attributes bind to streamIndex, not the stream's bindingSlot
+
+**Observed.** Two vertex streams declared out of slot order, each attribute naming its stream by
+index: D3D12 renders the quad exactly; Vulkan draws nothing, and the Khronos layer reports
+`[2656940963] VUID-vkCmdBindVertexBuffers2-pStrides-06209: vkCmdDrawIndexed(): (attribute binding 1, attribute location 0) The pStrides value (4) parameter in the last call to vkCmdDrawIndexed is not 0 and is less than the extent of the binding for the attribute (8).`
+Streams declared in slot order hide it, because index and slot then agree.
 
 **Cause.** `Source/VK/PipelineVK.hpp:167` sets `vertexAttributeDesc.binding = attribute.streamIndex`,
 while `:177` gives the binding `stream.bindingSlot`. D3D12 goes through the stream
 (`PipelineD3D12.hpp:281`, `InputSlot = stream.bindingSlot`). Since 42ddcff.
 
-**Fix.** Patch attached (`patches/0025-vulkan-vertex-attribute-binding-slot.patch`), one line, plus a
-validation check that `attributes[i].streamIndex < streamNum` (nothing checked it; D3D12 read
-`streams[]` past the array, and so would Vulkan with the fix):
+**Fix.**
 
 ```cpp
 vertexAttributeDesc.binding = vi->streams[attribute.streamIndex].bindingSlot;
 ```
 
-With it both backends draw the quad byte for byte as from one interleaved stream.
+Validation never checked `attributes[i].streamIndex < streamNum`; D3D12 read `streams[]` past the
+array, and the fix makes Vulkan do the same. Patch 0025 adds the check to `DeviceVal::CreatePipeline`
+(`INVALID_ARGUMENT`, naming `streamIndex`); an attribute with streamIndex 1 of one stream created a
+pipeline on both backends before it.
 
-## 0026 — Vulkan: an empty vertex input makes the binding stride dynamic (N2)
-
-**Title:** Vulkan: an empty vertex input makes the binding stride dynamic
+### N2: Vulkan: an empty vertex input makes the binding stride dynamic
 
 **Observed.** A graphics pipeline whose `vertexInput` has no attributes and no streams, drawn with
-`CmdDraw` and nothing bound: "[2005986124] VUID-vkCmdDraw-pStrides-04913: vkCmdDraw():
-VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE state is dynamic, but the command buffer never called
-vkCmdBindVertexBuffers2." The image equals the one with `vertexInput = nullptr`; D3D12 is clean.
+`CmdDraw` and nothing bound: `[2005986124] VUID-vkCmdDraw-pStrides-04913: vkCmdDraw(): VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE state is dynamic, but the command buffer never called vkCmdBindVertexBuffers2.`
+The image equals the one with `vertexInput = nullptr`; D3D12 is clean.
 
-**Cause.** `Source/VK/PipelineVK.hpp:378-379` add the dynamic stride for any non-null `vertexInput`
-(with `extendedDynamicState`); with no streams there is nothing to bind. Since e7d4c4f, which made
-the state depend on a non-null `vertexInput`.
+**Cause.** `Source/VK/PipelineVK.hpp:378-379` add the dynamic stride for any non-null `vertexInput`;
+with no streams there is nothing to bind. Since e7d4c4f, which made the state depend on a non-null `vertexInput` (254424c only added the `extendedDynamicState` condition).
 
-**Fix.** Patch attached (`patches/0026-vulkan-empty-vertex-input-no-dynamic-stride.patch`), one
-line:
+**Fix.**
 
 ```cpp
 if (vi && vi->streamNum && m_Device.GetDesc().features.extendedDynamicState)
 ```
 
-## 0027 — D3D12: `CmdClearAttachments` crashes in a stencil-only pass (N3)
-
-**Title:** D3D12: CmdClearAttachments crashes in a stencil-only pass
+### N3: D3D12: CmdClearAttachments crashes in a stencil-only pass
 
 **Observed.** `CmdBeginRendering` with a `D32_SFLOAT_S8_UINT` view as `stencil` and no `depth`, then
-`CmdClearAttachments` with `planes = STENCIL`: an access violation inside NRI (0xC0000005). Vulkan
-clears.
+`CmdClearAttachments` with `planes = STENCIL`: an access violation inside NRI (0xC0000005). Vulkan is
+clean, and so is D3D12 when the view is passed as `depth` too.
 
-**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1758` takes the view from `m_Depth.attachment`,
-which `CmdBeginRendering` sets only from `RenderingDesc::depth` (`:1795`); a stencil-only pass has
-`m_Stencil.attachment` (`:1807`). Since 110a667.
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1852` takes the view from `m_Depth.attachment`,
+which `CmdBeginRendering` sets only from `RenderingDesc::depth` (`:1889`); a stencil-only pass has
+`m_Stencil.attachment` (`:1901`). Since 110a667.
 
-**Fix.** Patch attached (`patches/0027-d3d12-clear-attachments-stencil-only-pass.patch`), two lines:
+**Fix.**
 
 ```cpp
-const DescriptorD3D12* depthStencil = m_Depth.attachment ? m_Depth.attachment : m_Stencil.attachment; // a stencil-only pass has no depth attachment
+const DescriptorD3D12* depthStencil = m_Depth.attachment ? m_Depth.attachment : m_Stencil.attachment;
 D3D12_CPU_DESCRIPTOR_HANDLE handle = {depthStencil->GetDescriptorHandleCPU()};
 ```
 
-With it, a stencil cleared to 5 by `CmdBeginRendering` and to 7 by `CmdClearAttachments` in one
-quadrant makes a later EQUAL 7 draw cover exactly that quadrant, on both backends.
-
-## 0028 — D3D12: the stencil of a depth-stencil view passed as `depth` is not cleared (N4)
-
-**Title:** D3D12: the stencil of a depth-stencil view passed as depth is not cleared
+### N4: D3D12: the stencil of a depth-stencil view passed as depth is not cleared
 
 **Observed.** `RenderingDesc::depth` set to a `D32_SFLOAT_S8_UINT` view with `loadOp = CLEAR` and a
 stencil clear value of 5, `stencil` left empty, over a stencil of 9: Vulkan reads back 5, D3D12 9
-(NVIDIA and WARP). `NRIDescs.h:1693` says `depth` "may be treated as depth-stencil", and Vulkan
-treats it so: it points `pStencilAttachment` at the depth attachment when the format has stencil
-(`CommandBufferVK.hpp:1634-1636`). D3D12 does too for the attachment (`m_Stencil = m_Depth`,
-`CommandBufferD3D12.hpp:1802-1803`).
+(hardware and WARP). `NRIDescs.h:1719` says `depth` "may be treated as depth-stencil", and Vulkan
+does: it points `pStencilAttachment` at the depth attachment when the format has stencil
+(`CommandBufferVK.hpp:1634-1636`). D3D12 does too for resolves (`m_Stencil = m_Depth`, `:1896-1897`).
 
-**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1828-1832` take the stencil clear flag and value
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1919-1926` take the stencil clear flag and value
 from `renderingDesc.stencil` only. Since 110a667.
 
-**Fix.** Patch attached (`patches/0028-d3d12-depth-attachment-clears-stencil.patch`), four lines
-added, two changed: the stencil clear comes from the attachment that provides the stencil.
+**Fix.**
 
 ```cpp
-const AttachmentDesc& stencil = renderingDesc.stencil.descriptor ? renderingDesc.stencil : renderingDesc.depth; // "depth" may be treated as depth-stencil
-...
+const AttachmentDesc& stencil = renderingDesc.stencil.descriptor ? renderingDesc.stencil : renderingDesc.depth;
 if (m_Stencil.attachment && stencil.loadOp == LoadOp::CLEAR)
     clearFlags |= D3D12_CLEAR_FLAG_STENCIL;
-... ClearDepthStencilView(depthStencil, clearFlags, renderingDesc.depth.clearValue.depthStencil.depth, stencil.clearValue.depthStencil.stencil, 0, nullptr);
+// ... and stencil.clearValue.depthStencil.stencil in ClearDepthStencilView
 ```
 
-## 0029 — D3D12: non-array texture views ignore `layerOffset` (N5)
+### N5: D3D12: 2D texture views ignore layerOffset
 
-**Title:** D3D12: non-array texture views ignore layerOffset
+**Status 2026-11-03.** Fixed in v191 by 71d3c586 (another shape: D3D11 and D3D12 build the view as a one-layer array view, so it addresses the layer instead of being refused); the patch is dropped on master and `next`, which both pin v191.
 
-**Observed.** A two-layer texture, a `STORAGE_TEXTURE` view with `layerOffset = 1`,
-`CmdClearStorage`: Vulkan clears layer 1, D3D12 clears layer 0. Neither NRI validation nor either
-backend's layer says anything.
+**Status 2026-10-27.** Filed as [#306](https://github.com/NVIDIA-RTX/NRI/issues/306) against main b5f5c626 (the view is created there without a message; `DescriptorD3D12.hpp:165`, `:217`), proposing the Validation refusal and offering documentation instead.
 
-**Cause.** `Source/D3D12/DescriptorD3D12.hpp:215` creates a `D3D12_UAV_DIMENSION_TEXTURE2D` view,
-which has no array slice, so `layerOffset` is dropped; `:164-167` (the `TEXTURE` SRV), `:194` (the
-cube SRV) and the 1D views do the same. Vulkan honours it (`baseArrayLayer`, `DescriptorVK.hpp:299`).
-Since the initial commit (0c5f574).
+**Observed.** A two-layer `R32_UINT` `TEXTURE_2D`, a `STORAGE_TEXTURE` view with `layerOffset = 1`,
+`CmdClearStorage`: Vulkan clears layer 1, D3D12 clears layer 0 (hardware and WARP). Neither NRI
+validation nor either backend's layer says anything.
 
-**Fix.** D3D12 has no non-array view of layer N, and an array view would not match the shader's
-non-array declaration, so NRI cannot honour the request there. Patch attached
-(`patches/0029-non-array-texture-view-layer-offset.patch`), four lines: validation refuses a
-`TEXTURE`, `SUBPASS_INPUT`, `STORAGE_TEXTURE` or `TEXTURE_CUBE` view of a 1D or 2D texture with
-`layerOffset != 0` on every backend, pointing to the `_ARRAY` view types. The D3D12 backend half of
-the first cut was dropped on 2026-10-26: input checks belong to Validation
-(`.agents/skills/nri-coding-standard` on NRI main). Documenting it in `TextureViewDesc` instead
-is his call.
+**Cause.** `Source/D3D12/DescriptorD3D12.hpp:214-218` create a `D3D12_UAV_DIMENSION_TEXTURE2D`
+view, which has no array slice, so `layerOffset` is dropped. `:164-167` do the same for `TEXTURE`
+(an SRV; not measured). Vulkan honours it (`baseArrayLayer`, `DescriptorVK.hpp:286`). Since the
+initial commit.
 
-## 0030 — D3D12: micromap barriers with `MICROMAP_WRITE` fail `Close` (N6)
+**Fix.** D3D12 has no non-array view of layer N (1D, 2D, 2DMS and cube), and an array view would not
+match the shader's non-array declaration. Patch 0029 (master, 2026-10-22) refuses `layerOffset != 0`
+for `TEXTURE` / `SUBPASS_INPUT` / `STORAGE_TEXTURE` / `TEXTURE_CUBE` views of a 1D or 2D texture: the
+D3D12 backend reports it and returns `INVALID_ARGUMENT`, and validation refuses it on every backend,
+pointing to the `_ARRAY` types. Documenting it in `TextureViewDesc` instead is his call.
 
-**Title:** D3D12: micromap barriers with MICROMAP_WRITE fail Close
+### N6: D3D12: micromap barriers with MICROMAP_WRITE fail Close
 
 **Observed.** After `CmdBuildMicromaps`, a buffer barrier whose before side is
-`{MICROMAP_WRITE, MICROMAP}` gives "[1331] ID3D12CommandList::Barrier: SyncBefore bits
-D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO are incompatible with
-AccessBefore bits D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE in buffer barrier at
-group [0], index [0]." `Close` then fails with `E_INVALIDARG`, with or without the debug layer. With
-`ALL` stages on that side the micromap links and traces.
+`{MICROMAP_WRITE, MICROMAP}` (before the BLAS build that links the micromap) gives
+`[1331] ID3D12CommandList::Barrier: SyncBefore bits D3D12_BARRIER_SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO are incompatible with AccessBefore bits D3D12_BARRIER_ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE in buffer barrier at group [0], index [0].`
+`Close` then fails with `E_INVALIDARG`, with or without the debug layer. The build alone closes; with
+`ALL` stages on that side, the micromap links and traces.
 
-**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:142` adds
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:179-180` add
 `EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO` to the `ACCELERATION_STRUCTURE | MICROMAP`
-stages unless the access holds `ACCELERATION_STRUCTURE_WRITE`, while `:184-185` map
+stages unless the access holds `ACCELERATION_STRUCTURE_WRITE`. Meanwhile `:234-235` map
 `MICROMAP_WRITE` to the same D3D12 write access. Since 022f7e6.
 
-**Fix.** Patch attached (`patches/0030-d3d12-micromap-write-barrier-sync.patch`), one line and the
-comment:
+**Fix.**
 
 ```cpp
 if (!(accessBits & (AccessBits::ACCELERATION_STRUCTURE_WRITE | AccessBits::MICROMAP_WRITE)))
 ```
 
-## 0031 — D3D12: acceleration-structure memory is reported 128-byte aligned; placements need 256 (N7)
-
-**Title:** D3D12: acceleration-structure memory is reported 128-byte aligned; placements need 256
+### N7: D3D12: acceleration-structure memory is reported 128-byte aligned; placements need 256
 
 **Observed.** On a device with tight alignment (Agility 1.619), `GetAccelerationStructureMemoryDesc2`
-and `GetAccelerationStructureMemoryDesc` report an alignment of 128. A TLAS placed at offset 2,688, a
-multiple of 128 but not of 256, passes NRI validation's placement check; its descriptor is then
-refused: "[31] ID3D12Device::TryCreateShaderResourceView: For
-D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE, the address (...) must be aligned to 256
-bytes." Vulkan reports 256.
+reports an alignment of 128. A TLAS placed at offset 2688, which is a multiple of 128 but not of 256,
+passes NRI validation's placement check. Its descriptor is then refused:
+`[31] ID3D12Device::TryCreateShaderResourceView: For D3D12_SRV_DIMENSION_RAYTRACING_ACCELERATION_STRUCTURE, the address (149441152) must be aligned to 256 bytes.`
+Vulkan reports 256.
 
-**Cause.** `Source/D3D12/ImplD3D12.cpp:1017-1023` and `AccelerationStructureD3D12.hpp:46-52` size the
-structure as a plain buffer, and `DeviceD3D12.hpp:1479` gives every buffer
-`D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT`. The result drops below
-`D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT`, which
-`memoryAlignment.accelerationStructureOffset` already reports (`:997`). Since 3371cdb; before it
-the desc used `accelerationStructureOffsetAlignment`.
+**Cause.** `Source/D3D12/ImplD3D12.cpp:1017-1023` size the structure as a plain buffer, and
+`DeviceD3D12.hpp:1478-1479` give every buffer `D3D12_RESOURCE_FLAG_USE_TIGHT_ALIGNMENT`. The result
+drops below `D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT`, which
+`memoryAlignment.accelerationStructureOffset` already reports (`:997`). Since 3371cdb.
 
-**Fix.** Patch attached (`patches/0031-d3d12-acceleration-structure-alignment.patch`), one line in
-each:
+**Fix.** In `GetAccelerationStructureMemoryDesc2` and `AccelerationStructureD3D12::GetMemoryDesc`:
 
 ```cpp
 memoryDesc.alignment = std::max(memoryDesc.alignment, (uint32_t)D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BYTE_ALIGNMENT);
 ```
 
-Micromaps keep 128, which is `D3D12_RAYTRACING_OPACITY_MICROMAP_ARRAY_BYTE_ALIGNMENT`.
-
-## 0032 — D3D12: AV1 encode with the default picture flags fails `Close` (N8)
-
-**Title:** D3D12: AV1 encode with the default picture flags fails Close
+### N8: D3D12: AV1 encode with the default picture flags fails Close
 
 **Observed.** An AV1 key frame encoded with NRI's default picture flags, on an encoder whose required
-feature flags are `LOOP_RESTORATION_FILTER | AUTO_SEGMENTATION | CDEF_FILTERING`, gives "[1306]
-CVideoEncodeCommandList::EncodeFrame: D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAGS -
-D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAG_ENABLE_FRAME_SEGMENTATION_AUTO is required in
-RequiredFeatureFlags but not set." `Close` then fails with `E_INVALIDARG`.
+feature flags include automatic segmentation, gives
+`[1306] CVideoEncodeCommandList::EncodeFrame: D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAGS - D3D12_VIDEO_ENCODER_AV1_PICTURE_CONTROL_FLAG_ENABLE_FRAME_SEGMENTATION_AUTO is required in RequiredFeatureFlags but not set.`
+`Close` then fails with `E_INVALIDARG`.
 
-**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1442-1443` set `ENABLE_FRAME_SEGMENTATION_AUTO` only
+**Cause.** `Source/D3D12/CommandBufferD3D12.hpp:1536-1537` set `ENABLE_FRAME_SEGMENTATION_AUTO` only
 when the picture flags hold `SEGMENTATION_ENABLED`, which `GetDefaultPictureFlags`
-(`Source/Shared/SharedVideo.h:571`) leaves out. The session merges the required and the supported
-feature flags (`VideoSessionD3D12.hpp:411-413`), so the required set is gone by the time the picture
-is built. Since 2741780, which added the picture-flag condition.
+(`Source/Shared/SharedVideo.h:571-573`) leaves out. The session merges the required and the supported
+feature flags (`VideoSessionD3D12.hpp:411-412`), so by the time the picture is built the encoder's
+required set is gone. Since 2741780, which added the picture-flag condition (3b9fe2d only moved the feature flags behind an accessor).
 
-**Fix.** Patch attached (`patches/0032-d3d12-av1-required-auto-segmentation.patch`), nine lines: the
-session keeps `RequiredFeatureFlags`, and the picture gets automatic segmentation when it is
-required, as well as when the picture asks for segmentation. With it the default flags encode (22
-bytes at q index 40).
+**Fix.** Keep `RequiredFeatureFlags` in the session, and set the picture flag when
+`AUTO_SEGMENTATION` is required, as well as when the picture asks for segmentation.
 
-## 0033 — `GetVideoAV1EncodeDecodeInfo`: D3D12 fails silently on a payload header and infers the frame type (N9, phase 2)
-
-**Title:** D3D12: GetVideoAV1EncodeDecodeInfo fails silently on a payload header and infers the frame type
+### N9: D3D12: GetVideoAV1EncodeDecodeInfo fails silently on a payload header and infers the frame type (phase 2)
 
 **Observed.**
 - With `encodedPayloadHeader` set to the first bytes of a D3D12 AV1 payload, the call answers
-  `FAILURE` with no message. The D3D12 encoder writes bare tile data, with no OBUs; Vulkan requires
-  the header.
-- With two agreeing references passed for a key frame, the info describes the frame as P.
+  `FAILURE` with no message. The D3D12 encoder writes bare tile data, with no OBUs.
+- With a DPB snapshot passed for a key frame, the info describes the frame as inter.
 
 **Cause.** `Source/D3D12/VideoSessionD3D12.hpp:128-129` parse a given header as OBUs. `:193` decides
-inter from `desc.referenceNum`, and `VideoAV1EncodeDecodeInfoDesc` carries no frame type. Since
-39ce136.
+inter from `desc.referenceNum` (since 39ce136), and `VideoAV1EncodeDecodeInfoDesc` carries no frame
+type.
 
-**Fix.** His choice; ours is attached (`patches/0033-video-av1-key-frame-and-d3d12-metadata.patch`,
-four lines): D3D12 does not read the header and describes the frame from the metadata (so one desc
-works on both backends), and `VideoAV1EncodeDecodeInfoDesc::keyFrame` (`NriOptional bool`) says the
-references are not used. The alternative is a note in `NRIVideo.h` that `references` stays empty
-for key frames.
+**Fix.** His choice; ours is patch 0033 (master, 2026-10-22): D3D12 does not read the header and
+describes the frame from the metadata, so one desc works on both backends, and
+`VideoAV1EncodeDecodeInfoDesc::keyFrame` (`NriOptional bool`) says the references are not used. The
+alternative is a note in `NRIVideo.h` that `references` stays empty for key frames.
 
-## 0034 — An allocator that returns null crashes NRI instead of failing the creation (N10)
-
-**Title:** An allocator that returns null crashes NRI instead of failing the creation
+### N10: an allocator that returns null crashes NRI instead of failing the creation
 
 **Observed.** An `AllocationCallbacks::Allocate` that returns null for the allocation of a fence:
-`CreateFence` dies with an access violation (0xC0000005), on Vulkan and D3D12, with NRI validation
-on and off.
+`CreateFence` dies with an access violation (0xC0000005), on Vulkan and D3D12, with NRI validation on
+and off.
 
 **Cause.** `Allocate` returns null safely (`Source/Shared/SharedExternal.h:457-463`), but
 `CreateImplementation` calls `Create` on the result without a check (`Source/VK/DeviceVK.h:204-205`,
-`Source/D3D12/DeviceD3D12.h:87-88`; since 2104586), and so do device creation (`ImplVK.cpp:64-65`,
-`ImplD3D12.cpp:63-64`), the command allocators, swap chains, Imgui, Streamer and Upscaler. The
-validation layer returns `SUCCESS` with a null object when its wrapper allocation fails, leaking
-the backend object. The WebGPU backend's `CreateImplementation` checks (`DeviceWGPU.h:65-68`), as do
-the transfer contexts, descriptor heaps and video objects.
+`Source/D3D12/DeviceD3D12.h:87-88`). Device creation does the same (`ImplVK.cpp:64-65`,
+`ImplD3D12.cpp:63-64`). Since 2104586.
 
-**Fix.** Patch attached (`patches/0034-allocation-failure-out-of-memory.patch`, fourteen files): every
-such `Allocate` is checked the WebGPU way, answering `OUT_OF_MEMORY` and destroying what the call
-made before it:
+**Fix.**
 
 ```cpp
 Implementation* impl = Allocate<Implementation>(GetAllocationCallbacks(), *this);
@@ -807,35 +933,82 @@ if (!impl) {
 }
 ```
 
-With it, failing each allocation of `CreateFence`, `CreateBuffer`, `CreateTexture`,
-`AllocateMemory`, `CreateCommandAllocator`, `CreateCommandBuffer`, `CreateQueryPool` and
-`CreateSampler` in turn answers `OUT_OF_MEMORY`, leaks nothing, and leaves the device working, on
-both backends with validation on and off. NRI's containers (`StdAllocator::allocate` is `noexcept`)
-still cannot report a null, device creation's first allocation among them; the patch does not
-change that.
+### N11: the memory helper's alignment sort leaves out the last buffer and the last texture
 
-## 0035 — The memory helper's alignment sort leaves out the last buffer and the last texture (N11)
+**Status 2026-11-03.** Fixed in v191 by 14a61d47 (our lines); the patch is dropped on master and `next`, which both pin v191.
 
-**Title:** AllocateAndBindMemory: the alignment sort leaves out the last buffer and the last texture
+**Status 2026-10-27.** Filed as [#305](https://github.com/NVIDIA-RTX/NRI/issues/305) against main b5f5c626 (reproduced there: VK two allocations in 2 of 6 orders, D3D12 in 4 of 6; `HelperInterface.hpp:556`, `:568`).
 
 **Observed.** `AllocateAndBindMemory` packs the last buffer and the last texture of a group where they
 were passed, after the sorted rest, so the same resources in another order get another layout and,
-with `preferredMemorySize`, another allocation count. Vulkan buffers aligned to 128, 64 and 16
-passed as scratch, constant, vertex land at +1024, +0, +2032; three buffers of 1,008 B at 16,
-1,024 B at 64 and 1,008 B at 128 with `preferredMemorySize` 3,056 need two allocations in 2 of the 6
-orders. D3D12 textures of 16 KiB and 4 KiB at 4 KiB and 64 KiB at 64 KiB with 128 KiB need two in
-the 4 orders that put a 4 KiB one last. Two buffers, or two textures, are never sorted.
+with `preferredMemorySize`, another allocation count.
+- Vulkan, three 1000-byte buffers of one memory type, aligned to 16 (vertex), 64 (constant) and 128
+  (scratch). Passed as scratch, constant, vertex, they land at +1024, +0 and +2032: the first two
+  sorted, the vertex buffer last. Passed as vertex, scratch, constant, the constant buffer lands at
+  +2048, after the scratch buffer, and with `preferredMemorySize` 3056 it gets a second allocation,
+  where vertex, constant, scratch fit one.
+- D3D12, one memory type, two shader-resource textures (64x64 and 16x16, 4 KiB aligned) and a 64x64
+  colour attachment (64 KiB aligned), `preferredMemorySize` 128 KiB: one allocation when the
+  attachment is passed last, two whenever a small texture is.
+- Two buffers, or two textures, are never sorted.
 
-**Cause.** `Source/Shared/HelperInterface.hpp:559` and `:571` end the sorted range at
+**Cause.** `Source/Shared/HelperInterface.hpp:558` and `:570` end the sorted range at
 `&buffers[bufferNum - 1]` and `&textures[textureNum - 1]`, and `std::sort` excludes its end. Since
 b5e2b07 ("improved resource packing", first in v176).
 
-**Fix.** Patch attached (`patches/0035-helper-sort-every-resource.patch`), two lines: sort
-`[0, bufferNum)` and `[0, textureNum)`. With it every order packs into one allocation.
+**Fix.**
 
-## 0036 — D3D12 attachment resolve into a non-zero mip or layer, and of a layered view (backport)
+```cpp
+std::sort(&buffers[0], &buffers[0] + resourceGroupDesc.bufferNum,
+...
+std::sort(&textures[0], &textures[0] + resourceGroupDesc.textureNum,
+```
 
-Nothing to file: NRI main fixed both in 48d4a33 ("array layers and destination mip indexing"),
-together with new resolve accesses and stages that change the API. Patch 0036 backports only the
-index (`CommandBufferD3D12.hpp:1959` used the array size as the mip count) and the per-layer resolve
-(`:1961` resolved the first layer only) to v190, and is dropped with the tag that carries 48d4a33.
+**Judgment.** Packing only: every layout is valid, so it is not a wrong result, a crash, undefined
+memory or a refused call, and the filing rules do not make it phase 1. The order the fix restores
+is not always the tightest either: as passed, scratch, constant, vertex fit 3,040 bytes; sorted,
+vertex, constant, scratch take 3,056. Recorded for the owner's judgment.
+
+### Not filed
+
+- **D3D12 attachment resolve into a non-zero layer or mip.** In v190 `EndRendering` passed
+  `DepthOrArraySize` where `GetSubresourceIndex` takes the mip count (`CommandBufferD3D12.hpp:1959`
+  at v190, since 110a667). Measured there:
+  - Layer 1 of a 1-mip, 2-layer destination gives
+    `[877] ID3D12CommandList::ResolveSubresourceRegion: Source or destination subresource index is out of bounds.`
+    and then a failed `Close`.
+  - Mip 1, layer 1 of a 2-mip, 3-layer destination lands in subresource 4, with
+    `[1334] ... subresource = [4], does not support the required access (D3D12_BARRIER_ACCESS_RESOLVE_DEST)`.
+  - Vulkan is correct in both.
+
+  Main's 48d4a33 passes `MipLevels` (`:2010`, `:2052`), so it is fixed. Master keeps the bug until
+  the next tag, and the test written for it belongs on `next`.
+- **Vulkan pipeline-statistics pool.** `QueryPoolVK.hpp:38` adds the task and mesh counters when
+  `features.meshShader` is set, and the query size follows (`:47`, `:56`). NRI's own
+  `features.meshShaderPipelineStats` (`DeviceVK.hpp:1633`, from `meshShaderQueries`) is the bit that
+  allows them (VUID-VkQueryPoolCreateInfo-meshShaderQueries-07068). Since f53490f. Held: found by
+  reading, and every device here reports both bits, so nothing measures it.
+- **Draw-parameters emulation on Vulkan** (phase 2, a question).
+  - Validation (`CommandBufferVal.hpp`) demands `sizeof(DrawBaseDesc)` strides for indirect draws
+    with the emulation flag on every backend.
+  - The Vulkan backend reads plain records at `offset`. Measured with the flag on Vulkan, a stride
+    of 16 is refused ("'stride' is too small, expected >= 24"), `DrawBaseDesc` records at stride 24
+    draw nothing, and at `offset + 8` they draw.
+  - The portable rule today: set the flag on D3D12 only.
+- **`WriteShaderGroupIdentifiers` group range.** Held, because it was found by reading and not
+  measured. `PipelineVal::WriteShaderGroupIdentifiers` checks only the stride (`PipelineVal.hpp:25`),
+  and the D3D12 backend reads `m_ShaderGroupNames[shaderGroupIndex]` without a bound
+  (`PipelineD3D12.hpp:691`), so a base index plus group count past the pipeline's groups is never
+  refused.
+- **Driver behaviour, not NRI.**
+  - On the development machine's D3D12 driver, an H.265 decode capability query at 64x64 removes the
+    device (`[233] ... DXGI_ERROR_DRIVER_INTERNAL_ERROR`), inside the decoder-heap creation of NRI's
+    `CanCreateVideoDecodeSession` (`VideoSessionD3D12.hpp:3-23`).
+  - Its Vulkan driver refuses `MICROMAP_COMPACTED_SIZE` and `SERIALIZATION_SIZE` query pools with
+    `VK_ERROR_UNKNOWN` and the layer silent; a raw `vkCreateQueryPool` does the same.
+- **Knowledge, not reports.**
+  - A `STORAGE_TEXTURE` view with `mipNum` over two mips is cleared whole by Vulkan
+    (`CommandBufferVK.hpp`, `levelCount = mipNum`) and mip 0 only by D3D12 (a UAV addresses one
+    mip): use one mip per storage view.
+  - Dynamic depth bias applies only to a pipeline with a non-zero static bias
+    (`PipelineVK.hpp:227`, `:380-381`; `PipelineD3D12.hpp:400`), which `NRI.h` does not say.

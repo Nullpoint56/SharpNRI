@@ -12,7 +12,8 @@ both in this repository.
 
 ## Status
 
-`0.4.0-alpha`, against NRI `v190` plus thirty-five patches ([patches/](patches/README.md)), on .NET 11.
+`0.4.0-alpha`, against NRI `v191` plus eleven patches ([patches/](patches/README.md)), on .NET 11. Releases come
+from master; the `next` branch follows NRI main between tags.
 Windows x64, Linux x64, macOS arm64. On macOS the binding is Vulkan through MoltenVK; NRI's Metal
 backend is not built, only the Base package exists, the application provides the Vulkan loader and
 MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
@@ -86,10 +87,11 @@ var queue = device.GetQueue(QueueType.GRAPHICS);
 
 ## Coverage
 
-- `CoreInterface`: all 114 functions.
-- Extensions, 12 of 16 headers in `Include/Extensions`: `DescriptorHeap`, `Imgui`, `LowLatency`,
-  `MeshShader`, `RayTracing`, `SharedHandle` (patch 0002), `Streamer`, `SwapChain`, `Upscaler`,
-  `Video`, `WrapperD3D12`, `WrapperVK`. `DeviceCreation` and `Helper` in full, `UploadData`
+- `CoreInterface`: all 118 functions (114 plus the three shared-handle getters and `DestroySharedHandle`, NRI main since #294).
+- Extensions, 11 of 15 headers in `Include/Extensions`: `DescriptorHeap`, `Imgui`, `LowLatency`,
+  `MeshShader`, `RayTracing`, `Streamer`, `SwapChain`, `Upscaler`, `Video`, `WrapperD3D12`,
+  `WrapperVK`. Shared buffers, textures and fences (NRI #294) are Core: `shared` on the descs
+  and `GetBufferSharedHandle` / `GetTextureSharedHandle` / `GetFenceSharedHandle` / `DestroySharedHandle`. `DeviceCreation` and `Helper` in full, `UploadData`
   included.
 - The twelve flat exports (`nriConvert*Format*`, `nriGetFormatProps`, `nriGetGraphicsAPIString`,
   `nriFitPipelineLayoutSettingsIntoDeviceLimits`, `nriReportLiveObjects`, the three annotation
@@ -114,7 +116,7 @@ dotnet test --solution PrismNRI.slnx -c Release --no-build
 | OS | Needs |
 |---|---|
 | Windows | Visual Studio with C++, CMake 3.30+, .NET 11 SDK. First Base build downloads about 250 MB; Upscalers about 1.6 GB |
-| Linux | CMake 3.30+, clang (GCC 13 also works with patch 0005), Ninja, `libvulkan1`, X11 and Wayland headers, pwsh 7, .NET 11 SDK. `tools/ci/verify-linux.sh` installs them and runs the whole leg |
+| Linux | CMake 3.30+, clang (GCC 13 also works since NRI 9b45d77), Ninja, `libvulkan1`, X11 and Wayland headers, pwsh 7, .NET 11 SDK. `tools/ci/verify-linux.sh` installs them and runs the whole leg |
 | macOS | Xcode command-line tools, CMake, Ninja if present, pwsh 7, .NET 11 SDK. Tests: Homebrew `molten-vk`, `vulkan-loader`, `vulkan-validationlayers`, with `DYLD_FALLBACK_LIBRARY_PATH` and `VK_DRIVER_FILES` set as the `osx-arm64` job in `.github/workflows/ci.yml` sets them |
 
 The native payload is not committed. `pwsh tools/generate-native.ps1` regenerates the interop layer

@@ -253,10 +253,10 @@ public sealed class StreamerExtensionTests
     /// A block-compressed texture is staged in rows of blocks, the layout CmdUploadBufferToTexture
     /// reads: every mip of a 64x64 BC1 texture, down to the 2x2 and 1x1 mips that are one partial
     /// block, is streamed with its block-row pitch, copied and read back byte for byte, and each mip
-    /// takes its block footprint in the dynamic buffer (the distance to the next offset). Upstream
-    /// v190 staged texel rows, 16 times the footprint (32,768 B for the 64x64 mip), reading past the
-    /// end of the caller's data; the bytes still arrived intact, so only the footprint shows it
-    /// (patch 0010).
+    /// takes its block footprint in the dynamic buffer (the distance to the next offset). NRI v190
+    /// staged texel rows, 16 times the footprint (32,768 B for the 64x64 mip), reading past the end
+    /// of the caller's data; the bytes still arrived intact, so only the footprint shows it (fixed
+    /// in bc3ebe7).
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]

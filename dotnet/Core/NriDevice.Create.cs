@@ -8,12 +8,37 @@ namespace PrismNRI;
 
 public sealed unsafe partial class NriDevice
 {
-    public NriFence CreateFence(ulong initialValue = 0)
+    /// <summary>A timeline fence (NRI's <c>FenceDesc</c>: <paramref name="initialValue"/>; <see cref="NriSwapChainExtension.SwapChainSemaphore"/> makes it a binary semaphore).</summary>
+    public NriFence CreateFence(ulong initialValue = 0) => CreateFence(new FenceDesc { initialValue = initialValue });
+
+    public NriFence CreateFence(in FenceDesc desc)
     {
         Fence* handle = null;
-        Check(Core.CreateFence(Raw, initialValue, &handle), "CreateFence");
+        fixed (FenceDesc* p = &desc) Check(Core.CreateFence(Raw, p, &handle), "CreateFence");
         return new NriFence(this, handle);
     }
+
+    /// <summary>
+    /// A timeline fence that can be exported (<c>FenceDesc::shared</c>; needs
+    /// <c>Desc.features.sharedFences</c>): Vulkan <c>VkExportSemaphoreCreateInfo</c>, D3D12
+    /// <c>D3D12_FENCE_FLAG_SHARED</c>. Export it with <see cref="NriFence.GetSharedHandle"/>. Throws
+    /// <see cref="NriUnsupportedException"/> where Vulkan cannot export a semaphore of that type.
+    /// <see cref="NriSwapChainExtension.SwapChainSemaphore"/> as <paramref name="initialValue"/> makes it
+    /// binary instead (<see cref="CreateSharedBinaryFence"/>).
+    /// </summary>
+    public NriFence CreateSharedFence(ulong initialValue = 0) => CreateFence(new FenceDesc { initialValue = initialValue, shared = 1 });
+
+    /// <summary>
+    /// An exportable binary semaphore (<c>FenceDesc { SWAPCHAIN_SEMAPHORE, shared }</c>), the object an
+    /// external compositor imports as an opaque NT handle or file descriptor. Vulkan only; D3D12 has
+    /// no binary fences and throws <see cref="NriUnsupportedException"/>.
+    /// </summary>
+    /// <remarks>
+    /// Binary semantics: every signal must be followed by exactly one wait before the next signal,
+    /// across both sides of the export. In <see cref="NriFenceSubmit"/> the value is ignored (pass 0);
+    /// <see cref="NriFence.Value"/> and <see cref="NriFence.Wait"/> must not be used on it.
+    /// </remarks>
+    public NriFence CreateSharedBinaryFence() => CreateSharedFence(NriApi.SWAPCHAIN_SEMAPHORE);
 
     public NriDescriptorPool CreateDescriptorPool(in DescriptorPoolDesc desc)
     {
@@ -139,6 +164,35 @@ public sealed unsafe partial class NriDevice
         Texture* handle = null;
         fixed (TextureDesc* p = &desc) Check(Core.CreateCommittedTexture(Raw, location, priority, p, &handle), "CreateCommittedTexture");
         return new NriTexture(this, handle);
+    }
+
+    /// <summary>
+    /// A committed buffer in <see cref="MemoryLocation.DEVICE"/> with a dedicated, exportable allocation
+    /// (<c>BufferDesc::shared</c>; needs <c>Desc.features.sharedResources</c>): Vulkan
+    /// opaque handle, D3D12 <c>D3D12_HEAP_FLAG_SHARED</c>. Export it with <see cref="NriBuffer.GetSharedHandle"/>;
+    /// everything else about it is an ordinary <see cref="NriBuffer"/>. Throws
+    /// <see cref="NriUnsupportedException"/> where Vulkan cannot export a buffer of that usage.
+    /// </summary>
+    public NriBuffer CreateSharedBuffer(in BufferDesc desc, float priority = 0)
+    {
+        var shared = desc;
+        shared.shared = 1;
+        return CreateCommittedBuffer(MemoryLocation.DEVICE, in shared, priority);
+    }
+
+    /// <summary>
+    /// A committed texture in <see cref="MemoryLocation.DEVICE"/> with a dedicated, exportable
+    /// allocation (<c>TextureDesc::shared</c>; needs <c>Desc.features.sharedResources</c>):
+    /// Vulkan opaque handle, D3D12 <c>D3D12_HEAP_FLAG_SHARED</c>. Export it with
+    /// <see cref="NriTexture.GetSharedHandle"/>; everything else about it is an ordinary <see cref="NriTexture"/>.
+    /// Throws <see cref="NriUnsupportedException"/> where Vulkan cannot export an image of that format,
+    /// usage, size or sample count.
+    /// </summary>
+    public NriTexture CreateSharedTexture(in TextureDesc desc, float priority = 0)
+    {
+        var shared = desc;
+        shared.shared = 1;
+        return CreateCommittedTexture(MemoryLocation.DEVICE, in shared, priority);
     }
 
     /// <summary>A buffer placed into existing memory at an offset; the memory refuses disposal until the buffer is disposed.</summary>

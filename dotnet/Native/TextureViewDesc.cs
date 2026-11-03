@@ -34,4 +34,7 @@ public unsafe partial struct TextureViewDesc
 
     [NativeTypeName("nri::ComponentMapping")]
     public ComponentMapping components;
+
+    [NativeTypeName("nri::Layout")]
+    public Layout layout;
 }

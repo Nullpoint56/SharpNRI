@@ -20,6 +20,12 @@ public unsafe partial struct VideoAV1EncodeDecodeInfoDesc
     [NativeTypeName("uint32_t")]
     public uint referenceNum;
 
-    [NativeTypeName("bool")]
-    public byte keyFrame;
+    [NativeTypeName("const VideoEncodePictureDesc *")]
+    public VideoEncodePictureDesc* pictureDesc;
+
+    [NativeTypeName("const VideoAV1EncodePictureDesc *")]
+    public VideoAV1EncodePictureDesc* av1PictureDesc;
+
+    [NativeTypeName("const VideoAV1SavedFrameState *")]
+    public VideoAV1SavedFrameState* savedFrameStates;
 }

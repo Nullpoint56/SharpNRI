@@ -9,7 +9,4 @@ public unsafe partial struct SharedHandle
 
     [NativeTypeName("uint64_t")]
     public ulong size;
-
-    [NativeTypeName("uint64_t")]
-    public ulong offset;
 }

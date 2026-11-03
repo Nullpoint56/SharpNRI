@@ -16,11 +16,9 @@ namespace PrismNRI;
 /// <summary><c>DescriptorSetDesc</c> with its ranges as an array.</summary>
 /// <param name="RegisterSpace">Must be unique across the layout; avoid big gaps.</param>
 /// <param name="Ranges">The descriptor ranges in this set.</param>
-/// <param name="Flags">Set-level flags.</param>
 public sealed record NriDescriptorSetDesc(
     uint RegisterSpace,
-    DescriptorRangeDesc[] Ranges,
-    DescriptorSetBits Flags = DescriptorSetBits.NONE);
+    DescriptorRangeDesc[] Ranges);
 
 /// <summary><c>PipelineLayoutDesc</c> with its arrays as arrays.</summary>
 public sealed class NriPipelineLayoutDesc

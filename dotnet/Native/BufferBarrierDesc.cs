@@ -10,4 +10,10 @@ public unsafe partial struct BufferBarrierDesc
 
     [NativeTypeName("nri::AccessStage")]
     public AccessStage after;
+
+    [NativeTypeName("nri::Queue *")]
+    public Queue* srcQueue;
+
+    [NativeTypeName("nri::Queue *")]
+    public Queue* dstQueue;
 }

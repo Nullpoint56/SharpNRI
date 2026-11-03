@@ -10,6 +10,6 @@ public enum UpscalerType : byte
     DLRR,
     METALFX_SPATIAL,
     METALFX_TEMPORAL,
-    METALFX_DENOISED,
+    METALFX_DENOISER,
     MAX_NUM,
 }

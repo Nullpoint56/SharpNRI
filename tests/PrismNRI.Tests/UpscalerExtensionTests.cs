@@ -56,7 +56,7 @@ public sealed class UpscalerExtensionTests
             [UpscalerType.DLRR] = [linux ? "libnvidia-ngx-dlssd.so.*" : "nvngx_dlssd.dll"],
             [UpscalerType.METALFX_SPATIAL] = [],
             [UpscalerType.METALFX_TEMPORAL] = [],
-            [UpscalerType.METALFX_DENOISED] = [],
+            [UpscalerType.METALFX_DENOISER] = [],
         };
         Assert.Equal(Enum.GetValues<UpscalerType>().Where(t => t != UpscalerType.MAX_NUM), expectedFiles.Keys);
 
@@ -137,7 +137,7 @@ public sealed class UpscalerExtensionTests
     /// <summary>
     /// <c>DispatchUpscale</c> allocates nothing on the managed heap ("No heap allocation", its doc)
     /// for each union arm it writes: NIS settings, the upscaler guides (METALFX_TEMPORAL), and the
-    /// denoiser guides with the DLRR settings (METALFX_DENOISED), every guide resource filled.
+    /// denoiser guides with the DLRR settings (METALFX_DENOISER), every guide resource filled.
     /// Measured as ExtensionAllocationTests measures: on NONE, which claims every upscaler type and
     /// does nothing per call, after a warm-up, over 300 dispatches of each. The vendor types (FSR,
     /// XeSS, DLSS) cannot be created without their runtime files, which no package ships.
@@ -156,7 +156,7 @@ public sealed class UpscalerExtensionTests
         using var view = texture.CreateView(TextureView.TEXTURE, Format.RGBA8_UNORM);
         var resource = new NriUpscalerResource(texture, view);
 
-        UpscalerType[] types = [UpscalerType.NIS, UpscalerType.METALFX_TEMPORAL, UpscalerType.METALFX_DENOISED];
+        UpscalerType[] types = [UpscalerType.NIS, UpscalerType.METALFX_TEMPORAL, UpscalerType.METALFX_DENOISER];
         var upscalers = types.Select(t => ext.CreateUpscaler(new NriUpscalerDesc { UpscaleResolution = new Dim2_t { w = 8, h = 8 }, Type = t })).ToArray();
         try
         {

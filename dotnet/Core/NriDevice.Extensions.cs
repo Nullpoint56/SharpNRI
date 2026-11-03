@@ -9,28 +9,6 @@ namespace PrismNRI;
 
 public sealed unsafe partial class NriDevice
 {
-    private NriSharedHandleExtension? _sharedHandles;
-    private bool _sharedHandlesProbed;
-
-    /// <summary>The SharedHandle extension (patch 0002), or null when the backend lacks it.</summary>
-    public NriSharedHandleExtension? TrySharedHandles
-    {
-        get
-        {
-            if (!_sharedHandlesProbed)
-            {
-                NriSharedHandleExtension.TryAcquire(this, out var e);
-                _sharedHandles = e;
-                _sharedHandlesProbed = true;
-            }
-            return _sharedHandles;
-        }
-    }
-
-    /// <summary>The SharedHandle extension. Throws <see cref="NriUnsupportedException"/> when absent.</summary>
-    public NriSharedHandleExtension SharedHandles =>
-        TrySharedHandles ?? throw new NriUnsupportedException("nriGetInterface(SharedHandleInterface)");
-
     private NriMeshShaderExtension? _meshShader;
     private bool _meshShaderProbed;
 

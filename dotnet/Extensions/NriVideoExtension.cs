@@ -147,6 +147,9 @@ public readonly record struct NriVideoEncodeDesc
 
     public NriVideoAV1EncodePictureDesc? Av1PictureDesc { get; init; }
 
+    /// <summary>H.265 parameter set selection; all ids default to 0.</summary>
+    public VideoH265EncodePictureDesc? H265PictureDesc { get; init; }
+
     /// <summary>Optional, H.265 sessions only: one per entry of <c>references</c> (NRI reads <c>referenceNum</c> of them).</summary>
     public ReadOnlyMemory<VideoH265ReferenceDesc> H265ReferenceDescs { get; init; }
 }
@@ -709,6 +712,8 @@ internal static unsafe class NriVideoMarshal
         n.globalMotion = s.GlobalMotion is { } globalMotionV ? arena.Push(globalMotionV) : null;
         n.filmGrain = s.FilmGrain is { } filmGrainV ? arena.Push(filmGrainV) : null;
         n.orderHints = s.OrderHints is { } orderHintsV ? (byte*)arena.Push(orderHintsV) : null;
+        n.skipModeFrames[0] = s.SkipModeFrame0;
+        n.skipModeFrames[1] = s.SkipModeFrame1;
         n.tiles = arena.Copy<VideoAV1DecodeTileDesc>(s.Tiles.Span); n.tileNum = checked((uint)s.Tiles.Span.Length);
         { var src = s.References.Span; var dst = arena.Alloc<VideoAV1ReferenceDesc>(src.Length); for (var i = 0; i < src.Length; i++) dst[i] = src[i].ToNative(arena); n.references = dst; n.referenceNum = checked((uint)src.Length); }
         return n;
@@ -721,7 +726,11 @@ internal static unsafe class NriVideoMarshal
         n.sequence = arena.Push(s.Sequence);
         n.encodedPayloadHeader = arena.Copy<byte>(s.EncodedPayloadHeader.Span); n.encodedPayloadHeaderSize = checked((ulong)s.EncodedPayloadHeader.Span.Length);
         { var src = s.References.Span; var dst = arena.Alloc<VideoAV1ReferenceDesc>(src.Length); for (var i = 0; i < src.Length; i++) dst[i] = src[i].ToNative(arena); n.references = dst; n.referenceNum = checked((uint)src.Length); }
-        n.keyFrame = s.KeyFrame ? (byte)1 : (byte)0;
+        n.pictureDesc = s.PictureDesc is { } pictureDescV ? arena.Push(pictureDescV) : null;
+        n.av1PictureDesc = s.Av1PictureDesc is { } av1PictureDescV ? arena.Push(av1PictureDescV.ToNative(arena)) : null;
+        if (!s.SavedFrameStates.IsEmpty && s.SavedFrameStates.Length != 8)
+            throw new ArgumentException("SavedFrameStates must be empty or hold 8 entries, one per reference frame slot", nameof(s));
+        n.savedFrameStates = s.SavedFrameStates.IsEmpty ? null : arena.Copy<VideoAV1SavedFrameState>(s.SavedFrameStates.Span);
         return n;
     }
 
@@ -789,6 +798,7 @@ internal static unsafe class NriVideoMarshal
         n.reconstructedSlot = s.ReconstructedSlot;
         n.h264PictureDesc = s.H264PictureDesc is { } h264PictureDescV ? arena.Push(h264PictureDescV.ToNative(arena)) : null;
         n.av1PictureDesc = s.Av1PictureDesc is { } av1PictureDescV ? arena.Push(av1PictureDescV.ToNative(arena)) : null;
+        n.h265PictureDesc = s.H265PictureDesc is { } h265PictureDescV ? arena.Push(h265PictureDescV) : null;
         n.h265ReferenceDescs = arena.Copy<VideoH265ReferenceDesc>(s.H265ReferenceDescs.Span);
         return n;
     }

@@ -1,7 +1,8 @@
-// Adapter enumeration by graphics API (patch 0024). nriEnumerateAdapters runs every backend's pass:
-// a Vulkan instance, a DXGI factory, D3D12 probes and devices on the inbox runtime. With
-// nriEnumerateAdapters2 (NriAdapter.Enumerate(GraphicsAPI)) only the asked passes run, and
-// nriCreateDevice with no adapter enumerates Vulkan only for a Vulkan device. CLAUDE.md: Device
+// Adapter enumeration by graphics API. nriEnumerateAdapters runs every backend's pass unless asked
+// otherwise: a Vulkan instance, a DXGI factory, D3D12 probes and devices on the inbox runtime. With
+// a backend mask (NriAdapter.Enumerate(GraphicsAPI); NRI main 962615b, master's patch 0024) only
+// the asked passes run, and nriCreateDevice with no adapter enumerates Vulkan only for a Vulkan
+// device (patch 0024). CLAUDE.md: Device
 // creation and callbacks.
 //
 // Which DLLs a process has loaded can only be measured in a process that has done nothing else, so

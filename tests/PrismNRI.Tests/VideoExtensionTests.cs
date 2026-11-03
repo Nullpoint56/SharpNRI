@@ -626,9 +626,10 @@ public sealed class VideoExtensionTests
     /// GetVideoAV1EncodeDecodeInfo (from the resolved metadata) describes what a decoder needs: a key
     /// frame refreshing every slot, one tile spanning the payload range it reports inside the written
     /// bytes, the session's sequence and render size, and the base q index the encoder used (40,
-    /// 160); NRI points the picture's pointers into the info itself. The same call with the payload's
-    /// first bytes passed as the header describes the frame the same way, and with a reference
-    /// snapshot and KeyFrame set it describes a key frame. NRI's D3D12 backend reads the picture
+    /// 160); NRI points the picture's pointers into the info itself. Without a payload header the
+    /// call takes the submitted picture descs; with the payload's first bytes passed as the header,
+    /// D3D12 answers UNSUPPORTED (its payload is tile data, no OBUs). With a reference snapshot and
+    /// a picture desc of frame type IDR it describes a key frame. NRI's D3D12 backend reads the picture
     /// desc's tile layout and segmentation and refuses a 2x1 layout ("D3D12 AV1 encode supports only
     /// a single tile") and explicit segmentation ("... does not support explicit segmentation"). NRI's
     /// validation refuses a reference snapshot whose two entries of one slot disagree on their saved
@@ -636,13 +637,16 @@ public sealed class VideoExtensionTests
     /// agreeing.
     /// </summary>
     /// <remarks>
-    /// Measured on D3D12 before patch 0032: the encoder requires LOOP_RESTORATION_FILTER,
-    /// AUTO_SEGMENTATION and CDEF_FILTERING, and NRI enabled automatic segmentation only for picture
-    /// flags holding SEGMENTATION_ENABLED, which its default flags do not (N8); the debug layer refused
-    /// the encode ("[1306] CVideoEncodeCommandList::EncodeFrame: ... ENABLE_FRAME_SEGMENTATION_AUTO is
-    /// required in RequiredFeatureFlags but not set.") and Close failed. Before patch 0033 (N9) the
-    /// header path answered FAILURE (the D3D12 payload is tile data, no OBUs), and a reference snapshot
-    /// made NRI describe the key frame as a P frame, which it still does without KeyFrame (recorded).
+    /// Measured on D3D12 at v190 (master's patches 0032 and 0033): the encoder requires
+    /// LOOP_RESTORATION_FILTER, AUTO_SEGMENTATION and CDEF_FILTERING, and NRI enabled automatic
+    /// segmentation only for picture flags holding SEGMENTATION_ENABLED, which its default flags do
+    /// not (N8); the debug layer refused the encode ("[1306] CVideoEncodeCommandList::EncodeFrame: ...
+    /// ENABLE_FRAME_SEGMENTATION_AUTO is required in RequiredFeatureFlags but not set.") and Close
+    /// failed. The header path answered FAILURE without a message, and a reference snapshot made NRI
+    /// describe the key frame as a P frame (N9). NRI main carries its own fixes for both (af45e72 and
+    /// 57d92ff, merged 2026-10-22; 9131c1b for the header): automatic segmentation follows the
+    /// encoder's required feature flags, the header is UNSUPPORTED on D3D12, and the frame type is
+    /// the submitted picture desc's, a key frame also without references.
     /// The picture desc's base q index is not what the encoder uses under CQP (the rate control's
     /// is), so the q index is set through the rate control.
     /// Vulkan resolves encode feedback through CmdResolveVideoEncodeFeedback, the same
@@ -725,8 +729,18 @@ public sealed class VideoExtensionTests
             Assert.Equal(0UL, feedback.errorFlags);
             Assert.True(feedback.encodedBitstreamWrittenBytes > 0, "the encode wrote nothing");
 
+            // Without a payload header NRI describes the frame from the metadata and the submitted
+            // picture descs (frame type, order hint, refresh flags); NRI's defaults are an empty desc.
+            NriVideoAV1EncodeDecodeInfoDesc InfoDesc(VideoFrameType encodedAs, ReadOnlyMemory<NriVideoAV1ReferenceDesc> references = default) => new()
+            {
+                Feedback = feedback,
+                Sequence = Av1Sequence(),
+                PictureDesc = new VideoEncodePictureDesc { frameType = encodedAs },
+                Av1PictureDesc = picture ?? new NriVideoAV1EncodePictureDesc(),
+                References = references,
+            };
             var info = new VideoAV1EncodeDecodeInfo();
-            video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, new NriVideoAV1EncodeDecodeInfoDesc { Feedback = feedback, Sequence = Av1Sequence() }, ref info);
+            video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, InfoDesc(VideoFrameType.IDR), ref info);
             var p = &info;
             GpuWork.Record($"{backend}: info: payload {info.bitstreamSize} B at {info.bitstreamOffset}, frame {info.picture.frameType}, refresh 0x{info.picture.refreshFrameFlags:X}, base q index {info.picture.baseQIndex}, tiles {info.picture.tileNum} ({info.tiles[0].offset}+{info.tiles[0].size}), "
                 + $"tile layout {info.tileLayout.columnNum}x{info.tileLayout.rowNum}, flags {info.picture.flags}, sequence {info.sequence.maxFrameWidthMinus1 + 1}x{info.sequence.maxFrameHeightMinus1 + 1} ({info.sequence.flags}), CDEF damping-3 {info.picture.cdefDampingMinus3}");
@@ -742,14 +756,23 @@ public sealed class VideoExtensionTests
                 && info.picture.cdef == &p->cdef && info.picture.references == &p->references.e0 && info.tileLayout.miColumnStarts == &p->miColumnStarts.e0, "the picture's pointers do not point into the info");
             sizes.Add(feedback.encodedBitstreamWrittenBytes);
 
-            // With the payload's first bytes passed as the header, the frame is described as from the
-            // metadata: a D3D12 payload is tile data, with no OBUs to parse.
+            // With the payload's first bytes passed as the header: a D3D12 payload is tile data, with
+            // no OBUs to parse, so NRI answers UNSUPPORTED there (9131c1b); Vulkan parses the OBUs.
             {
                 var parsed = new VideoAV1EncodeDecodeInfo();
-                video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, new NriVideoAV1EncodeDecodeInfoDesc { Feedback = feedback, Sequence = Av1Sequence(), EncodedPayloadHeader = payload }, ref parsed);
-                GpuWork.Record($"{backend}: info with the payload header ({payload.Length} B) passed: payload {parsed.bitstreamSize} B at {parsed.bitstreamOffset}, frame {parsed.picture.frameType}, base q index {parsed.picture.baseQIndex}");
-                Assert.Equal((info.bitstreamOffset, info.bitstreamSize, info.picture.frameType, info.picture.baseQIndex, info.picture.refreshFrameFlags),
-                    (parsed.bitstreamOffset, parsed.bitstreamSize, parsed.picture.frameType, parsed.picture.baseQIndex, parsed.picture.refreshFrameFlags));
+                var withHeader = InfoDesc(VideoFrameType.IDR) with { EncodedPayloadHeader = payload };
+                if (backend.Api == GraphicsAPI.D3D12)
+                {
+                    var unsupported = Assert.Throws<NriUnsupportedException>(() => video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, withHeader, ref parsed));
+                    GpuWork.Record($"{backend}: info with the payload header ({payload.Length} B) passed: {unsupported.Message}");
+                }
+                else
+                {
+                    video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, withHeader, ref parsed);
+                    GpuWork.Record($"{backend}: info with the payload header ({payload.Length} B) passed: payload {parsed.bitstreamSize} B at {parsed.bitstreamOffset}, frame {parsed.picture.frameType}, base q index {parsed.picture.baseQIndex}");
+                    Assert.Equal((info.bitstreamOffset, info.bitstreamSize, info.picture.frameType, info.picture.baseQIndex, info.picture.refreshFrameFlags),
+                        (parsed.bitstreamOffset, parsed.bitstreamSize, parsed.picture.frameType, parsed.picture.baseQIndex, parsed.picture.refreshFrameFlags));
+                }
             }
 
             // Reference keys: two entries for slot 0 must agree on everything, saved order hints included.
@@ -757,19 +780,14 @@ public sealed class VideoExtensionTests
             for (var i = 0; i < 8; i++) savedHints[i] = (byte)(i + 1);
             var otherHints = savedHints;
             otherHints[7] = 0;
-            Exception? Describe(NriVideoAV1OrderHints first, NriVideoAV1OrderHints second, out VideoFrameType frameType, bool keyFrame = false)
+            Exception? Describe(NriVideoAV1OrderHints first, NriVideoAV1OrderHints second, out VideoFrameType frameType, VideoFrameType encodedAs = VideoFrameType.IDR)
             {
                 var scratch = new VideoAV1EncodeDecodeInfo();
                 frameType = VideoFrameType.MAX_NUM;
                 try
                 {
-                    video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, new NriVideoAV1EncodeDecodeInfoDesc
-                    {
-                        Feedback = feedback,
-                        Sequence = Av1Sequence(),
-                        References = new[] { new NriVideoAV1ReferenceDesc { RefFrameIndex = 0, SavedOrderHints = first }, new NriVideoAV1ReferenceDesc { RefFrameIndex = 0, SavedOrderHints = second } },
-                        KeyFrame = keyFrame,
-                    }, ref scratch);
+                    var references = new[] { new NriVideoAV1ReferenceDesc { RefFrameIndex = 0, SavedOrderHints = first }, new NriVideoAV1ReferenceDesc { RefFrameIndex = 0, SavedOrderHints = second } };
+                    video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, InfoDesc(encodedAs, references), ref scratch);
                     frameType = scratch.picture.frameType;
                     return null;
                 }
@@ -783,17 +801,23 @@ public sealed class VideoExtensionTests
             Assert.Equal(Result.INVALID_ARGUMENT, mismatch.Result);
             Assert.Contains(messages.Skip(start), m => m.IsError && m.Text.Contains("'references' contain inconsistent AV1 identities", StringComparison.Ordinal));
             lock (messages) messages.RemoveRange(start, messages.Count - start);
+
+            // The same references agreeing, with the picture desc's frame type IDR: a key frame.
             var agreeing = Describe(savedHints, savedHints, out var describedAs);
             List<NriMessage> provoked;
             lock (messages) provoked = messages.Skip(start).ToList();
             GpuWork.Record($"{backend}: two agreeing references with the key frame's feedback: {(agreeing is null ? $"described as {describedAs}" : agreeing.Message)}; {string.Join(" | ", provoked)}");
             Assert.DoesNotContain(provoked, m => m.Text.Contains("inconsistent AV1 identities", StringComparison.Ordinal));
+            Assert.Null(agreeing);
+            Assert.Equal(VideoFrameType.IDR, describedAs);
             lock (messages) messages.RemoveRange(start, messages.Count - start);
 
-            // The same references with KeyFrame: the key frame is described as one (patch 0033); without
-            // it NRI infers inter from the references, as recorded above.
-            Assert.Null(Describe(savedHints, savedHints, out var describedAsKeyFrame, keyFrame: true));
-            Assert.Equal(VideoFrameType.IDR, describedAsKeyFrame);
+            // With frame type P and the same references NRI builds the inter-frame references from
+            // the metadata of a key-frame encode: recorded, whatever it answers.
+            var asInter = Describe(savedHints, savedHints, out var describedAsInter, VideoFrameType.P);
+            lock (messages) provoked = messages.Skip(start).ToList();
+            GpuWork.Record($"{backend}: the same references with frame type P: {(asInter is null ? $"described as {describedAsInter}" : asInter.Message)}; {string.Join(" | ", provoked)}");
+            lock (messages) messages.RemoveRange(start, messages.Count - start);
         }
         Assert.True(sizes[^1] <= sizes[^2], $"q index 160 wrote {sizes[^1]} B, more than {sizes[^2]} B at 40");
         Assert.DoesNotContain(messages, m => m.IsError);

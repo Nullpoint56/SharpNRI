@@ -12,7 +12,7 @@ compatible way.") for every swap chain. Measured on NRI main 72f5f46, NVIDIA, la
 This chains it with the chosen present mode only, so the swap chain behaves as before.
 
 diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
-index a1fca4b4..d2ce47d8 100644
+index 416c1702..980aede8 100644
 --- a/Source/VK/SwapChainVK.hpp
 +++ b/Source/VK/SwapChainVK.hpp
 @@ -373,6 +373,14 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {

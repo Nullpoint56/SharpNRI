@@ -87,6 +87,17 @@ public sealed unsafe class NriBuffer : NriObject
     /// <summary><c>ID3D12Resource*</c> on D3D12, <c>VkBuffer</c> on Vulkan. Last resort.</summary>
     public ulong GetNativeObject() => Device.Core.GetBufferNativeObject(Raw);
 
+    /// <summary>
+    /// A new handle to the buffer's memory, which the caller owns (<see cref="NriSharedHandle"/>). Throws with
+    /// <see cref="Result.INVALID_ARGUMENT"/> for a buffer not created shared (<see cref="NriDevice.CreateSharedBuffer"/>).
+    /// </summary>
+    public NriSharedHandle GetSharedHandle()
+    {
+        SharedHandle h;
+        Device.Check(Device.Core.GetBufferSharedHandle(Raw, &h), "GetBufferSharedHandle");
+        return NriSharedHandle.From(Device, in h);
+    }
+
     /// <summary>Bound into or placed in <paramref name="memory"/>, which then outlives this buffer.</summary>
     internal void BoundTo(NriMemory memory) => NriMemory.Track(ref _memory, memory);
 

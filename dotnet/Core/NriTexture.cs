@@ -73,6 +73,17 @@ public sealed unsafe class NriTexture : NriObject
     /// <summary><c>ID3D12Resource*</c> on D3D12, <c>VkImage</c> on Vulkan. Last resort.</summary>
     public ulong GetNativeObject() => Device.Core.GetTextureNativeObject(Raw);
 
+    /// <summary>
+    /// A new handle to the texture's memory, which the caller owns (<see cref="NriSharedHandle"/>). Throws with
+    /// <see cref="Result.INVALID_ARGUMENT"/> for a texture not created shared (<see cref="NriDevice.CreateSharedTexture"/>).
+    /// </summary>
+    public NriSharedHandle GetSharedHandle()
+    {
+        SharedHandle h;
+        Device.Check(Device.Core.GetTextureSharedHandle(Raw, &h), "GetTextureSharedHandle");
+        return NriSharedHandle.From(Device, in h);
+    }
+
     /// <summary>Bound into or placed in <paramref name="memory"/>, which then outlives this texture.</summary>
     internal void BoundTo(NriMemory memory) => NriMemory.Track(ref _memory, memory);
 
