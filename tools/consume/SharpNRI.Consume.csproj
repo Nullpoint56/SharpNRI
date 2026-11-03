@@ -5,7 +5,7 @@
     through PackageReference, runtimes/<rid>/native and deps.json, not the repository's
     ProjectReference copy. Not in SharpNRI.slnx. Run by the release workflow's consume job.
 
-      dotnet run -c Release -p:SharpNRIPackageVersion=0.4.0-alpha
+      dotnet run -c Release -p:SharpNRIPackageVersion=1.0.0-beta.1
       SHARPNRI_FEED=<dir with the .nupkg files>   (default: ../../nupkg, see nuget.config)
 
     Packages restore into obj/packages, never the global cache, so a stale SharpNRI of the same
@@ -32,6 +32,17 @@
   <ItemGroup>
     <PackageReference Include="SharpNRI" Version="$(SharpNRIPackageVersion)" />
     <PackageReference Include="SharpNRI.Testing" Version="$(SharpNRIPackageVersion)" />
+  </ItemGroup>
+
+  <!--
+    D3D12 on the Agility SDK exactly as docs/guide.md tells an application to take it: Microsoft's
+    package, its two runtime DLLs copied into AgilitySDK/ beside the application, where SharpNRI
+    looks by default. Program.cs fails when a D3D12 device does not report the Agility SDK.
+  -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PackageReference Include="Microsoft.Direct3D.D3D12" Version="1.620.1" GeneratePathProperty="true" ExcludeAssets="all" />
+    <None Include="$(PkgMicrosoft_Direct3D_D3D12)/build/native/bin/x64/D3D12Core.dll;$(PkgMicrosoft_Direct3D_D3D12)/build/native/bin/x64/d3d12SDKLayers.dll"
+          Link="AgilitySDK/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <Target Name="SharpNRIRequireVersion" BeforeTargets="_GenerateRestoreProjectSpec;Restore;CollectPackageReferences" Condition="'$(SharpNRIPackageVersion)' == ''">

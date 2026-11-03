@@ -17,7 +17,7 @@
   <PropertyGroup>
     <RootNamespace>SharpNRI.Testing</RootNamespace>
     <PackageId>SharpNRI.Testing</PackageId>
-    <Version>0.4.0-alpha</Version>
+    <Version>1.0.0-beta.1</Version>
     <Description>A headless, validated NRI device for tests: Vulkan, D3D12 or NRI's NONE backend with NRI validation and the backend validation layer on, messages captured, software adapters under CI, and skip reasons when a backend is absent. For projects that build on SharpNRI.</Description>
     <PackageTags>nri;vulkan;d3d12;testing;validation</PackageTags>
     <NoWarn>$(NoWarn);CS1591;NU5128</NoWarn>

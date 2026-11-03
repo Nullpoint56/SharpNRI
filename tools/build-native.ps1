@@ -12,7 +12,8 @@
      tree after configure so the submodule stays pristine.
   4. Stages NRI plus the files it needs into the variant's staging directory, and the licence of every
      component that is actually inside what is staged into <staging>/licenses/.
-  5. On Windows, also stages the Agility package (runtimes-agility/<rid>/native/AgilitySDK/).
+  5. On Windows, also stages the Agility runtime for the repository's tests
+     (runtimes-agility/<rid>/native/AgilitySDK/); no package carries it.
   6. Prints a table of what was staged.
 
   Variants (CLAUDE.md: Native packages). Both produce a library named NRI.dll / libNRI.so / libNRI.dylib,
@@ -23,8 +24,9 @@
                                                   Vendor runtimes (amd_fidelityfx_*, libxess, nvngx_*)
                                                   are NOT staged: the application ships them.
     Agility    runtimes-agility/<rid>/native/AgilitySDK/   D3D12Core.dll, d3d12SDKLayers.dll and
-                                                  Microsoft's licence. Staged by either variant on
-                                                  Windows; both load it at run time when present.
+                                                  Microsoft's licence, for the tests only (never packed;
+                                                  applications take Microsoft.Direct3D.D3D12). Staged by
+                                                  either variant on Windows.
 
   Options are the SharpNRI contract, not NRI's defaults. Only options that exist on the target
   platform are passed: NRI declares most SDK switches with cmake_dependent_option, and passing one
@@ -418,8 +420,8 @@ if ($targetWindows) {
 }
 
 # Anything NRI's post-build copied that we did not stage is a vendor runtime the application ships,
-# the Agility SDK (its own package), a tool, debug data, or new.
-$notOurs = '^(nvngx_dlssd?\.dll|libnvidia-ngx-dlssd?\.so\..*|amd_fidelityfx_(loader_dx12|upscaler_dx12|vk)\.dll|libxess\.dll)$'
+# the Agility SDK (staged apart, tests only), a tool, debug data, or new.
+$notOurs = '^(nvngx_dlssd?\.dll|libnvidia-ngx-dlssd?\.so\..*|amd_fidelityfx_(loader|upscaler)_(dx12|vk)\.dll|libxess\.dll)$'
 $ignored = '\.(lib|exp|pdb|ilk|a)$|^AgilitySDK[\\/]'
 $unexpected = @(Get-ChildItem $bin -Recurse -File | ForEach-Object {
     [System.IO.Path]::GetRelativePath($bin, $_.FullName) -replace '\\', '/'
@@ -443,7 +445,7 @@ if (& $on NRI_ENABLE_D3D12_SUPPORT) {
     StageLicense "D3D12MemoryAllocator" (Join-Path $deps "d3d12ma-src" "NOTICES.txt")
 }
 # The Agility headers are compiled into NRI (MIT). The runtime's licence goes with the runtime, in
-# the Agility package.
+# runtimes-agility/, which no package carries.
 if (& $on NRI_ENABLE_AGILITY_SDK_SUPPORT) { StageLicense "DirectX-AgilitySDK" (Join-Path $deps "agilitysdk-src" "LICENSE-CODE.txt") }
 if (& $on NRI_ENABLE_NVAPI)   { StageLicense "NVAPI" (Join-Path $deps "nvapi-src" "License.txt") }
 if (& $on NRI_ENABLE_AMDAGS)  { StageLicense "AMD-AGS" (Join-Path $deps "amdags-src" "ags_lib" "LICENSE.txt") }
@@ -453,8 +455,8 @@ if (& $on NRI_ENABLE_NGX_SDK) {
 }
 if (& $on NRI_ENABLE_FFX_SDK) {
     # NRI compiles against the FSR SDK's API headers (D3D12 and, through the same API, Vulkan) and
-    # loads the runtime DLLs by name. Nothing from the legacy FidelityFX SDK v1.1.4 is compiled in;
-    # its amd_fidelityfx_vk.dll is the application's to ship.
+    # loads the runtime loader by name (amd_fidelityfx_loader_dx12.dll / _vk.dll since NRI v191),
+    # which loads the upscaler; both are the application's to ship.
     StageLicense "AMD-FSR-SDK" (Join-Path $deps "fsr-src" "docs" "license.md")
     StageLicense "AMD-FSR-SDK" (Join-Path $deps "fsr-src" "3rdpartynotice.md")
 }

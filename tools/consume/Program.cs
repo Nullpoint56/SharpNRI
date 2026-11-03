@@ -56,6 +56,16 @@ foreach (var api in NriTestDevice.GpuBackends)
         Console.WriteLine($"{api}: adapter \"{NriTestDevice.AdapterFor(api)?.Name}\"");
         Summary(api.ToString(), device);
 
+        // D3D12 on Windows: the Agility SDK copied from Microsoft.Direct3D.D3D12 (SharpNRI.Consume.csproj)
+        // must be the runtime NRI loaded, as docs/guide.md promises.
+        bool agilityOk = true;
+        if (api == GraphicsAPI.D3D12)
+        {
+            var used = fixture.Messages.Select(m => m.Text).FirstOrDefault(t => t.Contains("Using Agility SDK", StringComparison.Ordinal));
+            Console.WriteLine(used is null ? "D3D12: FAILED no \"Using Agility SDK\" message" : $"D3D12: {used}");
+            agilityOk = used is not null;
+        }
+
         using (var buffer = device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = 256 }))
             Console.WriteLine($"{api}: buffer created, size {buffer.Desc.size}");
         using (var fence = device.CreateFence(0))
@@ -64,8 +74,8 @@ foreach (var api in NriTestDevice.GpuBackends)
 
         var errors = fixture.Errors.ToList();
         foreach (var e in errors) Console.WriteLine($"{api}: validation error: {e}");
-        if (errors.Count == 0 && device.LiveObjects == 0) gpuOk.Add(api);
-        else Console.WriteLine($"{api}: FAILED ({errors.Count} validation errors, {device.LiveObjects} live objects)");
+        if (errors.Count == 0 && device.LiveObjects == 0 && agilityOk) gpuOk.Add(api);
+        else Console.WriteLine($"{api}: FAILED ({errors.Count} validation errors, {device.LiveObjects} live objects{(agilityOk ? "" : ", no Agility SDK")})");
     }
     catch (Exception e)
     {

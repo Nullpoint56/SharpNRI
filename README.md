@@ -7,13 +7,14 @@ C# bindings over [NRI](https://github.com/NVIDIA-RTX/NRI), the NVIDIA Render Int
 D3D12 through one low-level API. NRI is a thin, explicit abstraction with no hidden management and
 no automatic barriers; SharpNRI exposes it as it is: NRI's objects as disposable handles, NRI's descs
 as structs with NRI's field names, NRI's threading contract documented rather than papered over.
+An independent project, not affiliated with NVIDIA.
 Pure managed P/Invoke over a native library built from a pinned NRI release plus a small patch set,
 both in this repository.
 
 ## Status
 
-`0.4.0-alpha`, against NRI `v191` plus eleven patches ([patches/](patches/README.md)), on .NET 11. Releases come
-from master; the `next` branch follows NRI main between tags.
+`1.0.0-beta.1`, against NRI `v191` plus eleven patches ([patches/](patches/README.md)), on .NET 11. Beta:
+the API may still change between releases. Releases come from master; the `next` branch follows NRI main between tags.
 Windows x64, Linux x64, macOS arm64. On macOS the binding is Vulkan through MoltenVK; NRI's Metal
 backend is not built, only the Base package exists, the application provides the Vulkan loader and
 MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
@@ -37,18 +38,20 @@ code.
 | `SharpNRI.Descs` | every enum, desc struct and table layout, plus the managed desc forms; no native code | building layouts and descs without a device, in code that must not load the native library; `SharpNRI` references it, and so can any package of your own |
 | `SharpNRI.Testing` | a validated headless device per backend for tests; no test framework dependency | your own GPU tests |
 | `SharpNRI.Native.Upscalers` | `NRI.dll` / `libNRI.so` with NIS, FSR and XeSS compiled in, AMD AGS, licences | you want NRI's upscaler extension |
-| `SharpNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll`, Microsoft's licence | D3D12 on the Agility SDK instead of the inbox runtime (Windows) |
 
 The two NRI payloads are both a file named `NRI.dll`: take exactly one.
 
+D3D12 on the DirectX 12 Agility SDK: take Microsoft's `Microsoft.Direct3D.D3D12` package and copy its
+two runtime DLLs into `AgilitySDK/` beside your application, where SharpNRI looks by default
+([the guide](docs/guide.md#agility-sdk) has the snippet). No SharpNRI package carries Microsoft's runtime.
+
 ```xml
 <!-- default -->
-<PackageReference Include="SharpNRI" Version="0.4.0-alpha" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.1" />
 
-<!-- with upscalers and Agility -->
-<PackageReference Include="SharpNRI" Version="0.4.0-alpha" ExcludeAssets="native" />
-<PackageReference Include="SharpNRI.Native.Upscalers" Version="0.4.0-alpha" />
-<PackageReference Include="SharpNRI.Native.Agility" Version="0.4.0-alpha" />
+<!-- with upscalers -->
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.1" ExcludeAssets="native" />
+<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.1" />
 ```
 
 The packages are [release](https://github.com/Nullpoint56/SharpNRI/releases) assets, not on
@@ -133,8 +136,9 @@ from the pinned, patched headers (needs `ClangSharpPInvokeGenerator` 21.1.8.4).
 
 ## Licence
 
-MIT ([LICENSE.md](LICENSE.md)). The native payload carries its components' own licences, listed in `THIRD-PARTY-NOTICES.md`.
-NRI (MIT) is built with VMA and D3D12MA (MIT), NVAPI and AMD AGS (MIT); the Upscalers package adds
-NIS (MIT), FSR (MIT) and XeSS (Intel licence) SDK code; the Agility package is Microsoft's runtime
-under Microsoft's licence. Not shipped: ClangSharp, dxc, xunit, and Microsoft's code coverage
-extension (`tools/coverage.ps1` only; Microsoft .NET Library licence).
+MIT ([LICENSE.md](LICENSE.md)). The native payload carries its components' own licences, listed in
+`THIRD-PARTY-NOTICES.md`. NRI (MIT) is built with VMA and D3D12MA (MIT), NVAPI and AMD AGS (MIT); the
+Upscalers package adds NIS (MIT), FSR (MIT) and XeSS (Intel licence) SDK code. The Agility SDK runtime
+is not shipped: applications take Microsoft's package under Microsoft's licence. Not shipped either:
+ClangSharp, dxc, xunit, and Microsoft's code coverage extension (`tools/coverage.ps1` only; Microsoft
+.NET Library licence).

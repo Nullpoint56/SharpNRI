@@ -19,7 +19,7 @@
   <PropertyGroup>
     <RootNamespace>SharpNRI</RootNamespace>
     <PackageId>SharpNRI</PackageId>
-    <Version>0.4.0-alpha</Version>
+    <Version>1.0.0-beta.1</Version>
     <Description>C# bindings over NRI (NVIDIA Render Interface): Vulkan and D3D12 through one API. Pure managed P/Invoke over a pinned NRI build. Windows x64, Linux x64 and macOS arm64 (Vulkan through MoltenVK). Alpha.</Description>
     <PackageTags>nri;vulkan;d3d12;rhi;graphics;rendering</PackageTags>
     <NoWarn>$(NoWarn);CS0169;CS0649;CS1591;CS8981;NU5128</NoWarn>
@@ -38,8 +38,8 @@
 
   <!--
     Native payload: the Base variant (no upscaler SDK, CLAUDE.md: Native packages), staged by
-    tools/build-native.ps1 into ../runtimes/<rid>/native. The Upscalers and Agility variants are
-    the packaging projects under ../native/.
+    tools/build-native.ps1 into ../runtimes/<rid>/native. The Upscalers variant is the
+    packaging project under ../native/.
     Packed under runtimes/<rid>/native for NuGet; the host RID's files are also copied flat next to
     a ProjectReference consumer's output. The two globs must stay disjoint: when they overlap, the package
     ships every RID except the one it was built on.
@@ -65,9 +65,10 @@
 
   <!--
     Repository convenience only, never packed: when tools/build-native.ps1 has staged the Agility
-    package (runtimes-agility/<rid>/native/AgilitySDK), copy it beside ProjectReference consumers
-    too, so the in-repo tests run D3D12 on the Agility SDK as an application with the
-    SharpNRI.Native.Agility package would. -p:SharpNRIDevAgility=false runs them on the inbox runtime.
+    runtime (runtimes-agility/<rid>/native/AgilitySDK), copy it beside ProjectReference consumers
+    too, so the in-repo tests run D3D12 on the Agility SDK as an application that copies Microsoft's
+    Microsoft.Direct3D.D3D12 package into AgilitySDK/ would (docs/guide.md: Agility SDK).
+    -p:SharpNRIDevAgility=false runs them on the inbox runtime.
     The NuGet package carries Base only (CLAUDE.md: Native packages).
   -->
   <ItemGroup Condition="'$(SharpNRIDevAgility)' != 'false'">

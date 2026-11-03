@@ -5,7 +5,7 @@
 //
 //   Base       runtimes/<rid>/native             -> SharpNRI
 //   Upscalers  runtimes-upscalers/<rid>/native   -> SharpNRI.Native.Upscalers
-//   Agility    runtimes-agility/<rid>/native     -> SharpNRI.Native.Agility
+//   Agility    runtimes-agility/<rid>/native     -> no package: the repository's tests only
 //
 // Base is the default and is always expected; the other two skip with the command that stages them.
 // No vendor upscaler runtime (nvngx_*, amd_fidelityfx_*, libxess) is in any of them: the application

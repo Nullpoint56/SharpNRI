@@ -14,7 +14,6 @@
     <Project Path="testing/SharpNRI.Testing.csproj" />
   </Folder>
   <Folder Name="/native/">
-    <Project Path="native/SharpNRI.Native.Agility.csproj" />
     <Project Path="native/SharpNRI.Native.Upscalers.csproj" />
   </Folder>
   <Folder Name="/tests/">

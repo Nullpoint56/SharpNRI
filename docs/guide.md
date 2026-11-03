@@ -30,12 +30,10 @@ headers do not say. NRI v191.
 | `SharpNRI.Descs` | `SharpNRI.Native` (generated, NRI's names) + managed desc forms | layouts without a device; pulled in by `SharpNRI` |
 | `SharpNRI.Testing` | `SharpNRI.Testing` | tests |
 | `SharpNRI.Native.Upscalers` | NRI with NIS, FSR, XeSS | upscaler extension |
-| `SharpNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll` | D3D12 on the Agility SDK (Windows) |
 
 ```xml
-<PackageReference Include="SharpNRI" Version="0.4.0-alpha" ExcludeAssets="native" />  <!-- only with Upscalers -->
-<PackageReference Include="SharpNRI.Native.Upscalers" Version="0.4.0-alpha" />
-<PackageReference Include="SharpNRI.Native.Agility" Version="0.4.0-alpha" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.1" ExcludeAssets="native" />  <!-- only with Upscalers -->
+<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.1" />
 ```
 
 - Not on NuGet.org: the `.nupkg` files are GitHub release assets. Folder feed, `nuget.config` beside
@@ -61,7 +59,7 @@ headers do not say. NRI v191.
 
   | Upscaler | D3D12 | Vulkan |
   |---|---|---|
-  | FSR | `amd_fidelityfx_loader_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll` | `amd_fidelityfx_vk.dll` |
+  | FSR | `amd_fidelityfx_loader_dx12.dll`, `amd_fidelityfx_upscaler_dx12.dll` | `amd_fidelityfx_loader_vk.dll`, `amd_fidelityfx_upscaler_vk.dll` |
   | XeSS | `libxess.dll` | not offered |
   | DLSR / DLRR | `nvngx_dlss*.dll` (DLSS build only) | same |
 
@@ -69,6 +67,32 @@ headers do not say. NRI v191.
 - DLSS: `pwsh tools/build-native.ps1 -WithDlss <DLSS SDK dir>` builds an NGX-linked `NRI.dll` into
   `runtimes-upscalers-dlss/<rid>/native/`. NGX is linked statically, so that `NRI.dll` is under
   NVIDIA's RTX SDK licence: yours to ship, never packed here.
+
+### Agility SDK
+
+D3D12 runs on the inbox runtime unless an Agility SDK runtime is beside the application. No SharpNRI
+package carries one: Microsoft's licence lets an application, not a library, redistribute it. Take
+Microsoft's package and copy its two runtime DLLs into `AgilitySDK/`, the directory SharpNRI uses when
+`D3D12AgilitySdkPath` is null:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Microsoft.Direct3D.D3D12" Version="1.620.1" GeneratePathProperty="true" ExcludeAssets="all" />
+  <None Include="$(PkgMicrosoft_Direct3D_D3D12)/build/native/bin/x64/D3D12Core.dll;$(PkgMicrosoft_Direct3D_D3D12)/build/native/bin/x64/d3d12SDKLayers.dll"
+        Link="AgilitySDK/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+</ItemGroup>
+```
+
+- The version must carry the SDK version NRI was compiled against: 1.620 for NRI v191
+  (`NRI_AGILITY_SDK_VERSION_MAJOR` in NRI's `CMakeLists.txt`). A 1.619 runtime under NRI v191 fails
+  every D3D12 device creation with `INVALID_SDK` (measured).
+- `ExcludeAssets="all"`: the package's own build files target C++ projects; only its files are used.
+  `bin/arm64` holds the win-arm64 DLLs.
+- `d3d12SDKLayers.dll` is the debug layer; leave it out of a build that never enables
+  `EnableGraphicsApiValidation`.
+- Shipping the runtime makes its Microsoft Software License Terms yours (`THIRD-PARTY-NOTICES.md`).
+- The release's `consume` job builds exactly this and fails unless NRI reports
+  `Using Agility SDK v1.620`.
 
 ## Device creation
 
@@ -110,7 +134,7 @@ Caveats:
   `D3D12AgilitySdkPath` the inbox runtime runs and NRI warns
   `CheckFeatureSupport(options22) failed, result = 0x80070057`. Patch 0001 loads the SDK through
   `ID3D12SDKConfiguration1::CreateDeviceFactory` + `ApplyToGlobalState`; success logs
-  `Using Agility SDK v1.619 from '...'`.
+  `Using Agility SDK v1.620 from '...'`.
 - **Agility is process-wide.** Once applied, the inbox runtime is not reachable again in that
   process.
 - **Agility without the patch:** create the `ID3D12Device` from your own device factory and pass it
@@ -878,8 +902,8 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 
 ### Windows
 
-- D3D12 on the Agility SDK needs `SharpNRI.Native.Agility` (or your own `AgilitySDK` directory and
-  `D3D12AgilitySdkPath`).
+- D3D12 on the Agility SDK needs its runtime in `AgilitySDK/` beside the application, from
+  Microsoft's package ([Agility SDK](#agility-sdk)), or another directory in `D3D12AgilitySdkPath`.
 - Visual C++ 2015-2022 runtime required, not shipped.
 - `NRI.dll` delay-loads `d3d12.dll` and `dxgi.dll` (both packages), resolved at the first D3D12 or
   DXGI call, and the Upscalers `NRI.dll` also `libxess.dll`: absent is fine until XeSS is created.
@@ -930,7 +954,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 
 | Trap | Effect | Section |
 |---|---|---|
-| D3D12 under `dotnet` without `D3D12AgilitySdkPath` / the Agility package | inbox runtime, `options22` warning | Device creation |
+| D3D12 under `dotnet` without `D3D12AgilitySdkPath` / an `AgilitySDK` directory | inbox runtime, `options22` warning | Device creation |
 | Agility applied once | inbox runtime unreachable for the rest of the process | Device creation |
 | Anything measured on NONE | NONE answers SUCCESS to everything and never validates | Device creation |
 | `GetQueue` bad index | `INVALID_ARGUMENT`, no message | Device creation |
