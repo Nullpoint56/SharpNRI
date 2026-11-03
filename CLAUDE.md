@@ -49,8 +49,10 @@ read; nothing is pushed to it from here until an upstream PR is planned.
 - **Now.** Both branches pin NRI v191 (46c93d79, 2026-10-30; on 2026-11-03 also NRI main's head),
   with eleven patches: adopted on `next` and merged into master through a pull request
   (2026-11-03). PR #294 (our 0002) and the twelve filed issues (#295-#306) are all in v191. Verified
-  at bfa4a703 (2026-11-03): Windows (NVIDIA RTX 4070 SUPER, VK and D3D12) 535 tests, 0 failed, 13 skipped; lavapipe in WSL
-  (layer 1.4.363) 534 tests, 0 failed, 294 skipped. Before, on NRI main b5f5c62 with sixteen
+  at d2a2b51 (2026-11-03) on a fresh v191 payload (Agility 1.620.1): Windows (NVIDIA RTX 4070 SUPER, VK
+  and D3D12) 535 tests, 0 failed, 13 skipped; WARP 535, 0, 33; lavapipe in WSL (layer 1.4.363, a
+  fresh tree) 534, 0, 294. The first verification, at bfa4a703, ran on a stale tree with Agility 1.619
+  (Build: the fresh tree) and missed NRI #307's warnings, which CI's fresh tree found. Before, on NRI main b5f5c62 with sixteen
   patches (8f1abefc, 2026-10-27): 535 and 534 tests, 13 and 294 skipped. `next` moves to NRI main
   again when main moves past v191.
 - **Direction.** Binding work that does not depend on the NRI version lands on master and is
@@ -425,7 +427,8 @@ configured per machine: the adapter named is whichever one the suite picked on t
   (`vkInstanceCreateInfoNext` added); lavapipe 517, 286 skipped, 0 failed. With 0029's D3D12 backend
   half dropped (4e074ef): Windows 518, 11 skipped, lines 98.0%, branches 81.5%, 251 of 253, fields
   1,611 of 1,612; lavapipe 517, 286 skipped, 0 failed. On NRI v191 with eleven patches (731a65b,
-  2026-11-03): Windows 535 tests, 13 skipped, lines 98.1%, branches 82.1%, 252 of 252 functions
+  2026-11-03) (731a65b ran on Agility 1.619 from a stale tree; the same figures at d2a2b51 on the
+  1.620.1 payload): Windows 535 tests, 13 skipped, lines 98.1%, branches 82.1%, 252 of 252 functions
   bound (the merged shared handles: three Core getters and `DestroySharedHandle` instead of the
   extension table; 19 flat exports without `nriEnumerateAdapters2`), 250 of 252 call sites run,
   fields 1,646 of 1,647; lavapipe 534, 294 skipped, 0 failed. The committed report is measured where its
