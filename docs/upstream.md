@@ -306,7 +306,7 @@ each legacy `ID3D12Device::CheckFeatureSupport` as `D3D12_MESSAGE_ID_DEPRECATED_
 device on NVIDIA and WARP, 27 from NRI (`DeviceD3D12.hpp`) and 6 from D3D12MA (its #102, fixed on
 sawickiap's fork, not yet upstream). It failed our Windows CI (the device-lost test refuses warnings at
 creation), so that test allows exactly these until both fixes reach NRI. A comment with the measurement and
-a prototype of NRI's part is drafted for the owner (scratchpad); nothing posted.
+a prototype of NRI's part was drafted and not posted: the owner leaves the fix to the maintainers.
 
 ## 0002 — Shared buffers, textures and fences
 

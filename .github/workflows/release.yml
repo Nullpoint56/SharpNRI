@@ -3,7 +3,8 @@ name: release
 # How a release is made:
 #   1. Bump <Version> in dotnet/PrismNRI.csproj and, to the same value, in descs/PrismNRI.Descs.csproj,
 #      testing/PrismNRI.Testing.csproj, native/PrismNRI.Native.Upscalers.csproj and
-#      native/PrismNRI.Native.Agility.csproj. Merge to master and let ci go green.
+#      native/PrismNRI.Native.Agility.csproj. Add docs/releases/v<Version>.md, the release body (NRI pin,
+#      changes, breaking changes, verified hardware and commit, coverage link). Merge to master and let ci go green.
 #   2. git tag v<Version> && git push origin v<Version>     (e.g. v0.1.0-alpha)
 #   3. This workflow: version (tag == v<Version> in all five csprojs, else fail) -> win-x64, linux-x64,
 #      osx-arm64 (native payloads, same setup and build-native.ps1 calls as ci.yml) -> pack (all RIDs
@@ -67,6 +68,8 @@ jobs:
           $odd = @($versions | Where-Object Version -ne $version)
           if ($odd) { throw "package versions disagree: $(($odd | ForEach-Object { "$($_.Project)=$($_.Version)" }) -join ', ') vs dotnet/PrismNRI.csproj=$version" }
           if ($env:RELEASE_TAG -cne "v$version") { throw "tag '$env:RELEASE_TAG' is not 'v$version' (<Version> in dotnet/PrismNRI.csproj)" }
+          $notes = "docs/releases/$env:RELEASE_TAG.md"
+          if (-not (Test-Path $notes)) { throw "release notes $notes missing: add them in the version-bump pull request" }
           "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "release $env:RELEASE_TAG, packages $version"
 
@@ -443,6 +446,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/releases
+
       - uses: actions/download-artifact@v4
         with:
           name: nupkg
@@ -462,7 +469,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: PrismNRI ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          body_path: docs/releases/${{ github.ref_name }}.md
           fail_on_unmatched_files: true
           files: |
             dist/*.nupkg
