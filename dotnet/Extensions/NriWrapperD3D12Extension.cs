@@ -9,11 +9,11 @@
 // the structure type, which AccelerationStructureD3D12Desc does not carry. Device creation from an
 // ID3D12Device is NriDevice.CreateFromD3D12.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
-using Buffer = PrismNRI.Native.Buffer;
+using SharpNRI.Interop;
+using SharpNRI.Native;
+using Buffer = SharpNRI.Native.Buffer;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>NRI's <c>WrapperD3D12Interface</c>. Acquire through <see cref="NriDevice.WrapperD3D12"/>.</summary>
 public sealed unsafe class NriWrapperD3D12Extension

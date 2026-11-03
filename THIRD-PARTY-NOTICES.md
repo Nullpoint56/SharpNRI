@@ -1,6 +1,6 @@
 # Third-party notices
 
-PrismNRI's own code is MIT (`LICENSE.md`). Its native payloads are built by `tools/build-native.ps1` from the NRI
+SharpNRI's own code is MIT (`LICENSE.md`). Its native payloads are built by `tools/build-native.ps1` from the NRI
 submodule at the tag pinned in `Directory.Build.props` (versions below are those pinned by NRI v190's
 `CMakeLists.txt`) and ship as three packages (`CLAUDE.md`: Native packages). Each package stages the
 licence of every component inside it beside its binaries, in `licenses/<Component>/`, copied from the
@@ -8,10 +8,10 @@ exact archive the build fetched. This file is staged with the two NRI packages a
 `licenses/THIRD-PARTY-NOTICES.md`; its licence texts section also keeps the texts of the vendor SDKs
 no package ships, for the application that ships their runtimes.
 
-**No PrismNRI package contains a vendor upscaler runtime** (`nvngx_*`, `amd_fidelityfx_*`,
+**No SharpNRI package contains a vendor upscaler runtime** (`nvngx_*`, `amd_fidelityfx_*`,
 `libxess*`), and none contains DLSS/NGX code.
 
-## `PrismNRI` — Base (`runtimes/<rid>/native/`)
+## `SharpNRI` — Base (`runtimes/<rid>/native/`)
 
 NRI with no upscaler SDK compiled in. MIT throughout, plus Apache-2.0 alternatives in headers.
 
@@ -26,7 +26,7 @@ NRI with no upscaler SDK compiled in. MIT throughout, plus Apache-2.0 alternativ
 | [NVAPI](https://github.com/NVIDIA/nvapi) | commit 70d337d | static lib linked into NRI (no DLL; the driver provides `nvapi64.dll`) | MIT | Windows |
 | [AMD AGS](https://github.com/GPUOpen-LibrariesAndSDKs/AGS_SDK) | v6.3.1 | `amd_ags_x64.dll` (loaded at run time) | MIT | win-x64 |
 
-## `PrismNRI.Native.Upscalers` — Upscalers (`runtimes-upscalers/<rid>/native/`)
+## `SharpNRI.Native.Upscalers` — Upscalers (`runtimes-upscalers/<rid>/native/`)
 
 Replaces Base (same file name, `NRI.dll` / `libNRI.so`; take one or the other). Everything in Base,
 plus:
@@ -51,7 +51,7 @@ Not in it: the runtimes those SDKs need. The application ships them beside its e
 `CreateUpscaler` refuses with `NriUnsupportedException` naming the missing file rather than calling
 into NRI without it (`CLAUDE.md`: Upscalers and vendor runtimes).
 
-## `PrismNRI.Native.Agility` (`runtimes-agility/<rid>/native/AgilitySDK/`)
+## `SharpNRI.Native.Agility` (`runtimes-agility/<rid>/native/AgilitySDK/`)
 
 | Component | Version | In the package as | Licence | Platforms |
 |---|---|---|---|---|
@@ -112,11 +112,11 @@ flags for the maintainer and for applications, not legal advice.
    distributors and external end users to agree to terms that protect it and Microsoft at least as
    much as this agreement", and "indemnify, defend, and hold harmless Microsoft". Use is "solely for
    use on Windows". **The second is not met**: the package imposes no terms on its users. This is one
-   reason the runtime is a separate, optional package rather than part of `PrismNRI`.
+   reason the runtime is a separate, optional package rather than part of `SharpNRI`.
 
 ### The application's
 
-An application that ships vendor runtimes beside PrismNRI takes on their terms itself; PrismNRI
+An application that ships vendor runtimes beside SharpNRI takes on their terms itself; SharpNRI
 neither ships them nor passes their terms on.
 
 1. **AMD FSR / FidelityFX runtimes**: MIT for the listed DLLs; carry the notice.

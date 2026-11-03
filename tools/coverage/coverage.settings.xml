@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Code coverage settings for tools/coverage.ps1 (Microsoft.Testing.Extensions.CodeCoverage):
-  the binding's own assemblies only. The generated L0 inside PrismNRI.Descs is filtered out by the
+  the binding's own assemblies only. The generated L0 inside SharpNRI.Descs is filtered out by the
   script, by source path, so the raw data stays complete.
 -->
 <Configuration>
   <CodeCoverage>
     <ModulePaths>
       <Include>
-        <ModulePath>.*[\\/]PrismNRI\.dll$</ModulePath>
-        <ModulePath>.*[\\/]PrismNRI\.Descs\.dll$</ModulePath>
-        <ModulePath>.*[\\/]PrismNRI\.Testing\.dll$</ModulePath>
+        <ModulePath>.*[\\/]SharpNRI\.dll$</ModulePath>
+        <ModulePath>.*[\\/]SharpNRI\.Descs\.dll$</ModulePath>
+        <ModulePath>.*[\\/]SharpNRI\.Testing\.dll$</ModulePath>
       </Include>
     </ModulePaths>
   </CodeCoverage>

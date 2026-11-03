@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Regenerate the PrismNRI L0 raw interop layer from the pinned NRI headers.
+  Regenerate the SharpNRI L0 raw interop layer from the pinned NRI headers.
 
 .DESCRIPTION
   Runs ClangSharpPInvokeGenerator over NRI.h and the extension headers of the submodule at the tag
@@ -28,7 +28,7 @@
 #>
 param(
     [string]$Output,
-    [string]$Namespace = "PrismNRI.Native",
+    [string]$Namespace = "SharpNRI.Native",
     [string]$Library   = "NRI"
 )
 

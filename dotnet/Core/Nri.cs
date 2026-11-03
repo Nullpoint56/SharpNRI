@@ -5,10 +5,10 @@
 // annotations are thread-global (NVTX ranges on the calling thread), unlike the queue and command
 // buffer annotations, which belong to their objects.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>NRI's device-independent exports.</summary>
 public static unsafe class Nri

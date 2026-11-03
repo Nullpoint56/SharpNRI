@@ -1,9 +1,9 @@
 name: release
 
 # How a release is made:
-#   1. Bump <Version> in dotnet/PrismNRI.csproj and, to the same value, in descs/PrismNRI.Descs.csproj,
-#      testing/PrismNRI.Testing.csproj, native/PrismNRI.Native.Upscalers.csproj and
-#      native/PrismNRI.Native.Agility.csproj. Add docs/releases/v<Version>.md, the release body (NRI pin,
+#   1. Bump <Version> in dotnet/SharpNRI.csproj and, to the same value, in descs/SharpNRI.Descs.csproj,
+#      testing/SharpNRI.Testing.csproj, native/SharpNRI.Native.Upscalers.csproj and
+#      native/SharpNRI.Native.Agility.csproj. Add docs/releases/v<Version>.md, the release body (NRI pin,
 #      changes, breaking changes, verified hardware and commit, coverage link). Merge to master and let ci go green.
 #   2. git tag v<Version> && git push origin v<Version>     (e.g. v0.1.0-alpha)
 #   3. This workflow: version (tag == v<Version> in all five csprojs, else fail) -> win-x64, linux-x64,
@@ -26,7 +26,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to name the build after (v + <Version> in dotnet/PrismNRI.csproj). Dry run: no release is created."
+        description: "Tag to name the build after (v + <Version> in dotnet/SharpNRI.csproj). Dry run: no release is created."
         required: true
         type: string
 
@@ -57,8 +57,8 @@ jobs:
         id: check
         shell: pwsh
         run: |
-          $projects = "dotnet/PrismNRI.csproj", "descs/PrismNRI.Descs.csproj", "testing/PrismNRI.Testing.csproj",
-                      "native/PrismNRI.Native.Upscalers.csproj", "native/PrismNRI.Native.Agility.csproj"
+          $projects = "dotnet/SharpNRI.csproj", "descs/SharpNRI.Descs.csproj", "testing/SharpNRI.Testing.csproj",
+                      "native/SharpNRI.Native.Upscalers.csproj", "native/SharpNRI.Native.Agility.csproj"
           $versions = foreach ($p in $projects) {
             if ((Get-Content $p -Raw) -notmatch '<Version>([^<]+)</Version>') { throw "<Version> not found in $p" }
             [pscustomobject]@{ Project = $p; Version = $Matches[1].Trim() }
@@ -66,8 +66,8 @@ jobs:
           $versions | Format-Table -AutoSize | Out-String | Write-Host
           $version = $versions[0].Version
           $odd = @($versions | Where-Object Version -ne $version)
-          if ($odd) { throw "package versions disagree: $(($odd | ForEach-Object { "$($_.Project)=$($_.Version)" }) -join ', ') vs dotnet/PrismNRI.csproj=$version" }
-          if ($env:RELEASE_TAG -cne "v$version") { throw "tag '$env:RELEASE_TAG' is not 'v$version' (<Version> in dotnet/PrismNRI.csproj)" }
+          if ($odd) { throw "package versions disagree: $(($odd | ForEach-Object { "$($_.Project)=$($_.Version)" }) -join ', ') vs dotnet/SharpNRI.csproj=$version" }
+          if ($env:RELEASE_TAG -cne "v$version") { throw "tag '$env:RELEASE_TAG' is not 'v$version' (<Version> in dotnet/SharpNRI.csproj)" }
           $notes = "docs/releases/$env:RELEASE_TAG.md"
           if (-not (Test-Path $notes)) { throw "release notes $notes missing: add them in the version-bump pull request" }
           "version=$version" >> $env:GITHUB_OUTPUT
@@ -123,7 +123,7 @@ jobs:
             $src = "$($v.Dir)/win-x64/native"
             if (-not (Test-Path $src)) { throw "$src was not staged" }
             # ZipFile writes '/' separators; the zip unpacks the same on every OS.
-            [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $src).Path, "$PWD/dist/PrismNRI-native-$($v.Name)-win-x64-$env:RELEASE_TAG.zip")
+            [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $src).Path, "$PWD/dist/SharpNRI-native-$($v.Name)-win-x64-$env:RELEASE_TAG.zip")
           }
           Get-ChildItem dist | Format-Table Name, Length -AutoSize | Out-String | Write-Host
 
@@ -213,8 +213,8 @@ jobs:
       - name: Zip payloads
         run: |
           mkdir -p dist
-          (cd runtimes/linux-x64/native && zip -r -X "$GITHUB_WORKSPACE/dist/PrismNRI-native-base-linux-x64-$RELEASE_TAG.zip" .)
-          (cd runtimes-upscalers/linux-x64/native && zip -r -X "$GITHUB_WORKSPACE/dist/PrismNRI-native-upscalers-linux-x64-$RELEASE_TAG.zip" .)
+          (cd runtimes/linux-x64/native && zip -r -X "$GITHUB_WORKSPACE/dist/SharpNRI-native-base-linux-x64-$RELEASE_TAG.zip" .)
+          (cd runtimes-upscalers/linux-x64/native && zip -r -X "$GITHUB_WORKSPACE/dist/SharpNRI-native-upscalers-linux-x64-$RELEASE_TAG.zip" .)
           ls -l dist
 
       - uses: actions/upload-artifact@v4
@@ -272,7 +272,7 @@ jobs:
       - name: Zip payload
         run: |
           mkdir -p dist
-          (cd runtimes/osx-arm64/native && zip -r -X "$GITHUB_WORKSPACE/dist/PrismNRI-native-base-osx-arm64-$RELEASE_TAG.zip" .)
+          (cd runtimes/osx-arm64/native && zip -r -X "$GITHUB_WORKSPACE/dist/SharpNRI-native-base-osx-arm64-$RELEASE_TAG.zip" .)
           ls -l dist
 
       - uses: actions/upload-artifact@v4
@@ -286,7 +286,7 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
 
-  # One pack with every RID present. dotnet/PrismNRI.csproj packs runtimes/<host rid>/native through
+  # One pack with every RID present. dotnet/SharpNRI.csproj packs runtimes/<host rid>/native through
   # its Content item and every other runtimes/** file through its None item (the host RID excluded),
   # both under runtimes/<rid>/native, so the host OS does not matter. The native/ packaging projects
   # pack runtimes-upscalers/** and runtimes-agility/** whole.
@@ -330,18 +330,18 @@ jobs:
           if ($missing) { throw "missing after download: $($missing -join ', ')" }
 
       - name: Pack
-        run: dotnet pack PrismNRI.slnx -c Release -p:PackageOutputPath="$GITHUB_WORKSPACE/nupkg"
+        run: dotnet pack SharpNRI.slnx -c Release -p:PackageOutputPath="$GITHUB_WORKSPACE/nupkg"
 
       - name: Package contents
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $must = @{
-            "PrismNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/osx-arm64/native/libNRI.dylib", "lib/net11.0/PrismNRI.dll"
-            "PrismNRI.Descs"            = @("lib/net11.0/PrismNRI.Descs.dll")
-            "PrismNRI.Testing"          = @("lib/net11.0/PrismNRI.Testing.dll")
-            "PrismNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so"
-            "PrismNRI.Native.Agility"   = "runtimes/win-x64/native/AgilitySDK/D3D12Core.dll", "runtimes/win-x64/native/AgilitySDK/d3d12SDKLayers.dll"
+            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/osx-arm64/native/libNRI.dylib", "lib/net11.0/SharpNRI.dll"
+            "SharpNRI.Descs"            = @("lib/net11.0/SharpNRI.Descs.dll")
+            "SharpNRI.Testing"          = @("lib/net11.0/SharpNRI.Testing.dll")
+            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so"
+            "SharpNRI.Native.Agility"   = "runtimes/win-x64/native/AgilitySDK/D3D12Core.dll", "runtimes/win-x64/native/AgilitySDK/d3d12SDKLayers.dll"
           }
           $version = "${{ needs.version.outputs.version }}"
           $failed = @()
@@ -366,8 +366,8 @@ jobs:
           path: nupkg/*.nupkg
           if-no-files-found: error
 
-  # The packages as an outside project sees them: tools/consume restores PrismNRI and
-  # PrismNRI.Testing from nupkg/ by PackageReference and creates NONE plus a validated GPU device
+  # The packages as an outside project sees them: tools/consume restores SharpNRI and
+  # SharpNRI.Testing from nupkg/ by PackageReference and creates NONE plus a validated GPU device
   # (WARP, lavapipe, MoltenVK) with a buffer and a fence. Only what a consumer needs for a software
   # device is installed; no validation layer, no build tools. The first run is the portable build
   # (runtimes/<rid>/native through the deps.json), the second the RID-specific one (flat copy).
@@ -386,8 +386,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     env:
-      PRISMNRI_FEED: ${{ github.workspace }}/nupkg
-      PRISMNRI_VERSION: ${{ needs.version.outputs.version }}
+      SHARPNRI_FEED: ${{ github.workspace }}/nupkg
+      SHARPNRI_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -428,15 +428,15 @@ jobs:
         shell: bash
         run: |
           ls -l nupkg
-          dotnet build tools/consume -c Release -p:PrismNRIPackageVersion="$PRISMNRI_VERSION"
+          dotnet build tools/consume -c Release -p:SharpNRIPackageVersion="$SHARPNRI_VERSION"
 
       - name: Run (portable build)
         shell: bash
-        run: dotnet tools/consume/bin/Release/net11.0/PrismNRI.Consume.dll
+        run: dotnet tools/consume/bin/Release/net11.0/SharpNRI.Consume.dll
 
       - name: Run (-r ${{ matrix.rid }})
         shell: bash
-        run: dotnet run --project tools/consume -c Release -r ${{ matrix.rid }} -p:PrismNRIPackageVersion="$PRISMNRI_VERSION"
+        run: dotnet run --project tools/consume -c Release -r ${{ matrix.rid }} -p:SharpNRIPackageVersion="$SHARPNRI_VERSION"
 
   release:
     needs: [version, pack, consume]
@@ -467,7 +467,7 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: PrismNRI ${{ github.ref_name }}
+          name: SharpNRI ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
           body_path: docs/releases/${{ github.ref_name }}.md
           fail_on_unmatched_files: true

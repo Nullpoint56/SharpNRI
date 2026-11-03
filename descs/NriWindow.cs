@@ -13,11 +13,11 @@
 //   Apple     Metal.CaMetalLayer
 //   Android   Android.NativeWindow
 //
-// No device objects, so it lives in PrismNRI.Descs.
+// No device objects, so it lives in SharpNRI.Descs.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>WindowsWindow</c>. Read on Windows.</summary>
 /// <param name="Hwnd">The <c>HWND</c>.</param>

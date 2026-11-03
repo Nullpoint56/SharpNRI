@@ -16,10 +16,10 @@
 // The Imgui object is created and destroyed by the extension. Threadsafe per NRI if command buffers
 // are externally synchronized and the streamer is thread safe.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>CopyImguiDataDesc</c> with its pointer arrays as spans of native ImGui pointers.</summary>
 public ref struct NriCopyImguiDataDesc

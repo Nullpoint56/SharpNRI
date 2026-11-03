@@ -15,7 +15,7 @@
 #
 # Only the NRI target is touched, and only when NRI is a shared library built by MSVC.
 
-function(_prismnri_delayload)
+function(_sharpnri_delayload)
     if(TARGET NRI AND NOT NRI_STATIC_LIBRARY AND MSVC)
         set(_dlls "")
         if(NRI_ENABLE_D3D12_SUPPORT)
@@ -30,9 +30,9 @@ function(_prismnri_delayload)
             endforeach()
             target_link_libraries(NRI PRIVATE delayimp.lib)
             list(JOIN _dlls ", " _joined)
-            message(STATUS "PrismNRI: NRI links ${_joined} with /DELAYLOAD")
+            message(STATUS "SharpNRI: NRI links ${_joined} with /DELAYLOAD")
         endif()
     endif()
 endfunction()
 
-cmake_language(DEFER DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" CALL _prismnri_delayload)
+cmake_language(DEFER DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" CALL _sharpnri_delayload)

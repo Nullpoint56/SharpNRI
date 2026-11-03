@@ -1,16 +1,16 @@
-// Package consumption smoke test (PrismNRI.Consume.csproj). Exit code 0 when the NONE device and at
+// Package consumption smoke test (SharpNRI.Consume.csproj). Exit code 0 when the NONE device and at
 // least one GPU backend's validated device were created through the packages: WARP on Windows,
 // lavapipe on Linux, MoltenVK on macOS.
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using PrismNRI;
-using PrismNRI.Native;
-using PrismNRI.Testing;
+using SharpNRI;
+using SharpNRI.Native;
+using SharpNRI.Testing;
 
-Console.WriteLine($"PrismNRI {typeof(NriDevice).Assembly.GetName().Version} from {typeof(NriDevice).Assembly.Location}");
-Console.WriteLine($"PrismNRI.Testing from {typeof(NriTestDevice).Assembly.Location}");
+Console.WriteLine($"SharpNRI {typeof(NriDevice).Assembly.GetName().Version} from {typeof(NriDevice).Assembly.Location}");
+Console.WriteLine($"SharpNRI.Testing from {typeof(NriTestDevice).Assembly.Location}");
 Console.WriteLine($"process RID {RuntimeInformation.RuntimeIdentifier}, base directory {AppContext.BaseDirectory}");
 
 // Where the NRI library could come from: flat beside the app (RID-specific build) or under

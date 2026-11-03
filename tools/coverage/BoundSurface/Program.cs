@@ -1,15 +1,15 @@
-// Bound surface: which of NRI's functions PrismNRI's own code calls, and which fields of NRI's
+// Bound surface: which of NRI's functions SharpNRI's own code calls, and which fields of NRI's
 // native structs its API reaches.
 //
 // An NRI function is a function-pointer field of one of the interface tables nriGetInterface fills
-// (the PrismNRI.Native.*Interface structs of PrismNRI.Descs.dll; CallbackInterface is left out: the
-// application implements it, NRI calls it) or a flat export (a DllImport of PrismNRI.Native.NriApi
-// in PrismNRI.dll). It is bound when a method of PrismNRI.dll outside NriApi loads that field or
+// (the SharpNRI.Native.*Interface structs of SharpNRI.Descs.dll; CallbackInterface is left out: the
+// application implements it, NRI calls it) or a flat export (a DllImport of SharpNRI.Native.NriApi
+// in SharpNRI.dll). It is bound when a method of SharpNRI.dll outside NriApi loads that field or
 // calls that export, read from the IL. Each such load or call is reported with the source line the
 // PDB maps it to, so tools/coverage.ps1 can ask the test coverage whether that line ran. Struct
 // fields: see "Desc fields" below.
 //
-//   BoundSurface <PrismNRI.Descs.dll> <PrismNRI.dll> <out.json>
+//   BoundSurface <SharpNRI.Descs.dll> <SharpNRI.dll> <out.json>
 
 using System.Reflection;
 using System.Reflection.Emit;
@@ -20,7 +20,7 @@ using System.Text.Json;
 
 if (args.Length != 3)
 {
-    Console.Error.WriteLine("usage: BoundSurface <PrismNRI.Descs.dll> <PrismNRI.dll> <out.json>");
+    Console.Error.WriteLine("usage: BoundSurface <SharpNRI.Descs.dll> <SharpNRI.dll> <out.json>");
     return 2;
 }
 var (descsPath, bindingPath, outPath) = (args[0], args[1], args[2]);
@@ -34,7 +34,7 @@ using (var descs = new PEReader(File.OpenRead(descsPath)))
     {
         var type = md.GetTypeDefinition(typeHandle);
         var name = md.GetString(type.Name);
-        if (md.GetString(type.Namespace) != "PrismNRI.Native" || !name.EndsWith("Interface", StringComparison.Ordinal) || name == "CallbackInterface")
+        if (md.GetString(type.Namespace) != "SharpNRI.Native" || !name.EndsWith("Interface", StringComparison.Ordinal) || name == "CallbackInterface")
             continue;
         var functions = new List<string>();
         foreach (var fieldHandle in type.GetFields())
@@ -48,7 +48,7 @@ using (var descs = new PEReader(File.OpenRead(descsPath)))
 }
 var tableNames = tables.Select(t => t.Table).ToHashSet(StringComparer.Ordinal);
 
-// The calls: IL of every method of PrismNRI.dll outside NriApi
+// The calls: IL of every method of SharpNRI.dll outside NriApi
 var callers = new Dictionary<string, List<Caller>>(StringComparer.Ordinal); // "Table.Function" or "nriExport" -> call sites
 var exports = new List<string>();
 var opcodes = typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
@@ -66,7 +66,7 @@ using (var binding = new PEReader(File.OpenRead(bindingPath)))
     foreach (var typeHandle in md.TypeDefinitions)
     {
         var type = md.GetTypeDefinition(typeHandle);
-        if (md.GetString(type.Name) != "NriApi" || md.GetString(type.Namespace) != "PrismNRI.Native") continue;
+        if (md.GetString(type.Name) != "NriApi" || md.GetString(type.Namespace) != "SharpNRI.Native") continue;
         foreach (var methodHandle in type.GetMethods())
         {
             var method = md.GetMethodDefinition(methodHandle);
@@ -123,10 +123,10 @@ using (var binding = new PEReader(File.OpenRead(bindingPath)))
 // members of public types, NriApi and the interface tables excluded: they are the raw escape
 // hatches) is exposed with every field, and so is every struct reachable through its fields. The
 // other native structs are built or read by the binding itself, and a field of theirs is bound only
-// when binding code (PrismNRI.dll, or the hand-written forms of PrismNRI.Descs) reads or writes it.
+// when binding code (SharpNRI.dll, or the hand-written forms of SharpNRI.Descs) reads or writes it.
 var descsAssembly = Assembly.LoadFrom(Path.GetFullPath(descsPath));
 var bindingAssembly = Assembly.LoadFrom(Path.GetFullPath(bindingPath));
-bool IsNativeStruct(Type t) => t.Namespace == "PrismNRI.Native" && t.IsValueType && !t.IsEnum && !t.IsPrimitive
+bool IsNativeStruct(Type t) => t.Namespace == "SharpNRI.Native" && t.IsValueType && !t.IsEnum && !t.IsPrimitive
     && !tableNames.Contains(t.Name) && t.Name != "CallbackInterface" && !t.Name.EndsWith("_e__FixedBuffer", StringComparison.Ordinal);
 string NativeName(Type t) => t.IsNested ? $"{NativeName(t.DeclaringType!)}.{t.Name}" : t.Name;
 
@@ -142,7 +142,7 @@ void Expose(Type? t)
 const BindingFlags Visible = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 foreach (var type in bindingAssembly.GetExportedTypes().Concat(descsAssembly.GetExportedTypes()))
 {
-    if (type.Namespace == "PrismNRI.Native") continue; // the generated L0 and NriApi: raw surface, not the idiomatic one
+    if (type.Namespace == "SharpNRI.Native") continue; // the generated L0 and NriApi: raw surface, not the idiomatic one
     foreach (var member in type.GetMembers(Visible))
     {
         switch (member)
@@ -172,13 +172,13 @@ void Reach(Type? t)
     if (!IsNativeStruct(t) || !inSignatures.Add(t)) return;
     foreach (var f in t.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)) Reach(f.FieldType);
 }
-foreach (var table in descsAssembly.GetTypes().Where(t => t.Namespace == "PrismNRI.Native" && tableNames.Contains(t.Name)))
+foreach (var table in descsAssembly.GetTypes().Where(t => t.Namespace == "SharpNRI.Native" && tableNames.Contains(t.Name)))
     foreach (var f in table.GetFields(BindingFlags.Public | BindingFlags.Instance).Where(f => f.FieldType.IsFunctionPointer))
     {
         Reach(f.FieldType.GetFunctionPointerReturnType());
         foreach (var p in f.FieldType.GetFunctionPointerParameterTypes()) Reach(p);
     }
-foreach (var m in bindingAssembly.GetType("PrismNRI.Native.NriApi")!.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+foreach (var m in bindingAssembly.GetType("SharpNRI.Native.NriApi")!.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
 {
     Reach(m.ReturnType);
     foreach (var p in m.GetParameters()) Reach(p.ParameterType);
@@ -197,7 +197,7 @@ foreach (var (path, generatedOnly) in new[] { (descsPath, true), (bindingPath, f
         var type = md.GetTypeDefinition(typeHandle);
         var outerMost = type;
         while (outerMost.GetDeclaringType() is { IsNil: false } d) outerMost = md.GetTypeDefinition(d);
-        var generated = md.GetString(outerMost.Namespace) == "PrismNRI.Native";
+        var generated = md.GetString(outerMost.Namespace) == "SharpNRI.Native";
         if (md.GetString(type.Name) == "NriApi" || generated != generatedOnly) continue;
         var owner = generated ? TypeDefinitionName(md, typeHandle) : null;
         foreach (var methodHandle in type.GetMethods())
@@ -295,7 +295,7 @@ static string? TypeReferenceName(MetadataReader md, TypeReferenceHandle handle)
     var reference = md.GetTypeReference(handle);
     if (reference.ResolutionScope.Kind == HandleKind.TypeReference)
         return TypeReferenceName(md, (TypeReferenceHandle)reference.ResolutionScope) is { } outer ? $"{outer}.{md.GetString(reference.Name)}" : null;
-    return md.GetString(reference.Namespace) == "PrismNRI.Native" ? md.GetString(reference.Name) : null;
+    return md.GetString(reference.Namespace) == "SharpNRI.Native" ? md.GetString(reference.Name) : null;
 }
 
 static string? TypeDefinitionName(MetadataReader md, TypeDefinitionHandle handle)
@@ -303,7 +303,7 @@ static string? TypeDefinitionName(MetadataReader md, TypeDefinitionHandle handle
     var type = md.GetTypeDefinition(handle);
     if (type.GetDeclaringType() is { IsNil: false } declaring)
         return TypeDefinitionName(md, declaring) is { } outer ? $"{outer}.{md.GetString(type.Name)}" : null;
-    return md.GetString(type.Namespace) == "PrismNRI.Native" ? md.GetString(type.Name) : null;
+    return md.GetString(type.Namespace) == "SharpNRI.Native" ? md.GetString(type.Name) : null;
 }
 
 static List<Caller> Distinct(List<Caller>? sites) =>
@@ -327,12 +327,12 @@ static bool IsFunctionPointer(MetadataReader md, BlobHandle signature)
 
 static string? FieldKey(MetadataReader md, EntityHandle handle, HashSet<string> tableNames)
 {
-    if (handle.Kind != HandleKind.MemberReference) return null; // the tables live in PrismNRI.Descs
+    if (handle.Kind != HandleKind.MemberReference) return null; // the tables live in SharpNRI.Descs
     var member = md.GetMemberReference((MemberReferenceHandle)handle);
     if (member.Parent.Kind != HandleKind.TypeReference) return null;
     var parent = md.GetTypeReference((TypeReferenceHandle)member.Parent);
     var table = md.GetString(parent.Name);
-    return md.GetString(parent.Namespace) == "PrismNRI.Native" && tableNames.Contains(table) ? $"{table}.{md.GetString(member.Name)}" : null;
+    return md.GetString(parent.Namespace) == "SharpNRI.Native" && tableNames.Contains(table) ? $"{table}.{md.GetString(member.Name)}" : null;
 }
 
 static int OperandSize(OperandType type) => type switch

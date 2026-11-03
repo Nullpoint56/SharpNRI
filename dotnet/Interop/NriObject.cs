@@ -14,9 +14,9 @@
 // Disposal after the runtime has started shutting down is skipped: the native library may already
 // be unloaded, and a leak at exit costs nothing.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>Base of every wrapper over an NRI object. Disposing destroys the native object.</summary>
 public abstract unsafe class NriObject : IDisposable

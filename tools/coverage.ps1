@@ -1,18 +1,18 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-  Measures PrismNRI's two coverages and writes docs/coverage.md and the two README badges, each
+  Measures SharpNRI's two coverages and writes docs/coverage.md and the two README badges, each
   stamped with the commit it was measured at; -Check says whether those figures still describe HEAD.
 
 .DESCRIPTION
-  Bound surface: which of NRI's functions and native struct fields PrismNRI's own C# API reaches.
+  Bound surface: which of NRI's functions and native struct fields SharpNRI's own C# API reaches.
   tools/coverage/BoundSurface reads the built assemblies: every function-pointer field of NRI's
   interface tables and every flat export, bound when binding code calls it; every field of a native
   struct, bound when the idiomatic API exposes the struct or binding code reads or writes the field
   (data layouts no NRI function takes count through their public type). Every call site is mapped
   to its source line, and the report lists the bound functions whose call sites the tests never ran.
 
-  Test coverage: which lines of PrismNRI's hand-written C# (dotnet/Interop, Core, Extensions,
+  Test coverage: which lines of SharpNRI's hand-written C# (dotnet/Interop, Core, Extensions,
   descs/, testing/) the test suite executes, through Microsoft.Testing.Extensions.CodeCoverage on
   `dotnet test`, child processes included. The generated L0 (dotnet/Native) is not counted.
 
@@ -23,7 +23,7 @@
   `pwsh tools/build-native.ps1` (the tests need the native library).
 
 .PARAMETER SkipBuild
-  Use the existing Release build (made with -p:PrismNRICoverage=true, as this script builds).
+  Use the existing Release build (made with -p:SharpNRICoverage=true, as this script builds).
 
 .PARAMETER SkipTests
   Reuse the last run's results in _build/coverage/ (test output, coverage, measurement record).
@@ -94,15 +94,15 @@ if ($Check) {
 }
 
 # ------------------------------------------------------------------------------------------ build
-# PrismNRICoverage brings Microsoft.Testing.Extensions.CodeCoverage into the test project, which
-# only this script uses (tests/PrismNRI.Tests/PrismNRI.Tests.csproj says why it is off otherwise)
+# SharpNRICoverage brings Microsoft.Testing.Extensions.CodeCoverage into the test project, which
+# only this script uses (tests/SharpNRI.Tests/SharpNRI.Tests.csproj says why it is off otherwise)
 if (-not $SkipBuild) {
-    Write-Host "==> dotnet build -p:PrismNRICoverage=true"
-    dotnet build (Join-Path $root "PrismNRI.slnx") -c Release --nologo -v quiet -p:PrismNRICoverage=true | Out-Host
+    Write-Host "==> dotnet build -p:SharpNRICoverage=true"
+    dotnet build (Join-Path $root "SharpNRI.slnx") -c Release --nologo -v quiet -p:SharpNRICoverage=true | Out-Host
 }
-$testDeps = Join-Path $root "tests" "PrismNRI.Tests" "bin" "Release" "net11.0" "PrismNRI.Tests.deps.json"
+$testDeps = Join-Path $root "tests" "SharpNRI.Tests" "bin" "Release" "net11.0" "SharpNRI.Tests.deps.json"
 if (-not $SkipTests -and -not ((Test-Path $testDeps) -and (Select-String -Path $testDeps -Pattern "Microsoft.Testing.Extensions.CodeCoverage" -SimpleMatch -Quiet))) {
-    throw "the test build has no coverage extension: run without -SkipBuild, or build with -p:PrismNRICoverage=true"
+    throw "the test build has no coverage extension: run without -SkipBuild, or build with -p:SharpNRICoverage=true"
 }
 dotnet build (Join-Path $root "tools" "coverage" "BoundSurface") -c Release --nologo -v quiet | Out-Host
 
@@ -111,7 +111,7 @@ $bin = Join-Path $root "dotnet" "bin" "Release" "net11.0"
 $boundJson = Join-Path $work "bound.json"
 Write-Host "==> bound surface"
 dotnet (Join-Path $root "tools" "coverage" "BoundSurface" "bin" "Release" "net11.0" "BoundSurface.dll") `
-    (Join-Path $bin "PrismNRI.Descs.dll") (Join-Path $bin "PrismNRI.dll") $boundJson | Out-Host
+    (Join-Path $bin "SharpNRI.Descs.dll") (Join-Path $bin "SharpNRI.dll") $boundJson | Out-Host
 $bound = Get-Content $boundJson -Raw | ConvertFrom-Json
 
 # ------------------------------------------------------------------------------------------ test coverage
@@ -120,16 +120,16 @@ $testsTxt = Join-Path $work "tests.txt"
 # Where the figures come from, recorded when the tests run and kept beside their output, so that
 # -SkipTests reports the measured commit and machine rather than today's
 $measurementJson = Join-Path $work "measurement.json"
-$testBin = Join-Path $root "tests" "PrismNRI.Tests" "bin" "Release" "net11.0"
+$testBin = Join-Path $root "tests" "SharpNRI.Tests" "bin" "Release" "net11.0"
 function Measurement {
     $sha = git -C $root rev-parse HEAD
     # nri/ always carries the applied patches; only a different NRI commit counts (=dirty)
     $dirty = [bool](git -C $root status --porcelain --ignore-submodules=dirty -- @inputPaths)
     # The adapter each GPU backend's tests run on, as the test executable chooses it (TestAdapters.cs)
-    $env:PRISMNRI_TEST_CHILD = "test-adapters"
+    $env:SHARPNRI_TEST_CHILD = "test-adapters"
     $PSNativeCommandUseErrorActionPreference = $false
-    try { $lines = @(dotnet (Join-Path $testBin "PrismNRI.Tests.dll") 2>&1 | ForEach-Object { "$_" }) }
-    finally { Remove-Item Env:PRISMNRI_TEST_CHILD; $PSNativeCommandUseErrorActionPreference = $true }
+    try { $lines = @(dotnet (Join-Path $testBin "SharpNRI.Tests.dll") 2>&1 | ForEach-Object { "$_" }) }
+    finally { Remove-Item Env:SHARPNRI_TEST_CHILD; $PSNativeCommandUseErrorActionPreference = $true }
     if (@($lines -match '^FAIL ').Count -or -not @($lines -match '^(ADAPTER|UNAVAILABLE) ').Count) {
         throw "the test executable did not say which adapters its tests use: $($lines -join ' / ')"
     }
@@ -161,7 +161,7 @@ if (-not $SkipTests) {
     Write-Host "==> dotnet test --coverage (the whole suite)"
     Remove-Item $cobertura -ErrorAction SilentlyContinue
     $PSNativeCommandUseErrorActionPreference = $false
-    $output = dotnet test --project (Join-Path $root "tests" "PrismNRI.Tests") -c Release --no-build `
+    $output = dotnet test --project (Join-Path $root "tests" "SharpNRI.Tests") -c Release --no-build `
         --coverage --coverage-output-format cobertura --coverage-output "coverage.cobertura.xml" `
         --coverage-settings (Join-Path $root "tools" "coverage" "coverage.settings.xml") --results-directory $work 2>&1
     $testExit = $LASTEXITCODE
@@ -199,7 +199,7 @@ function Area([string]$path) {
         '^dotnet/Core/' { return "L2 dotnet/Core" }
         '^dotnet/Extensions/' { return "L3 dotnet/Extensions" }
         '^descs/' { return "descs/ (managed desc forms)" }
-        '^testing/' { return "testing/ (PrismNRI.Testing)" }
+        '^testing/' { return "testing/ (SharpNRI.Testing)" }
         '^dotnet/' { return "dotnet/ (other)" }
         default { return $null }
     }
@@ -234,13 +234,13 @@ foreach ($class in $xml.coverage.packages.package.classes.class) {
 $unrun = foreach ($class in $xml.coverage.packages.package.classes.class) {
     $path = [IO.Path]::GetRelativePath($root, $class.filename) -replace '\\', '/'
     if (-not (Area $path)) { continue }
-    $className = ($class.name -replace '[./]<>c(__DisplayClass\d+_\d+)?$', '' -replace '[./]<[^>]*>d__\d+$', '') -replace '^PrismNRI(\.Testing)?\.', ''
+    $className = ($class.name -replace '[./]<>c(__DisplayClass\d+_\d+)?$', '' -replace '[./]<[^>]*>d__\d+$', '') -replace '^SharpNRI(\.Testing)?\.', ''
     foreach ($method in $class.methods.method) {
         $lines = @($method.lines.line)
         if ($lines.Count -eq 0 -or @($lines | Where-Object { [int]$_.hits -gt 0 }).Count -gt 0) { continue }
         $name = $method.name
         if ($name -match '^<([^>]+)>') { $name = "$($Matches[1]) (lambda)" }
-        elseif ($signatures["$($class.name)|$name"].Count -gt 1) { $name += $method.signature -replace '\b(PrismNRI\.(Native\.|Interop\.)?|System\.)', '' }
+        elseif ($signatures["$($class.name)|$name"].Count -gt 1) { $name += $method.signature -replace '\b(SharpNRI\.(Native\.|Interop\.)?|System\.)', '' }
         [pscustomobject]@{ Path = $path; Class = $className; Method = $name; Line = [int]$lines[0].number }
     }
 }
@@ -292,13 +292,13 @@ else {
 }
 $md.Add("")
 $md.Add("- **Bound surface**: NRI's functions (every function-pointer field of the interface tables NRI")
-$md.Add("  fills, and every flat export) that PrismNRI's own code calls, and the fields of NRI's native")
-$md.Add("  structs that PrismNRI's idiomatic API reaches: a struct the public API takes or returns is")
+$md.Add("  fills, and every flat export) that SharpNRI's own code calls, and the fields of NRI's native")
+$md.Add("  structs that SharpNRI's idiomatic API reaches: a struct the public API takes or returns is")
 $md.Add("  exposed with all its fields; a struct the binding builds from its own managed forms counts")
 $md.Add("  only the fields binding code reads or writes; a data layout no NRI function takes (indirect")
 $md.Add("  arguments, instances, query results) counts through its public type. The raw tables and")
 $md.Add("  ``NriApi`` reach everything and are not counted. Read from the built assemblies (IL and PDB).")
-$md.Add("- **Test coverage**: the lines of PrismNRI's hand-written C# that the test suite executes,")
+$md.Add("- **Test coverage**: the lines of SharpNRI's hand-written C# that the test suite executes,")
 $md.Add("  child processes included; the generated L0 (``dotnet/Native``) is not counted. It depends on")
 $md.Add("  what the machine can run: CI's software adapters skip about half the tests.")
 $md.Add("")

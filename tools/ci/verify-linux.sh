@@ -6,7 +6,7 @@
 #   SKIP_APT=1 tools/ci/verify-linux.sh    # packages already present
 #
 # Needs: pwsh 7, a .NET 11 SDK on PATH, cmake >= 3.30, a C++17 compiler, git.
-# Run it from a Linux filesystem checkout (e.g. ~/src/PrismNRI), not /mnt/c or /mnt/e: the build
+# Run it from a Linux filesystem checkout (e.g. ~/src/SharpNRI), not /mnt/c or /mnt/e: the build
 # writes several GB into _build/linux-x64 and NTFS through 9p is very slow. A Windows checkout's
 # runtimes/win-x64 is unaffected either way; this script only writes _build/linux-x64 and
 # runtimes/linux-x64.
@@ -65,9 +65,9 @@ echo "==> native"
 pwsh -NoProfile -File tools/build-native.ps1 -Rid linux-x64 -Configuration Release
 
 echo "==> managed"
-dotnet build PrismNRI.slnx -c Release
+dotnet build SharpNRI.slnx -c Release
 
 echo "==> test"
-dotnet test PrismNRI.slnx -c Release --no-build
+dotnet test SharpNRI.slnx -c Release --no-build
 
 echo "==> linux-x64 leg passed"

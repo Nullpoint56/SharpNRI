@@ -1,4 +1,4 @@
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 public unsafe partial struct QueueFamilyD3D12Desc
 {

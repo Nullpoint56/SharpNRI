@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Package consumption smoke test: the released .nupkg files as an outside project sees them,
+    through PackageReference, runtimes/<rid>/native and deps.json, not the repository's
+    ProjectReference copy. Not in SharpNRI.slnx. Run by the release workflow's consume job.
+
+      dotnet run -c Release -p:SharpNRIPackageVersion=0.4.0-alpha
+      SHARPNRI_FEED=<dir with the .nupkg files>   (default: ../../nupkg, see nuget.config)
+
+    Packages restore into obj/packages, never the global cache, so a stale SharpNRI of the same
+    version cannot stand in for the feed's.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RestorePackagesPath>$(MSBuildThisFileDirectory)obj/packages</RestorePackagesPath>
+  </PropertyGroup>
+
+  <!-- SHARPNRI_FEED / -p:SharpNRIFeed replaces nuget.config's `local` folder. -->
+  <PropertyGroup Condition="'$(SharpNRIFeed)' == ''">
+    <SharpNRIFeed>$(SHARPNRI_FEED)</SharpNRIFeed>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(SharpNRIFeed)' != ''">
+    <RestoreSources>$([MSBuild]::NormalizeDirectory('$(MSBuildStartupDirectory)', '$(SharpNRIFeed)'));https://api.nuget.org/v3/index.json</RestoreSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpNRI" Version="$(SharpNRIPackageVersion)" />
+    <PackageReference Include="SharpNRI.Testing" Version="$(SharpNRIPackageVersion)" />
+  </ItemGroup>
+
+  <Target Name="SharpNRIRequireVersion" BeforeTargets="_GenerateRestoreProjectSpec;Restore;CollectPackageReferences" Condition="'$(SharpNRIPackageVersion)' == ''">
+    <Error Text="Pass the package version: -p:SharpNRIPackageVersion=&lt;Version&gt; (dotnet/SharpNRI.csproj)." />
+  </Target>
+
+  <!-- Which source the restored SharpNRI came from, as NuGet recorded it. -->
+  <Target Name="SharpNRIPrintSource" BeforeTargets="Build">
+    <PropertyGroup>
+      <_SharpNRIMetadata>$(RestorePackagesPath)/sharpnri/$(SharpNRIPackageVersion.ToLowerInvariant())/.nupkg.metadata</_SharpNRIMetadata>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_SharpNRIMetadata)')" Text="SharpNRI $(SharpNRIPackageVersion) was not restored into $(RestorePackagesPath)" />
+    <Message Importance="high" Text="SharpNRI $(SharpNRIPackageVersion) restored from: $([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(_SharpNRIMetadata)')), '&quot;source&quot;:\s*&quot;([^&quot;]*)&quot;').Groups[1].Value.Replace('\\', '\'))" />
+  </Target>
+
+</Project>

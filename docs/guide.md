@@ -1,4 +1,4 @@
-# PrismNRI usage reference
+# SharpNRI usage reference
 
 Every entry is the real API; every caveat sits next to the API it concerns, with the measured fact.
 NRI's own header comments still apply; this covers what the binding adds and what NRI does that the
@@ -26,16 +26,16 @@ headers do not say. NRI v191.
 
 | Package | Namespace / content | Reference when |
 |---|---|---|
-| `PrismNRI` | `PrismNRI` (hand-written, `Nri*`), native NRI, Base variant | always |
-| `PrismNRI.Descs` | `PrismNRI.Native` (generated, NRI's names) + managed desc forms | layouts without a device; pulled in by `PrismNRI` |
-| `PrismNRI.Testing` | `PrismNRI.Testing` | tests |
-| `PrismNRI.Native.Upscalers` | NRI with NIS, FSR, XeSS | upscaler extension |
-| `PrismNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll` | D3D12 on the Agility SDK (Windows) |
+| `SharpNRI` | `SharpNRI` (hand-written, `Nri*`), native NRI, Base variant | always |
+| `SharpNRI.Descs` | `SharpNRI.Native` (generated, NRI's names) + managed desc forms | layouts without a device; pulled in by `SharpNRI` |
+| `SharpNRI.Testing` | `SharpNRI.Testing` | tests |
+| `SharpNRI.Native.Upscalers` | NRI with NIS, FSR, XeSS | upscaler extension |
+| `SharpNRI.Native.Agility` | `AgilitySDK/D3D12Core.dll`, `d3d12SDKLayers.dll` | D3D12 on the Agility SDK (Windows) |
 
 ```xml
-<PackageReference Include="PrismNRI" Version="0.4.0-alpha" ExcludeAssets="native" />  <!-- only with Upscalers -->
-<PackageReference Include="PrismNRI.Native.Upscalers" Version="0.4.0-alpha" />
-<PackageReference Include="PrismNRI.Native.Agility" Version="0.4.0-alpha" />
+<PackageReference Include="SharpNRI" Version="0.4.0-alpha" ExcludeAssets="native" />  <!-- only with Upscalers -->
+<PackageReference Include="SharpNRI.Native.Upscalers" Version="0.4.0-alpha" />
+<PackageReference Include="SharpNRI.Native.Agility" Version="0.4.0-alpha" />
 ```
 
 - Not on NuGet.org: the `.nupkg` files are GitHub release assets. Folder feed, `nuget.config` beside
@@ -44,7 +44,7 @@ headers do not say. NRI v191.
   ```xml
   <configuration>
     <packageSources>
-      <add key="prismnri" value="path/to/nupkg" />
+      <add key="sharpnri" value="path/to/nupkg" />
     </packageSources>
   </configuration>
   ```
@@ -52,7 +52,7 @@ headers do not say. NRI v191.
 - The release workflow's `consume` job restores them that way (`tools/consume`) and creates NONE
   plus a GPU device on windows, ubuntu and macos before publishing.
 - Base and Upscalers both contain `NRI.dll` / `libNRI.so` at the same path: take exactly one; with
-  Upscalers, `ExcludeAssets="native"` on `PrismNRI`.
+  Upscalers, `ExcludeAssets="native"` on `SharpNRI`.
 - Base: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI, AGS, debug names; no upscaler SDK.
   `IsUpscalerSupported` answers nothing there.
 - osx-arm64: Base only; Vulkan and NONE; no Agility, no Upscalers.
@@ -297,7 +297,7 @@ set.Update(rangeIndex: 1, descriptorIndex: 0, outputView);
   `NriDescriptorSetDesc`, `NriVertexInputDesc`, `NriOutputMergerDesc`, `NriGraphicsPipelineDesc`,
   `NriShaderDesc`. Same field names; arrays are pinned for the call, NRI copies what it keeps.
   Everything else is NRI's struct as generated.
-- The layout descs live in `PrismNRI.Descs`; build them without a device or the native library.
+- The layout descs live in `SharpNRI.Descs`; build them without a device or the native library.
 
 | Backend | `baseRegisterIndex` | `registerSpace` |
 |---|---|---|
@@ -801,7 +801,7 @@ ref readonly var core = ref device.Core;                         // CoreInterfac
 uint size = core.GetQuerySize((QueryPool*)pool.NriHandle);       // NriHandle on every object, NriQueue, NriDescriptorSet
 ```
 
-- `PrismNRI.Native.NriApi` has every export.
+- `SharpNRI.Native.NriApi` has every export.
 - Bypasses the binding: no argument checks, no child counting, no marshalling. A native `Destroy*`
   leaves the wrapper dangling. NRI's validation still runs if the device has it on.
 - Creating a device through `NriApi` directly with a null `CallbackInterface.AbortExecution`: NRI
@@ -837,7 +837,7 @@ Nri.ReportLiveObjects();                                             // DXGI deb
 ## The validated test device
 
 ```csharp
-using PrismNRI.Testing;
+using SharpNRI.Testing;
 
 if (NriTestDevice.Unavailable(GraphicsAPI.VK) is { } reason) Skip(reason);
 using var fixture = NriTestDevice.Create(GraphicsAPI.VK, o => o.QueueFamilies = [new NriQueueFamily(QueueType.GRAPHICS)]);
@@ -853,9 +853,9 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 
 | Variable | Effect |
 |---|---|
-| `PRISMNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) | prefer WARP / lavapipe |
-| `PRISMNRI_TEST_BACKEND=VK` | only that backend |
-| `PRISMNRI_TRACE=1` | print each message as it arrives; the only record that survives a native crash |
+| `SHARPNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) | prefer WARP / lavapipe |
+| `SHARPNRI_TEST_BACKEND=VK` | only that backend |
+| `SHARPNRI_TRACE=1` | print each message as it arrives; the only record that survives a native crash |
 
 - Validation layer version must match NRI's Vulkan headers (1.4.365 in v190). An older Khronos layer
   reports every newer struct NRI chains (`VkPhysicalDeviceVulkan14Features`, maintenance7/8,
@@ -878,7 +878,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 
 ### Windows
 
-- D3D12 on the Agility SDK needs `PrismNRI.Native.Agility` (or your own `AgilitySDK` directory and
+- D3D12 on the Agility SDK needs `SharpNRI.Native.Agility` (or your own `AgilitySDK` directory and
   `D3D12AgilitySdkPath`).
 - Visual C++ 2015-2022 runtime required, not shipped.
 - `NRI.dll` delay-loads `d3d12.dll` and `dxgi.dll` (both packages), resolved at the first D3D12 or

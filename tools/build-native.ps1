@@ -26,7 +26,7 @@
                                                   Microsoft's licence. Staged by either variant on
                                                   Windows; both load it at run time when present.
 
-  Options are the PrismNRI contract, not NRI's defaults. Only options that exist on the target
+  Options are the SharpNRI contract, not NRI's defaults. Only options that exist on the target
   platform are passed: NRI declares most SDK switches with cmake_dependent_option, and passing one
   whose condition is false is silently ignored, which would make the log lie about what was built.
 
@@ -56,7 +56,7 @@
 
 .PARAMETER Disable
   NRI options to force OFF, e.g. -Disable NRI_ENABLE_XESS_SDK. For when an upstream SDK breaks the
-  build; the staged payload and tests/PrismNRI.Tests/NativePayloadTests.cs must then be reconciled.
+  build; the staged payload and tests/SharpNRI.Tests/NativePayloadTests.cs must then be reconciled.
 
 .PARAMETER Generator
   CMake generator override. Default: CMake's default on Windows (Visual Studio), Ninja on Linux and
@@ -229,7 +229,7 @@ $optString = ($opt.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" })
 # without bumping it, and the "next" branch builds such commits (CLAUDE.md: Branches).
 $nriCommit = (git -C $nri rev-parse HEAD 2>$null) -join ""
 $depsKey = "nri=$NriVersion;commit=$nriCommit;patches=$patchHash;rid=$Rid;$optString$(if ($dlssDir) { ";ngx=$dlssDir" })"
-$depsMarker = Join-Path $deps ".prismnri-deps"
+$depsMarker = Join-Path $deps ".sharpnri-deps"
 $offline = (Test-Path $depsMarker) -and ((Get-Content $depsMarker -Raw).Trim() -eq $depsKey)
 
 $cmakeArgs = @("-S", $nri, "-B", $build)

@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/docs/">
+    <File Path="README.md" />
+    <File Path="docs/guide.md" />
+    <File Path="docs/upstream.md" />
+    <File Path="docs/coverage.md" />
+    <File Path="patches/README.md" />
+    <File Path="CLAUDE.md" />
+    <File Path="THIRD-PARTY-NOTICES.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="descs/SharpNRI.Descs.csproj" />
+    <Project Path="dotnet/SharpNRI.csproj" />
+    <Project Path="testing/SharpNRI.Testing.csproj" />
+  </Folder>
+  <Folder Name="/native/">
+    <Project Path="native/SharpNRI.Native.Agility.csproj" />
+    <Project Path="native/SharpNRI.Native.Upscalers.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SharpNRI.Tests/SharpNRI.Tests.csproj" />
+  </Folder>
+</Solution>

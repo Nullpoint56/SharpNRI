@@ -4,10 +4,10 @@
 // 962615b (#286) it takes the backends to probe. The desc is kept whole because nriCreateDevice
 // takes a pointer to it to select the adapter; the properties are the same bytes read out by name.
 
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>A physical adapter NRI can create a device on.</summary>
 public sealed class NriAdapter

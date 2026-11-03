@@ -7,11 +7,11 @@
 // MicromapTriangle) is the generated struct, used as is: those are the data layouts the GPU reads.
 
 using System.Runtime.InteropServices;
-using PrismNRI.Interop;
-using PrismNRI.Native;
-using Buffer = PrismNRI.Native.Buffer;
+using SharpNRI.Interop;
+using SharpNRI.Native;
+using Buffer = SharpNRI.Native.Buffer;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>BottomLevelTrianglesDesc</c> naming the wrappers.</summary>
 /// <remarks>

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace PrismNRI.Native;
+namespace SharpNRI.Native;
 
 [StructLayout(LayoutKind.Explicit)]
 public partial struct ClearValue

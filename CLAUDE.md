@@ -1,4 +1,4 @@
-# PrismNRI: working notes
+# SharpNRI: working notes
 
 Knowledge for working in this repository: what it is, the owner's rules, how to build and test,
 the patch set, the decisions and their reasons, and every oddity measured so far with where it is
@@ -14,7 +14,7 @@ Numbers are kept where they identify a recurrence.
 
 ## The repository
 
-C# binding over NRI (NVIDIA Render Interface), Vulkan and D3D12. One PrismNRI release pins exactly
+C# binding over NRI (NVIDIA Render Interface), Vulkan and D3D12. One SharpNRI release pins exactly
 one `NRI_VERSION` (`<NriVersion>` in `Directory.Build.props`, exact pin, not a floor): NRI is
 integer-versioned, breaks between versions and promises no ABI. .NET 11 / C# 14, xunit v3.
 
@@ -26,10 +26,10 @@ integer-versioned, breaks between versions and promises no ABI. .NET 11 / C# 14,
 | `dotnet/Interop/` | L1 |
 | `dotnet/Core/` | L2 |
 | `dotnet/Extensions/` | L3 |
-| `descs/` | `PrismNRI.Descs` project + hand-written managed desc forms that need no device (`NriPipelineLayoutDesc`, `NriShaderDesc`, `NriVertexInputDesc`, `NriWindow`, video descs, `NriQueueFamilyD3D12Desc`) |
-| `testing/` | `PrismNRI.Testing` (`NriTestDevice`) |
-| `native/` | packaging projects for `PrismNRI.Native.Upscalers` and `.Agility` |
-| `tests/PrismNRI.Tests/` | the suite; `TestDevice.cs` is the thin xunit wrapper over `NriTestDevice` |
+| `descs/` | `SharpNRI.Descs` project + hand-written managed desc forms that need no device (`NriPipelineLayoutDesc`, `NriShaderDesc`, `NriVertexInputDesc`, `NriWindow`, video descs, `NriQueueFamilyD3D12Desc`) |
+| `testing/` | `SharpNRI.Testing` (`NriTestDevice`) |
+| `native/` | packaging projects for `SharpNRI.Native.Upscalers` and `.Agility` |
+| `tests/SharpNRI.Tests/` | the suite; `TestDevice.cs` is the thin xunit wrapper over `NriTestDevice` |
 | `tools/` | `build-native.ps1`, `generate-native.ps1`, `compile-test-shaders.ps1`, `ci/`, `cmake/`, `coverage.ps1` + `coverage/` (Coverage) |
 | `runtimes*/`, `_build/`, `_tools/` | build output, git-ignored |
 | `docs/guide.md` | usage reference |
@@ -78,7 +78,7 @@ read; nothing is pushed to it from here until an upstream PR is planned.
   `git submodule update`, then `pwsh tools/build-native.ps1` and `dotnet build`. The pin test
   cannot catch a stale `NRI.dll`: NRI's main still says `NRI_VERSION 190`, while its `StageBits` /
   `AccessBits` values differ from v190's (48d4a33). For both branches at once, use a second
-  worktree: `git worktree add ../PrismNRI-next next`, then `git submodule update --init` there.
+  worktree: `git worktree add ../SharpNRI-next next`, then `git submodule update --init` there.
 - `build-native.ps1`'s offline-dependency key includes the NRI commit: NRI's main moves its
   dependency pins without bumping `NRI_VERSION` (a7de504 moved VMA and D3D12MA), and the key
   would otherwise reuse a stale `_deps`.
@@ -92,8 +92,8 @@ L1  dotnet/Interop/      table acquisition, Result -> exceptions, callback thunk
 L0  dotnet/Native/       ClangSharp output. Never referenced above L1 except descs and enums
 ```
 
-- Assemblies: `PrismNRI.Descs` = all of L0 except `NriApi.cs` (the only file with `DllImport`s)
-  plus `descs/`; no native dependency. `PrismNRI` = `NriApi.cs` + L1-L3. The split is by file in
+- Assemblies: `SharpNRI.Descs` = all of L0 except `NriApi.cs` (the only file with `DllImport`s)
+  plus `descs/`; no native dependency. `SharpNRI` = `NriApi.cs` + L1-L3. The split is by file in
   `NativeSplit.props` so the two projects cannot disagree.
 - L1 does four things a generator cannot: `InterfaceTable.Acquire<T>` (size check;
   `UNSUPPORTED` -> `NriUnsupportedException`, a capability answer); `Result` -> `NriException` with
@@ -139,9 +139,9 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 
 | Package | Staging | win-x64 contents | Built with |
 |---|---|---|---|
-| `PrismNRI` (Base) | `runtimes/<rid>/native/` | `NRI.dll` (1.4 MB), `amd_ags_x64.dll`, licences; 14 files, 1.8 MB | NGX, FFX, XeSS, NIS all OFF explicitly |
-| `PrismNRI.Native.Upscalers` | `runtimes-upscalers/<rid>/native/` | `NRI.dll` (2.7 MB), AGS, licences; 20 files, 3.1 MB | NIS, FFX, XeSS ON, NGX OFF; `libxess.dll` delay-loaded too |
-| `PrismNRI.Native.Agility` | `runtimes-agility/<rid>/native/AgilitySDK/` | `D3D12Core.dll`, `d3d12SDKLayers.dll`, licence; 3 files, 9.6 MB | staged by either variant on Windows |
+| `SharpNRI` (Base) | `runtimes/<rid>/native/` | `NRI.dll` (1.4 MB), `amd_ags_x64.dll`, licences; 14 files, 1.8 MB | NGX, FFX, XeSS, NIS all OFF explicitly |
+| `SharpNRI.Native.Upscalers` | `runtimes-upscalers/<rid>/native/` | `NRI.dll` (2.7 MB), AGS, licences; 20 files, 3.1 MB | NIS, FFX, XeSS ON, NGX OFF; `libxess.dll` delay-loaded too |
+| `SharpNRI.Native.Agility` | `runtimes-agility/<rid>/native/AgilitySDK/` | `D3D12Core.dll`, `d3d12SDKLayers.dll`, licence; 3 files, 9.6 MB | staged by either variant on Windows |
 | (`-WithDlss`, never packed) | `runtimes-upscalers-dlss/<rid>/native/` | 21 files, 3.2 MB; NGX static, imports `ADVAPI32.dll` too | NGX ON from `FETCHCONTENT_SOURCE_DIR_NGX` |
 
 - Both NRI builds: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI (static), AGS, debug names,
@@ -160,28 +160,28 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 - osx-arm64: Base only, `libNRI.dylib` (about 1.07 MB, 8 files, 1.2 MB), Vulkan + NONE.
 - Base and Upscalers both contain `NRI.dll` at the same package path; NuGet's resolution between
   two packages' same-named native assets is not to be relied on, so a consumer takes exactly one
-  (`ExcludeAssets="native"` on `PrismNRI` with Upscalers). `NriApi` imports library `NRI` for both.
-- In-repo, `dotnet/PrismNRI.csproj` copies `runtimes/<rid>/native` beside `ProjectReference`
+  (`ExcludeAssets="native"` on `SharpNRI` with Upscalers). `NriApi` imports library `NRI` for both.
+- In-repo, `dotnet/SharpNRI.csproj` copies `runtimes/<rid>/native` beside `ProjectReference`
   consumers and also `runtimes-agility/<rid>/native` when staged (never packed;
-  `-p:PrismNRIDevAgility=false` turns it off), so tests run D3D12 on Agility.
-- A build from source with no staged library for its RID fails with `PRISMNRI001`, naming the
+  `-p:SharpNRIDevAgility=false` turns it off), so tests run D3D12 on Agility.
+- A build from source with no staged library for its RID fails with `SHARPNRI001`, naming the
   directory and the `build-native.ps1` command; before, it built and the consumer failed at device
-  creation with `DllNotFoundException`. `-p:PrismNRIRequireNative=false` skips the check. Every
+  creation with `DllNotFoundException`. `-p:SharpNRIRequireNative=false` skips the check. Every
   workflow builds after the payload is staged or restored, so none needs it.
 - **Consumption smoke test** (`tools/consume`, not in the solution): `PackageReference`s to
-  `PrismNRI` + `PrismNRI.Testing` at `-p:PrismNRIPackageVersion`, from the folder in
-  `PRISMNRI_FEED` (default `nupkg/`), restored into `tools/consume/obj/packages` so the global
+  `SharpNRI` + `SharpNRI.Testing` at `-p:SharpNRIPackageVersion`, from the folder in
+  `SHARPNRI_FEED` (default `nupkg/`), restored into `tools/consume/obj/packages` so the global
   cache never stands in; the build prints the source NuGet recorded. Prints the loaded NRI path,
   creates NONE and each available GPU backend's validated device with a buffer and a fence; exit 0
   only when NONE and one GPU backend worked. The release `consume` job runs it on windows, ubuntu
   (`libvulkan1 mesa-vulkan-drivers`) and macos (`molten-vk vulkan-loader`, ci.yml's dyld/ICD env),
   portable build and `-r <rid>`; `release` needs it. Locally (Windows, packs win-x64 only):
   ```powershell
-  dotnet pack PrismNRI.slnx -c Release -o <dir>
-  $env:PRISMNRI_FEED = "<dir>"
-  dotnet build tools/consume -c Release -p:PrismNRIPackageVersion=0.4.0-alpha
-  dotnet tools/consume/bin/Release/net11.0/PrismNRI.Consume.dll
-  dotnet run --project tools/consume -c Release -r win-x64 -p:PrismNRIPackageVersion=0.4.0-alpha
+  dotnet pack SharpNRI.slnx -c Release -o <dir>
+  $env:SHARPNRI_FEED = "<dir>"
+  dotnet build tools/consume -c Release -p:SharpNRIPackageVersion=0.4.0-alpha
+  dotnet tools/consume/bin/Release/net11.0/SharpNRI.Consume.dll
+  dotnet run --project tools/consume -c Release -r win-x64 -p:SharpNRIPackageVersion=0.4.0-alpha
   ```
   Portable build loads `bin/.../runtimes/win-x64/native/NRI.dll` through the deps.json; `-r`
   loads the flat `NRI.dll`. Delete `tools/consume/obj` after re-packing the same version.
@@ -236,8 +236,8 @@ From the owner. Do not relitigate.
   correct until upstream fixes it: the filing proposes our patch and asks the maintainer's
   opinion, and the patch is dropped (on `next` first) when upstream carries a fix.
 - **The library knows nothing about any consumer.** No project, test, package or doc here
-  references a downstream project. Downstream bindings reference `PrismNRI.Descs` /
-  `PrismNRI.Testing`, never the reverse. No probe or test targets an application.
+  references a downstream project. Downstream bindings reference `SharpNRI.Descs` /
+  `SharpNRI.Testing`, never the reverse. No probe or test targets an application.
 - **No vendor DLLs shipped**: no `nvngx_*`, `libxess.dll`, `amd_fidelityfx_*` in any package or
   commit. DLSS is the `-WithDlss` build switch only.
 - **No meaningless tests.** A skip names the missing capability (feature bit, extension, file), so a
@@ -275,9 +275,9 @@ git submodule update --init
 pwsh tools/build-native.ps1                          # Base + Agility, win-x64, Release
 pwsh tools/build-native.ps1 -Variant Upscalers       # optional, ~1.8 GB of _deps
 pwsh tools/build-native.ps1 -WithDlss E:\path\DLSS   # local only, never packed
-dotnet build PrismNRI.slnx -c Release
-dotnet test --solution PrismNRI.slnx -c Release --no-build
-dotnet test --project tests/PrismNRI.Tests -c Release --no-build
+dotnet build SharpNRI.slnx -c Release
+dotnet test --solution SharpNRI.slnx -c Release --no-build
+dotnet test --project tests/SharpNRI.Tests -c Release --no-build
 ```
 
 `build-native.ps1` flags that matter:
@@ -318,7 +318,7 @@ Regenerate after any patch that touches a header; `NativeAbiTests` then re-measu
 
 ### Test shaders
 
-`pwsh tools/compile-test-shaders.ps1 [-Dxc <path>]` compiles each `tests/PrismNRI.Tests/Shaders/*.hlsl`
+`pwsh tools/compile-test-shaders.ps1 [-Dxc <path>]` compiles each `tests/SharpNRI.Tests/Shaders/*.hlsl`
 to `.spv` and `.dxil` by entry-point name (`vsMain`, `psMain`, `csMain` cs_6_5, `msMain`, `main`,
 `rayGen` lib_6_3). RT libraries: one SPIR-V module, one DXIL per export (`-exports`). No
 `-fvk-*-shift`; tests use zero `VKBindingOffsets`. dxc from the Vulkan SDK (1.9.0.5180, default
@@ -329,7 +329,7 @@ marks them binary).
 ### Linux (WSL2 Ubuntu 24.04)
 
 ```bash
-SKIP_APT=1 bash tools/ci/verify-linux.sh    # in a Linux-filesystem clone, e.g. ~/src/PrismNRI
+SKIP_APT=1 bash tools/ci/verify-linux.sh    # in a Linux-filesystem clone, e.g. ~/src/SharpNRI
 ```
 
 - Mirrors the `linux-x64` job: fetches the Khronos layer into `_tools/vvl` via
@@ -351,7 +351,7 @@ brew install ninja molten-vk vulkan-loader vulkan-validationlayers vulkan-tools
 export DYLD_FALLBACK_LIBRARY_PATH="$(brew --prefix)/lib:/usr/local/lib:/usr/lib"
 export VK_DRIVER_FILES="$(find "$(brew --prefix molten-vk)/" -name MoltenVK_icd.json | head -n1)"
 pwsh tools/build-native.ps1 -Rid osx-arm64
-dotnet build PrismNRI.slnx -c Release && dotnet test --solution PrismNRI.slnx -c Release --no-build --output Detailed
+dotnet build SharpNRI.slnx -c Release && dotnet test --solution SharpNRI.slnx -c Release --no-build --output Detailed
 ```
 
 Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip reason in the log.
@@ -362,22 +362,22 @@ Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip re
   Microsoft.Testing.Platform: `global.json` has `"test": { "runner": "Microsoft.Testing.Platform" }`
   (a `dotnet.config` with the same setting did nothing on 11.0.100-rc.1), the test project is an
   `Exe`, no `Microsoft.NET.Test.Sdk`, serialization in `xunit.runner.json`.
-- `PRISMNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) prefers WARP / lavapipe;
-  `PRISMNRI_TEST_BACKEND=VK` restricts; `PRISMNRI_TRACE=1` prints messages live (the only record
+- `SHARPNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) prefers WARP / lavapipe;
+  `SHARPNRI_TEST_BACKEND=VK` restricts; `SHARPNRI_TRACE=1` prints messages live (the only record
   that survives a native crash).
-- Single test, bypassing `dotnet test`: `tests/PrismNRI.Tests/bin/Release/net11.0/PrismNRI.Tests
-  -method "PrismNRI.Tests.RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS"`.
+- Single test, bypassing `dotnet test`: `tests/SharpNRI.Tests/bin/Release/net11.0/SharpNRI.Tests
+  -method "SharpNRI.Tests.RayTracingTests.A_ray_query_hits_the_triangle_in_a_built_TLAS"`.
 
 ### Coverage
 
-`pwsh tools/coverage.ps1` (after `build-native.ps1`) builds with `-p:PrismNRICoverage=true`, runs
+`pwsh tools/coverage.ps1` (after `build-native.ps1`) builds with `-p:SharpNRICoverage=true`, runs
 the suite under coverage and writes `docs/coverage.md` and the two README badges in
 `docs/badges/`; `-SkipBuild` / `-SkipTests` reuse the last build or run (`_build/coverage/`). A
 failing suite publishes nothing. No figure is published without the commit it was measured at
 (owner, 2026-10-21): each badge reads `@ <commit>`, and the report's header names the commit, the
 date, NRI ref and patch count, the payload (the staged one whose library the tests loaded, by
 content) and the adapter each backend's tests ran on (the test executable's own choice:
-`PRISMNRI_TEST_CHILD=test-adapters`, `tests/PrismNRI.Tests/TestAdapters.cs`). All of it is recorded
+`SHARPNRI_TEST_CHILD=test-adapters`, `tests/SharpNRI.Tests/TestAdapters.cs`). All of it is recorded
 when the tests run (`_build/coverage/measurement.json`), so `-SkipTests` keeps it. Nothing is
 configured per machine: the adapter named is whichever one the suite picked on that run.
 
@@ -392,10 +392,10 @@ configured per machine: the adapter named is whichever one the suite picked on t
   run the script again. Measure a committed tree; a report measured with uncommitted changes in the
   inputs never passes `-Check`.
 - **Bound surface** (`tools/coverage/BoundSurface`, System.Reflection.Metadata over the built
-  `PrismNRI.Descs.dll` and `PrismNRI.dll` with its PDB; not in the solution): an NRI function is
+  `SharpNRI.Descs.dll` and `SharpNRI.dll` with its PDB; not in the solution): an NRI function is
   bound when binding code outside `NriApi` loads its table field or calls its flat export, and
   each call site keeps its file and line. A native struct field is bound when the struct is
-  exposed (reachable from a public or protected signature outside `PrismNRI.Native`, and
+  exposed (reachable from a public or protected signature outside `SharpNRI.Native`, and
   everything reachable through its fields), or, for a struct the binding builds from its own
   managed form, when binding code or hand-written `descs/` code reads or writes the field
   (generated helpers count the fields they touch); a struct no function signature reaches is a
@@ -406,10 +406,10 @@ configured per machine: the adapter named is whichever one the suite picked on t
   (`DeviceCreationDesc.enableD3D11CommandBufferEmulation`: D3D11 is not built).
 - **Test coverage**: `Microsoft.Testing.Extensions.CodeCoverage` 18.12.0 through `dotnet test
   --coverage` (MTP; the test executable run directly is xunit's own runner, which has no such
-  option), cobertura, modules `PrismNRI`, `PrismNRI.Descs`, `PrismNRI.Testing`
+  option), cobertura, modules `SharpNRI`, `SharpNRI.Descs`, `SharpNRI.Testing`
   (`tools/coverage/coverage.settings.xml`), `dotnet/Native` dropped by path in the script. Child
   processes are collected (the out-of-date branch of `QueuePresent`, reached only in the resize
-  child, shows as taken). The package is in the test project only under `PrismNRICoverage`:
+  child, shows as taken). The package is in the test project only under `SharpNRICoverage`:
   Microsoft .NET Library licence, and its native collector has no osx-arm64 or linux-arm64
   build, so plain builds and CI never restore it.
 - "Call site run by the tests" joins the two: a bound function whose call-site lines have no
@@ -1252,7 +1252,7 @@ pixels of a 64x64 target exactly). N-numbers are the reports in `next`'s `docs/u
   `CommandBufferD3D12.hpp:1758` (v190; `:1852` on main) dereferenced the depth attachment, which
   a pass with only `stencil` does not have. The patch takes the stencil one then.
   `RenderStateTests.ClearAttachments_in_a_stencil_only_pass_clears_the_stencil` runs in a child
-  process (`PRISMNRI_TEST_CHILD=stencil-only-clear`), so a crash fails the test, not the run: a
+  process (`SHARPNRI_TEST_CHILD=stencil-only-clear`), so a crash fails the test, not the run: a
   stencil cleared to 5, then to 7 in one quadrant, draws an EQUAL 7 quad in exactly that quadrant.
 - **D3D12 did not clear the stencil of a depth-stencil view passed as `depth` only (N4, patch
   0028).**
@@ -1473,7 +1473,7 @@ Measured by `DebugAidTests`.
   calls `ID3D12Debug1::SetEnableGPUBasedValidation`, which must come before device creation and
   is process-global like the debug layer (NRI never switches it off again).
   `NriDeviceOptions.EnableD3D12GpuBasedValidation` maps 1:1. Measured (`D3D12DebugLayerTests`,
-  children with `PRISMNRI_TEST_CHILD=d3d12-gbv-on` / `-off`, NVIDIA and WARP): a dispatch writing
+  children with `SHARPNRI_TEST_CHILD=d3d12-gbv-on` / `-off`, NVIDIA and WARP): a dispatch writing
   through a `PARTIALLY_BOUND` range of two UAVs with only slot 0 written
   (`Shaders/GpuValidation.hlsl`) reports `[938] GPU-BASED VALIDATION: Dispatch, Uninitialized
   descriptor accessed: Descriptor Heap Index To DescriptorTableStart: [0], Descriptor Heap Index
@@ -1888,7 +1888,7 @@ extensions.
   binding documents it on `WaitForPresent` / `QueuePresent`: pass the id of the last present queued
   with a non-zero id.
 - **The resize test runs in a child process**: the test exe started again with
-  `PRISMNRI_TEST_CHILD=swapchain-resize`; a `[ModuleInitializer]` runs the frames and exits before
+  `SHARPNRI_TEST_CHILD=swapchain-resize`; a `[ModuleInitializer]` runs the frames and exits before
   xunit starts. Reason: Vulkan presents poisoned later D3D12 device creation in the same process
   (Reflex, below). The child runs with implicit layers on, so on a machine with RTSS it is the
   regression test for the binding's physical-device enumeration (Device creation and callbacks);
@@ -2071,7 +2071,7 @@ extensions.
   handle value (`Vulkan.cs` `s_instanceTables` / `s_deviceTables`), dropped only by
   `vkDestroyInstance` / `vkDestroyDevice` through that table. NRI destroys its own objects, so the
   entry outlives the device and a later device at the same address gets dead pointers.
-  `tests/PrismNRI.Tests/VulkanApi.cs` builds a fresh table per object (`new VkDeviceApi(...)`).
+  `tests/SharpNRI.Tests/VulkanApi.cs` builds a fresh table per object (`new VkDeviceApi(...)`).
 - **`CreateQueryPoolVK` maps the query type by value (binding fix).** The binding took
   `ACCELERATION_STRUCTURE_SIZE` and `MICROMAP_COMPACTED_SIZE` from the values of the serialization
   query types (1000386000, 1000396000). It now uses 1000386001 and 1000396001, as NRI's
@@ -2114,7 +2114,7 @@ extensions.
   query pool the driver refuses, a poisoned test process), not a wrong answer. A defect NRI owns is
   patched and its test asserts the right answer (owner, 2026-10-22), not skipped.
 - Timestamp frequency 1 GHz on both GPU backends; result 8 bytes.
-- `PRISMNRI_TRACE=1` when a test host dies: the message stream is the only record.
+- `SHARPNRI_TRACE=1` when a test host dies: the message stream is the only record.
 - Expected skip shape per platform (counts move as tests are added): Windows hardware skips almost
   nothing (NIS under Base; RenderDoc where `renderdoccmd.exe` is absent); Windows CI (WARP, no
   Vulkan ICD) skips every VK case and RenderDoc; Linux skips D3D12, Agility, NIS, shared handles,
@@ -2196,7 +2196,7 @@ bug.
    with the layer moved, and those 2 crashed (SIGSEGV, SIGILL) at the first device call. No other
    run crashed. The dump showed the managed frame on `api.vkCreateBuffer`. In CI the 107th test hit
    the 99th's entry; that ordering is inferred from the count, not from a CI dump.
-   Fix: `tests/PrismNRI.Tests/VulkanApi.cs` builds a fresh table from the public constructors for
+   Fix: `tests/SharpNRI.Tests/VulkanApi.cs` builds a fresh table from the public constructors for
    every object, and no test calls `GetApi` any more (Wrappers caveat). The minidump and
    "Crash stacks" CI steps stay in place for the next host crash.
 

@@ -8,16 +8,16 @@
 // optional pointer to one struct; every other field keeps NRI's name (PascalCase) and type, and the
 // leaf structs are the generated ones. Creation forms (session parameters) are classes holding
 // arrays; per-call forms (decode, encode) are record structs holding ReadOnlyMemory, so a caller
-// can slice reusable buffers and nothing is allocated per call. PrismNRI marshals them into
+// can slice reusable buffers and nothing is allocated per call. SharpNRI marshals them into
 // per-thread scratch memory for the duration of the call; NRI copies what it keeps.
 //
 // The property set of each form was produced from the generated L0 struct and the header comments
 // (field order is NRI's), then reviewed; a field that NRI documents carries its comment.
 
 using System.Runtime.CompilerServices;
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>Eight AV1 order hints, inline: the "must include 8 entries" arrays of <c>NRIVideo.h</c>.</summary>
 [InlineArray(8)]

@@ -4,14 +4,14 @@
 // and DescriptorSetDesc, and each DescriptorSetDesc points at an array of DescriptorRangeDesc. A C#
 // caller cannot hold a stable pointer to a managed array, so these are the same descs with arrays
 // where NRI has pointer-plus-count, and nothing else changed: the field names are NRI's and the
-// leaf structs are the generated ones. PrismNRI pins and marshals at the create call.
+// leaf structs are the generated ones. SharpNRI pins and marshals at the create call.
 //
-// They live in PrismNRI.Descs because a library that projects shader reflection into a pipeline
+// They live in SharpNRI.Descs because a library that projects shader reflection into a pipeline
 // layout has to construct them without a device or the native library in hand.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>DescriptorSetDesc</c> with its ranges as an array.</summary>
 /// <param name="RegisterSpace">Must be unique across the layout; avoid big gaps.</param>

@@ -3,9 +3,9 @@
 // NRI has one Descriptor type for all three and one DestroyDescriptor. The kind is kept on the
 // wrapper only so a mistake reads as a message rather than a validation-layer error.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 public enum NriDescriptorKind : byte
 {

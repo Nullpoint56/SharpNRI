@@ -10,9 +10,9 @@
 // device without it, the D3D12 wrapper on a Vulkan device). That is a capability answer, not a
 // bug, and is surfaced as NriUnsupportedException so a caller can probe.
 
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI.Interop;
+namespace SharpNRI.Interop;
 
 internal static unsafe class InterfaceTable
 {

@@ -11,7 +11,7 @@
 
 using System.Runtime.InteropServices;
 
-namespace PrismNRI.Interop;
+namespace SharpNRI.Interop;
 
 internal sealed unsafe class ScratchArena
 {

@@ -1,6 +1,6 @@
 // L2 — acquisition of the RayTracing extension; see NriDevice.Extensions.cs for the pattern.
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 public sealed unsafe partial class NriDevice
 {

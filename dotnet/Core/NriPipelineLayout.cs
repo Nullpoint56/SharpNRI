@@ -4,9 +4,9 @@
 // arrays are pinned for the duration of CreatePipelineLayout only; NRI copies what it needs.
 
 using System.Runtime.InteropServices;
-using PrismNRI.Native;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary>A pipeline layout: root constants, root descriptors, root samplers and descriptor sets.</summary>
 public sealed unsafe class NriPipelineLayout : NriObject

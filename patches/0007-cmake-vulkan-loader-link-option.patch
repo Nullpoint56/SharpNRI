@@ -21,7 +21,7 @@ index 3a0fbbd8..1d68bb8b 100644
  cmake_dependent_option(NRI_ENABLE_D3D12_SUPPORT "Enable D3D12 backend" ON "WIN32" OFF)
  cmake_dependent_option(NRI_ENABLE_NVTX_SUPPORT "Annotations for NVIDIA Nsight Systems" ON "NOT IOS" OFF)
  cmake_dependent_option(NRI_ENABLE_VK_SUPPORT "Enable Vulkan backend" ON "NOT IOS" OFF)
-+# PrismNRI patch 0007: the Apple link of the loader (PR 134) is an IDE convenience that makes the library
++# SharpNRI patch 0007: the Apple link of the loader (PR 134) is an IDE convenience that makes the library
 +# unloadable without a loader on the default dyld paths; everywhere else NRI loads the loader at runtime.
 +cmake_dependent_option(NRI_ENABLE_VULKAN_LOADER_LINKING "Link the Vulkan loader into the library (otherwise it is loaded at runtime)" ON "APPLE; NRI_ENABLE_VK_SUPPORT" OFF)
  cmake_dependent_option(NRI_ENABLE_NIS_SDK "Enable NVIDIA Image Sharpening SDK" OFF "NOT IOS" OFF)

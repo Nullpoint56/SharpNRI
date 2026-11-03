@@ -4,10 +4,10 @@
 // below holds the same things as arrays and objects, and Create pins them for the call.
 
 using System.Runtime.InteropServices;
-using PrismNRI.Interop;
-using PrismNRI.Native;
+using SharpNRI.Interop;
+using SharpNRI.Native;
 
-namespace PrismNRI;
+namespace SharpNRI;
 
 /// <summary><c>OutputMergerDesc</c> with its colour attachments as an array.</summary>
 public sealed class NriOutputMergerDesc

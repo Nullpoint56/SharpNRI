@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SharpNRI.Native.Agility - the DirectX 12 Agility SDK runtime for SharpNRI (CLAUDE.md: Native packages).
+
+    A packaging project: no code. Packs runtimes-agility/<rid>/native (staged by
+    pwsh tools/build-native.ps1 on Windows, either variant) under runtimes/<rid>/native:
+    AgilitySDK/D3D12Core.dll, AgilitySDK/d3d12SDKLayers.dll and Microsoft's licence beside them.
+    Works with either NRI payload (SharpNRI or SharpNRI.Native.Upscalers): NriDevice resolves the
+    AgilitySDK directory beside the application and patch 0001 loads it at device creation.
+  -->
+
+  <PropertyGroup>
+    <PackageId>SharpNRI.Native.Agility</PackageId>
+    <Version>0.4.0-alpha</Version>
+    <Description>DirectX 12 Agility SDK runtime (D3D12Core.dll, d3d12SDKLayers.dll) staged where SharpNRI looks for it. Optional: without it SharpNRI's D3D12 backend runs on the inbox D3D12 runtime. Microsoft Software License Terms apply.</Description>
+    <PackageTags>nri;d3d12;agility;native</PackageTags>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <SharpNRINativeStaging>$(MSBuildThisFileDirectory)..\runtimes-agility\</SharpNRINativeStaging>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(SharpNRINativeStaging)**\*"
+          Pack="true"
+          PackagePath="runtimes\%(RecursiveDir)%(Filename)%(Extension)"
+          Visible="false" />
+  </ItemGroup>
+
+  <Target Name="SharpNRIWarnIfNoStaging" BeforeTargets="GenerateNuspec" Condition="!Exists('$(SharpNRINativeStaging)')">
+    <Error Text="Nothing staged in $(SharpNRINativeStaging). Run: pwsh tools/build-native.ps1" />
+  </Target>
+
+</Project>
