@@ -331,9 +331,9 @@ public sealed unsafe class NriUpscalerExtension
             UpscalerType.DLSR => [linux ? "libnvidia-ngx-dlss.so.*" : "nvngx_dlss.dll"],
             UpscalerType.DLRR => [linux ? "libnvidia-ngx-dlssd.so.*" : "nvngx_dlssd.dll"],
             UpscalerType.XESS => ["libxess.dll"],
-            // NRI loads the loader by name on D3D12; the loader loads the upscaler.
+            // NRI loads the loader by name (UpscalerInterface.hpp); the loader loads the upscaler.
             UpscalerType.FSR when graphicsApi == GraphicsAPI.D3D12 => ["amd_fidelityfx_loader_dx12.dll", "amd_fidelityfx_upscaler_dx12.dll"],
-            UpscalerType.FSR => ["amd_fidelityfx_vk.dll"],
+            UpscalerType.FSR => ["amd_fidelityfx_loader_vk.dll", "amd_fidelityfx_upscaler_vk.dll"],
             _ => [],
         };
     }

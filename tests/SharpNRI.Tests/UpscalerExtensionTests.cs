@@ -50,7 +50,7 @@ public sealed class UpscalerExtensionTests
         var expectedFiles = new Dictionary<UpscalerType, string[]>
         {
             [UpscalerType.NIS] = [],
-            [UpscalerType.FSR] = backend.Api == GraphicsAPI.D3D12 ? ["amd_fidelityfx_loader_dx12.dll", "amd_fidelityfx_upscaler_dx12.dll"] : ["amd_fidelityfx_vk.dll"],
+            [UpscalerType.FSR] = backend.Api == GraphicsAPI.D3D12 ? ["amd_fidelityfx_loader_dx12.dll", "amd_fidelityfx_upscaler_dx12.dll"] : ["amd_fidelityfx_loader_vk.dll", "amd_fidelityfx_upscaler_vk.dll"],
             [UpscalerType.XESS] = ["libxess.dll"],
             [UpscalerType.DLSR] = [linux ? "libnvidia-ngx-dlss.so.*" : "nvngx_dlss.dll"],
             [UpscalerType.DLRR] = [linux ? "libnvidia-ngx-dlssd.so.*" : "nvngx_dlssd.dll"],
