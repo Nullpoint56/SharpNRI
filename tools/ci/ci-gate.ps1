@@ -23,7 +23,7 @@
     macOS minute costs about ten Linux minutes. osx is full for a pull request labelled "macos",
     for the "macos" label being added (then win and linux skip: that head ran already), for a
     manual run with the macos input, and for the weekly schedule (then win and linux skip: every
-    pull request runs them). Pushes to master skip it. The release builds and tests macOS itself.
+    pull request runs them). Pushes to master skip it. The release builds macOS when it can.
 
     push to master: when the pushed commit is the merge of a pull request whose head has the
     same tree and passed ci as a pull_request run, that tree has been tested; running the suite

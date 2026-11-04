@@ -14,7 +14,7 @@ name: ci
 #     hang costs minutes, not an hour.
 #   - macOS is opt-in (hosted macOS arm64 runners are often unavailable for long stretches): a pull
 #     request labelled "macos" (adding the label runs only macOS), a manual run with the macos
-#     input, and a weekly run on master. The release builds and tests macOS regardless.
+#     input, and a weekly run on master. The release builds macOS when a runner is available.
 
 on:
   push:
