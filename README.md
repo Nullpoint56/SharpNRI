@@ -21,7 +21,8 @@ MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
 
 CI builds the native library from the pinned tag and the patch set and runs the suite with NRI's
 validation and the backend validation layer on: D3D12 on WARP, Vulkan on lavapipe, NONE everywhere,
-and on macOS (Vulkan on MoltenVK) weekly, on request and for every release. A separate workflow regenerates the interop layer when the
+and on macOS (Vulkan on MoltenVK) weekly, on request, and in releases when a macOS runner is
+available. A separate workflow regenerates the interop layer when the
 headers, patches or generator change, and fails on drift. Windows is also verified on NVIDIA
 hardware.
 
