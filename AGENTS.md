@@ -1397,7 +1397,9 @@ minutes and a Windows minute about two. That shapes the runs:
   longer queue times"). The gate runs `osx-arm64` for a pull request labelled `macos` (adding the
   label starts a run of macOS alone, in its own concurrency group), a manual run with the `macos`
   input, and the weekly schedule (Mondays 04:00 UTC, macOS alone, on master); never on master
-  pushes. The release builds and smoke-tests osx-arm64 regardless, re-run until a Mac picks it up.
+  pushes. The release builds and smoke-tests osx-arm64 too, but does not wait for it (owner,
+  2026-11-04): without a macOS runner it ships without the osx-arm64 library, or with it untested,
+  and its body says so (`release.yml`: pack, consume-macos, release).
 - **`gate`** (`tools/ci/ci-gate.ps1`): pull requests and manual runs test everything but macOS (above). A push to
   master whose tree equals the head of a merged pull request that passed CI as a `pull_request` run
   is not tested again; a platform then only builds and caches the payload when master has no cache
