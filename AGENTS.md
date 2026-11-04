@@ -241,6 +241,8 @@ dotnet build SharpNRI.slnx -c Release
 dotnet test --solution SharpNRI.slnx -c Release --no-build
 ```
 
+Needs Visual Studio with C++, CMake 3.30+, pwsh 7 and the .NET 11 SDK.
+
 | `build-native.ps1` flag | Effect |
 |---|---|
 | `-Rid` | `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-arm64`; must match the host |
@@ -313,7 +315,7 @@ pwsh tools/build-native.ps1 -Rid osx-arm64
 dotnet build SharpNRI.slnx -c Release && dotnet test --solution SharpNRI.slnx -c Release --no-build --output Detailed
 ```
 
-Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip reason in the log.
+Needs the Xcode command-line tools, CMake 3.30+, Ninja, pwsh 7 and the .NET 11 SDK. Native build about 25 s; tests about 4 s. `--output Detailed` puts every skip reason in the log.
 
 ### Test runner
 
@@ -348,7 +350,7 @@ ref and patch count, the payload the tests loaded (by content) and the adapter e
   builds nothing: it fails naming the paths changed since, when a badge names another commit, or
   when the measurement had uncommitted changes there. The workflow (git only) runs on pushes to
   master and pull requests into master touching those paths or the report. Red is the signal and
-  blocks nothing (no branch protection, by choice). The tool and build scripts are not inputs:
+  blocks nothing (not a required check). The tool and build scripts are not inputs:
   after changing what is measured or how, run it again. Measure a committed tree.
 - **Bound surface** (`tools/coverage/BoundSurface`, System.Reflection.Metadata over the built
   assemblies and PDB; not in the solution): a function is bound when binding code outside `NriApi`
@@ -1392,6 +1394,13 @@ have no intermittent failures. Both were test defects, not driver bugs.
 Hosted minutes are limited and billed per job, rounded up; a macOS minute costs about ten Linux
 minutes and a Windows minute about two. That shapes the runs:
 
+- **Repository rules** (public since 2026-11-04): ruleset `master` (no deletion, no force-push,
+  pull requests only with 0 approvals, required checks `gate`, `win-x64`, `linux-x64`; repository
+  admins may bypass when merging a pull request, for GitHub outages); ruleset `release tags`
+  (`v*` cannot be deleted, moved or force-pushed; admins may bypass, to move a failed release's
+  tag). Actions: the workflow token is read-only by default and cannot approve pull requests (the
+  release jobs ask for `contents: write`); workflows of fork pull requests wait for approval for
+  every outside contributor. Secret scanning with push protection and Dependabot alerts are on.
 - **macOS is opt-in** (owner, 2026-11-04): hosted macOS arm64 runners were unavailable for hours at a
   time ("The job was not acquired by Runner of type hosted even after multiple attempts"; GitHub's
   annotation: "Due to capacity constraints, jobs targeting macOS arm64 runners may experience
