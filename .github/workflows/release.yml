@@ -9,9 +9,10 @@ name: release
 #   3. This workflow: version (tag == v<Version> in all four csprojs, else fail) -> win-x64, linux-x64,
 #      osx-arm64 (native payloads, same setup and build-native.ps1 calls as ci.yml) -> pack (all RIDs
 #      into one set of .nupkg files, contents listed and checked) -> consume (tools/consume restores
-#      the packages from a folder feed and creates devices on windows, ubuntu and macos) -> release
-#      (GitHub release with the .nupkg files and one zip per native payload; prerelease when the
-#      tag contains '-').
+#      the packages from a folder feed and creates devices on windows and ubuntu; consume-macos on
+#      macos) -> release (GitHub release with the .nupkg files and one zip per native payload;
+#      prerelease when the tag contains '-'). macOS is optional: without a macOS runner the release
+#      ships without osx-arm64, and its body says so.
 #   No dry run before tagging: a tag run that fails publishes nothing (release needs consume), and a
 #   dry run repeats every job of the tag run. After a failure: fix through a pull request, then move
 #   the tag (git tag -f v<Version> <commit>; git push -f origin v<Version>), or use "Re-run failed
@@ -286,10 +287,17 @@ jobs:
   # its Content item and every other runtimes/** file through its None item (the host RID excluded),
   # both under runtimes/<rid>/native, so the host OS does not matter. The native/ packaging projects
   # pack runtimes-upscalers/** whole.
+  #
+  # macOS is optional: hosted macOS arm64 runners are often unavailable for hours, so pack does not
+  # wait for osx-arm64 to succeed. When that job did not succeed (no runner, cancelled), the
+  # packages carry no osx-arm64 library and the release body says so.
   pack:
     needs: [version, win-x64, linux-x64, osx-arm64]
+    if: always() && needs.version.result == 'success' && needs.win-x64.result == 'success' && needs.linux-x64.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      macos: ${{ steps.layout.outputs.macos }}
     steps:
       - uses: actions/checkout@v4
 
@@ -306,7 +314,10 @@ jobs:
       # Artifact runtimes[-upscalers]-<rid> holds <rid>/native/...; it goes back under the
       # staging root it was uploaded from.
       - name: Lay out the staging directories
+        id: layout
         shell: pwsh
+        env:
+          OSX_RESULT: ${{ needs.osx-arm64.result }}
         run: |
           $rids = "win-x64", "linux-x64", "osx-arm64"
           foreach ($a in Get-ChildItem _artifacts -Directory) {
@@ -319,10 +330,19 @@ jobs:
             Copy-Item "$($a.FullName)/$rid" $root -Recurse
             Write-Host "$($a.Name) -> $root/$rid/native"
           }
-          $expected = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/osx-arm64/native/libNRI.dylib",
+          $expected = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so",
                       "runtimes-upscalers/win-x64/native/NRI.dll", "runtimes-upscalers/linux-x64/native/libNRI.so"
+          # osx-arm64 is in the packages exactly when its job succeeded.
+          $macos = $env:OSX_RESULT -eq 'success'
+          if ($macos) { $expected += "runtimes/osx-arm64/native/libNRI.dylib" }
+          else {
+            # A job that failed after uploading must not leave its payload in the packages.
+            if (Test-Path runtimes/osx-arm64) { Remove-Item -Recurse -Force runtimes/osx-arm64 }
+            Write-Warning "osx-arm64 job result '$env:OSX_RESULT': the packages carry no macOS library"
+          }
           $missing = @($expected | Where-Object { -not (Test-Path $_) })
           if ($missing) { throw "missing after download: $($missing -join ', ')" }
+          "macos=$($macos.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Pack
         run: dotnet pack SharpNRI.slnx -c Release -p:PackageOutputPath="$GITHUB_WORKSPACE/nupkg"
@@ -332,7 +352,8 @@ jobs:
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $must = @{
-            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/osx-arm64/native/libNRI.dylib", "lib/net11.0/SharpNRI.dll"
+            "SharpNRI"                  = @("runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll") +
+                                          @(if ("${{ steps.layout.outputs.macos }}" -eq 'true') { "runtimes/osx-arm64/native/libNRI.dylib" })
             "SharpNRI.Descs"            = @("lib/net11.0/SharpNRI.Descs.dll")
             "SharpNRI.Testing"          = @("lib/net11.0/SharpNRI.Testing.dll")
             "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so"
@@ -367,6 +388,8 @@ jobs:
   # (runtimes/<rid>/native through the deps.json), the second the RID-specific one (flat copy).
   consume:
     needs: [version, pack]
+    # always(): pack ran although osx-arm64, an ancestor, may have been cancelled.
+    if: always() && needs.pack.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -375,8 +398,6 @@ jobs:
             rid: win-x64
           - os: ubuntu-24.04
             rid: linux-x64
-          - os: macos-latest
-            rid: osx-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     env:
@@ -391,21 +412,6 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends libvulkan1 mesa-vulkan-drivers
-
-      # MoltenVK behind the Khronos loader, found as in ci.yml.
-      - name: Install system packages (macOS)
-        if: runner.os == 'macOS'
-        run: brew install molten-vk vulkan-loader
-
-      - name: Point dyld and the Vulkan loader at Homebrew
-        if: runner.os == 'macOS'
-        run: |
-          icd="$(find "$(brew --prefix molten-vk)/" -name MoltenVK_icd.json | head -n1)"
-          test -n "$icd" || { echo "MoltenVK_icd.json not found under $(brew --prefix molten-vk)"; exit 1; }
-          {
-            echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib:/usr/local/lib:/usr/lib"
-            echo "VK_DRIVER_FILES=$icd"
-          } >> "$GITHUB_ENV"
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -432,9 +438,58 @@ jobs:
         shell: bash
         run: dotnet run --project tools/consume -c Release -r ${{ matrix.rid }} -p:SharpNRIPackageVersion="$SHARPNRI_VERSION"
 
+  # The macOS smoke test, when the packages carry the osx-arm64 library. Optional like the build:
+  # the release does not wait for a runner, and only a run that fails blocks it.
+  consume-macos:
+    needs: [version, pack]
+    if: always() && needs.pack.result == 'success' && needs.pack.outputs.macos == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 10
+    env:
+      SHARPNRI_FEED: ${{ github.workspace }}/nupkg
+      SHARPNRI_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # MoltenVK behind the Khronos loader, found as in ci.yml.
+      - name: Install system packages
+        run: brew install molten-vk vulkan-loader
+
+      - name: Point dyld and the Vulkan loader at Homebrew
+        run: |
+          icd="$(find "$(brew --prefix molten-vk)/" -name MoltenVK_icd.json | head -n1)"
+          test -n "$icd" || { echo "MoltenVK_icd.json not found under $(brew --prefix molten-vk)"; exit 1; }
+          {
+            echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix)/lib:/usr/local/lib:/usr/lib"
+            echo "VK_DRIVER_FILES=$icd"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: nupkg
+
+      - name: Build the consumer
+        run: |
+          ls -l nupkg
+          dotnet build tools/consume -c Release -p:SharpNRIPackageVersion="$SHARPNRI_VERSION"
+
+      - name: Run (portable build)
+        run: dotnet tools/consume/bin/Release/net11.0/SharpNRI.Consume.dll
+
+      - name: Run (-r osx-arm64)
+        run: dotnet run --project tools/consume -c Release -r osx-arm64 -p:SharpNRIPackageVersion="$SHARPNRI_VERSION"
+
   release:
-    needs: [version, pack, consume]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [version, pack, consume, consume-macos]
+    if: >-
+      always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') &&
+      needs.pack.result == 'success' && needs.consume.result == 'success' && needs.consume-macos.result != 'failure'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -443,6 +498,20 @@ jobs:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: docs/releases
+
+      # docs/releases/<tag>.md, plus one line when macOS did not make it into the release.
+      - name: Release body
+        env:
+          MACOS: ${{ needs.pack.outputs.macos }}
+          MACOS_SMOKE: ${{ needs.consume-macos.result }}
+        run: |
+          cp "docs/releases/${GITHUB_REF_NAME}.md" body.md
+          if [ "$MACOS" != "true" ]; then
+            printf '\nThis release has no macOS (osx-arm64) library: no macOS runner was available when it was built.\n' >> body.md
+          elif [ "$MACOS_SMOKE" != "success" ]; then
+            printf '\nThe macOS (osx-arm64) library was built, but its package smoke test did not run: no macOS runner was available.\n' >> body.md
+          fi
+          cat body.md
 
       - uses: actions/download-artifact@v4
         with:
@@ -463,7 +532,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: SharpNRI ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
-          body_path: docs/releases/${{ github.ref_name }}.md
+          body_path: body.md
           fail_on_unmatched_files: true
           files: |
             dist/*.nupkg
