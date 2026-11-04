@@ -14,11 +14,16 @@
 
     pull_request and workflow_dispatch: every job is full, except macOS (below).
 
+    A pull request that changes only what cannot change a result (the same list as ci.yml's push
+    paths-ignore: Markdown, docs/, the other workflows, tools/consume, the generator, the coverage
+    tool) skips every platform job. ci.yml starts on every pull request so that gate, win-x64 and
+    linux-x64 always report, and branch protection can require them: a skipped job counts as passed.
+
     macOS is opt-in: hosted macOS arm64 runners are often unavailable for long stretches, and a
     macOS minute costs about ten Linux minutes. osx is full for a pull request labelled "macos",
     for the "macos" label being added (then win and linux skip: that head ran already), for a
     manual run with the macos input, and for the weekly schedule (then win and linux skip: every
-    pull request runs them). Pushes to master skip it. The release builds and tests macOS itself.
+    pull request runs them). Pushes to master skip it. The release builds macOS when it can.
 
     push to master: when the pushed commit is the merge of a pull request whose head has the
     same tree and passed ci as a pull_request run, that tree has been tested; running the suite
@@ -39,7 +44,8 @@ param(
     [string]$Action = $env:GATE_ACTION,           # github.event.action
     [string]$Label = $env:GATE_LABEL,             # github.event.label.name, for "labeled"
     [string]$PullRequestLabels = $env:GATE_PR_LABELS, # JSON array of the pull request's label names
-    [string]$MacOSInput = $env:GATE_MACOS         # workflow_dispatch input "macos"
+    [string]$MacOSInput = $env:GATE_MACOS,        # workflow_dispatch input "macos"
+    [string]$PullRequest = $env:GATE_PR           # github.event.pull_request.number
 )
 
 $ErrorActionPreference = 'Stop'
@@ -131,6 +137,30 @@ switch ($EventName) {
     'push' {
         $modes.osx = 'skip'
         $reason += " macOS is opt-in and skips on master pushes."
+    }
+}
+
+# ------------------------------------------------------------------------------ docs-only pull requests
+# Paths that cannot change a result; ci.yml's push trigger ignores the same list.
+$noResult = '*.md', 'docs/*', '.github/workflows/release.yml', '.github/workflows/regen.yml',
+            '.github/workflows/coverage.yml', 'tools/consume/*', 'tools/generate-native.ps1',
+            'tools/coverage.ps1', 'tools/coverage/*'
+if ($EventName -eq 'pull_request' -and $Action -ne 'labeled' -and $PullRequest) {
+    try {
+        $files = @()
+        for ($page = 1; $page -le 30; $page++) {
+            $batch = @(Get-Api "pulls/$PullRequest/files?per_page=100&page=$page")
+            $files += $batch | ForEach-Object { $_.filename }
+            if ($batch.Count -lt 100) { break }
+        }
+        $result = @($files | Where-Object { $f = $_; -not ($noResult | Where-Object { $f -like $_ }) })
+        if ($files.Count -gt 0 -and $result.Count -eq 0) {
+            foreach ($p in $platforms.Keys) { $modes[$p] = 'skip' }
+            $reason = "pull request #${PullRequest} changes only docs and other paths that cannot change a result ($($files.Count) files): every platform job skips."
+        }
+    }
+    catch {
+        Write-Warning "could not list the pull request's files ($($_.Exception.Message)); the jobs run"
     }
 }
 

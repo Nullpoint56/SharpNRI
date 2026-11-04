@@ -1411,8 +1411,11 @@ minutes and a Windows minute about two. That shapes the runs:
   `ci.yml`, the same on every OS and line ending. Saved right after a build, before the tests, so a
   red run keeps it. A restored payload gets `tools/ci/apply-patches.ps1`, because `NativeAbiTests`
   compile against the patched `nri/Include`.
-- **`paths-ignore`**: Markdown, `docs/`, the other workflows, `tools/consume/`, the generator, the
-  coverage tool.
+- **`paths-ignore`** (push to master): Markdown, `docs/`, the other workflows, `tools/consume/`, the
+  generator, the coverage tool. Pull requests always start `ci.yml`; the gate lists the pull
+  request's files and skips every platform job when all are in that list, so `gate`, `win-x64` and
+  `linux-x64` always report and branch protection can require them (a skipped job counts as
+  passed).
 - **Timeouts**: gate 5, Windows 25, Linux 20, macOS 15 minutes; release jobs 10 to 45 (a few times
   the slowest measured job, so a hung job cannot run for an hour).
 - **No release dry run**: a failed tag run publishes nothing; fix, then move the tag or "Re-run
