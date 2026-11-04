@@ -128,7 +128,8 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 - Both NRI builds: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI (static), AGS, debug names,
   compiled against the Agility headers (`NRI_ENABLE_AGILITY_SDK_SUPPORT=ON`), Agility runtime not
   inside; D3D11, Metal, WebGPU passed OFF. osx-arm64: Base only, `libNRI.dylib` (about 1.07 MB; 8
-  files, 1.2 MB), Vulkan + NONE.
+  files, 1.2 MB), Vulkan + NONE; not in the packages: a release attaches it as a zip when a macOS
+  runner builds it (Actions budget).
 - **Delay-loaded imports** (`tools/cmake/delayload.cmake`, injected on every Windows build as
   `CMAKE_PROJECT_NRI_INCLUDE`, so nothing under `nri/` is edited): after NRI's `project()` it defers
   itself (`cmake_language(DEFER)`) and adds `/DELAYLOAD` + `delayimp.lib` to the NRI target only:
@@ -1397,9 +1398,9 @@ minutes and a Windows minute about two. That shapes the runs:
   longer queue times"). The gate runs `osx-arm64` for a pull request labelled `macos` (adding the
   label starts a run of macOS alone, in its own concurrency group), a manual run with the `macos`
   input, and the weekly schedule (Mondays 04:00 UTC, macOS alone, on master); never on master
-  pushes. The release builds and smoke-tests osx-arm64 too, but does not wait for it (owner,
-  2026-11-04): without a macOS runner it ships without the osx-arm64 library, or with it untested,
-  and its body says so (`release.yml`: pack, consume-macos, release).
+  pushes. Nothing in a release waits for macOS either (owner, 2026-11-04): the packages carry no
+  osx-arm64 library, and the `osx-arm64` job runs after the release is published and attaches
+  `SharpNRI-native-base-osx-arm64-<tag>.zip` when a runner turns up (no macOS smoke test).
 - **`gate`** (`tools/ci/ci-gate.ps1`): pull requests and manual runs test everything but macOS (above). A push to
   master whose tree equals the head of a merged pull request that passed CI as a `pull_request` run
   is not tested again; a platform then only builds and caches the payload when master has no cache
