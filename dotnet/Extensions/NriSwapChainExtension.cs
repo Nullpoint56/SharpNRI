@@ -223,7 +223,7 @@ public sealed unsafe class NriSwapChainExtension
     /// ERROR message on every backend, also on D3D12, where the id is ignored and the wait is the
     /// swap chain's frame-latency waitable object. Vulkan's <c>vkWaitForPresentKHR</c> needs the
     /// id of a tracked present, so the rule is the portable one. Pass the id of the last present
-    /// queued with a non-zero id (CLAUDE.md: Extensions).
+    /// queued with a non-zero id (AGENTS.md: Extensions).
     /// </summary>
     public void WaitForPresent(NriSwapChain swapChain, ulong presentId) =>
         Device.Check(_table.WaitForPresent(swapChain.Raw, presentId), "WaitForPresent");

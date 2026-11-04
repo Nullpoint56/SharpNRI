@@ -4,7 +4,7 @@
     Single source of truth for the pinned NRI release.
 
     NRI is integer-versioned with breaking changes between versions and an ABI that is not stable
-    upstream (CLAUDE.md: The repository). This is an exact pin, not a floor. Everything downstream reads it
+    upstream (AGENTS.md: The repository). This is an exact pin, not a floor. Everything downstream reads it
     from here:
 
       nri/                        the submodule, checked out at tag v$(NriVersion)

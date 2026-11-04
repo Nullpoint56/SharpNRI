@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    SharpNRI.Native.Upscalers - NRI built with NIS, FSR and XeSS compiled in (CLAUDE.md: Native packages).
+    SharpNRI.Native.Upscalers - NRI built with NIS, FSR and XeSS compiled in (AGENTS.md: Native packages).
 
     A packaging project: no code. Packs runtimes-upscalers/<rid>/native (staged by
     pwsh tools/build-native.ps1 -Variant Upscalers) under runtimes/<rid>/native, where NuGet copies

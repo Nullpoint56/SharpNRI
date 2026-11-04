@@ -5,7 +5,7 @@
 #
 # Ubuntu 24.04's vulkan-validationlayers package is 1.3.275 and LunarG's apt repository stops at
 # 1.4.313; NRI v190 pins Vulkan-Headers 1.4.365 and enables what the driver offers, so an older
-# layer reports every struct and extension it does not know as a validation ERROR (CLAUDE.md: Vulkan loader and validation layers).
+# layer reports every struct and extension it does not know as a validation ERROR (AGENTS.md: Vulkan loader and validation layers).
 # The only current Linux binary is inside LunarG's SDK tarball (~370 MB), from which this takes
 # the one library and its manifest, strips the library, and lays them out so that
 #

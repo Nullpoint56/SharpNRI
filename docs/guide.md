@@ -730,7 +730,7 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   (patch 0012; upstream's header says it is ignored, and the ring grows from empty). The buffer is
   allocated at creation as `size` rounded up to 64 KiB times `queuedFrameNum`; frames that stream
   less never allocate, and a frame that streams more still grows it: a new committed buffer, the
-  old one destroyed `queuedFrameNum` frames later inside `EndStreamerFrame`, on the thread that
+  old one destroyed `queuedFrameNum + 1` frames later inside `EndStreamerFrame`, on the thread that
   calls it. Measured: 100 KiB x 2 frames gives a 256 KiB buffer at creation; one 192 KiB frame
   grows it to 384 KiB. Growth is to the exact 64 KiB-rounded high-water mark, not geometric, so
   size the ring for the biggest frame rather than rely on growth. The host copy runs under the
@@ -912,7 +912,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 - RenderDoc 1.44 captures NRI's D3D12 device on the inbox runtime only: with the Agility SDK
   applied (`D3D12AgilitySdkPath` null and an `AgilitySDK` directory present) the device is
   `D3D12Core.dll`'s own, RenderDoc never wraps it and a capture records nothing. Set
-  `D3D12AgilitySdkPath = ""` for capture sessions (measured; CLAUDE.md: D3D12 and the Agility SDK).
+  `D3D12AgilitySdkPath = ""` for capture sessions (measured; AGENTS.md: D3D12 and the Agility SDK).
 
 ### Linux
 
@@ -920,7 +920,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
   Linux driver has run this code. The two intermittent Linux CI failures were test bugs, both
   identified and fixed in the tests: the ray-query "miss" was a readback after NRI's 5 s fence-wait
   timeout on a slow first submit, and the test-host SIGSEGV was a stale Vortice function table.
-  Details: CLAUDE.md, "CI runners and flakes".
+  Details: AGENTS.md, "CI runners and flakes".
 - NRI `dlopen`s `libvulkan.so.1` at device creation.
 - **Loader older than the driver** (Ubuntu 24.04's stock 1.3.275 loader with Mesa 25's 1.4
   lavapipe): NRI v190 loaded core 1.4 entry points the driver returns null for, and
@@ -949,6 +949,10 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 - No shared handles (`features.sharedResources` and `sharedFences` 0: no fd extensions), ray tracing, mesh shaders, video, descriptor heaps, shading-rate attachments.
 - Apple Paravirtual device (GitHub's macOS VMs): `HOST_TRANSFER` texture binding segfaults;
   same-submission timestamp copies read 0. Not measured on physical Macs.
+- MoltenVK 1.4.2: `ResolveTexture` of a region smaller than the destination mip, into a texture with
+  more than one mip, aborts the process (Metal: "MTLTextureDescriptor mipmapLevelCount must equal 1
+  for multisample textures"): MoltenVK resolves through a temporary multisample texture with the
+  destination's mip count. Resolve whole mips, or into a one-mip texture and copy.
 
 ## Traps
 
@@ -965,6 +969,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | `UploadData` on NV12 | VK VUID-...-07981, D3D12 error 1417 | Memory |
 | `HOST_TRANSFER` on Apple Paravirtual | segfault in `vkBindImageMemory` | Memory |
 | Sampler `mipBias` on MoltenVK | VUID-...-04467; `samplerLodBiasMax` is 0 | Memory |
+| Region `ResolveTexture` into a multi-mip texture on MoltenVK | the process aborts in Metal | Platform notes: macOS |
 | Non-zero `VkBindingOffsets` mismatch | descriptors bind to the wrong slots | Descriptors |
 | Vulkan COMPUTE/COPY queue fetched late | resources switch to concurrent sharing | Threads |
 | Pixel compare without tolerance | UNORM rounding differs by one | Recording |

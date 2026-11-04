@@ -1,7 +1,7 @@
 // CUDA imports NRI's shared buffer and shared fence (NRI #294, eb4ed356) through the CUDA driver API,
 // nvcuda.dll, which the NVIDIA driver installs: no toolkit, no runtime, nothing shipped. The
 // structs are declared here with the offsets cuda.h 12.9 gives them (measured with a C++ probe,
-// CLAUDE.md: Shared handles); cuImportExternalMemory and cuImportExternalSemaphore take exactly the
+// AGENTS.md: Shared handles); cuImportExternalMemory and cuImportExternalSemaphore take exactly the
 // handle kinds GetBufferSharedHandle and GetFenceSharedHandle return.
 //
 // The proof: NRI writes the buffer and signals the fence; CUDA waits on the fence, reads NRI's

@@ -63,7 +63,7 @@ public sealed class QueryTests
         Record($"{backend}: timestamps {ticks[0]} -> {ticks[1]} ({ticks[1] - ticks[0]} ticks at {frequency} Hz = {(ticks[1] - ticks[0]) * 1e9 / frequency:F0} ns)");
 
         // MoltenVK on the paravirtual Apple GPU reports timestampValidBits and writes zeros when
-        // the copy is recorded in the same submission as the writes (CLAUDE.md: MoltenVK and the paravirtual Mac). Measured here
+        // the copy is recorded in the same submission as the writes (AGENTS.md: MoltenVK and the paravirtual Mac). Measured here
         // rather than assumed: the same queries copied again by a later submission are recorded,
         // and the test skips only while the in-submission copy still reads zero there.
         if (TestDevice.IsAppleParavirtualVK(backend.Api) && ticks[0] == 0 && ticks[1] == 0)
@@ -269,8 +269,8 @@ public sealed class QueryTests
         {
             // Known lavapipe bug, kept visible: it counts no clipping output primitives (measured 0).
             // The day it counts them this fails; then remove the exception here, in TestDevice and in
-            // CLAUDE.md (Tests and skips).
-            Assert.True(draw.rasterizerOutPrimitiveNum == 0, $"lavapipe now counts {draw.rasterizerOutPrimitiveNum} clipping output primitives: its known bug is fixed, so remove the exception (TestDevice.IsLavapipeVK, CLAUDE.md: Tests and skips)");
+            // AGENTS.md (Tests and skips).
+            Assert.True(draw.rasterizerOutPrimitiveNum == 0, $"lavapipe now counts {draw.rasterizerOutPrimitiveNum} clipping output primitives: its known bug is fixed, so remove the exception (TestDevice.IsLavapipeVK, AGENTS.md: Tests and skips)");
         }
         else
             Assert.True(draw.rasterizerOutPrimitiveNum >= 2, $"clipping output primitives {draw.rasterizerOutPrimitiveNum} < 2 visible triangles");
@@ -325,7 +325,7 @@ public sealed class QueryTests
         Record($"{backend}: calibrated GPU {before.Gpu} -> {after.Gpu} ({after.Gpu - before.Gpu} ticks at {frequency} Hz), CPU {before.Cpu} -> {after.Cpu}; the query wrote {written}, {(long)(written - before.Gpu)} ticks after the first call");
 
         // The measured paravirtual-Mac defect of Two_timestamps_around_GPU_work_are_ordered: a
-        // timestamp copied in the submission that wrote it reads 0 there (CLAUDE.md: MoltenVK and
+        // timestamp copied in the submission that wrote it reads 0 there (AGENTS.md: MoltenVK and
         // the paravirtual Mac). Copied again by a later submission, recorded, then skipped.
         if (TestDevice.IsAppleParavirtualVK(backend.Api) && written == 0)
         {

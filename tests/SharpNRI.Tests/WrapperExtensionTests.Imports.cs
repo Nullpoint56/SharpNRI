@@ -246,9 +246,9 @@ public sealed unsafe partial class WrapperExtensionTests
             Assert.DoesNotContain(messages, m => m.IsError);
             // The copy, upload and readback above are already checked byte-exact; only the timestamps
             // are left. The paravirtual Mac writes them after the submission that copies them
-            // (CLAUDE.md: MoltenVK and the paravirtual Mac), the same defect QueryTests skips on.
+            // (AGENTS.md: MoltenVK and the paravirtual Mac), the same defect QueryTests skips on.
             if (TestDevice.IsAppleParavirtualVK(GraphicsAPI.VK) && ticks.First == 0 && ticks.Second == 0)
-                Assert.Skip("Apple Paravirtual device: timestamps copied in the same submission read 0 (CLAUDE.md: MoltenVK and the paravirtual Mac); the imported objects' copies and readback passed");
+                Assert.Skip("Apple Paravirtual device: timestamps copied in the same submission read 0 (AGENTS.md: MoltenVK and the paravirtual Mac); the imported objects' copies and readback passed");
             Assert.NotEqual(0UL, ticks.First);
             Assert.True(ticks.Second >= ticks.First, $"second timestamp {ticks.Second} < first {ticks.First}");
             device.WaitIdle();

@@ -27,7 +27,7 @@ public sealed class SharedHandleTests
 
     /// <summary>
     /// Skips when the Vulkan device lacks the platform's external memory extension (MoltenVK has no
-    /// fd handles, only VK_EXT_external_memory_metal; CLAUDE.md: MoltenVK and the paravirtual Mac).
+    /// fd handles, only VK_EXT_external_memory_metal; AGENTS.md: MoltenVK and the paravirtual Mac).
     /// </summary>
     private static void RequireSharedResources(NriDevice device) =>
         Assert.SkipWhen(device.Desc.features.sharedResources == 0,
@@ -35,7 +35,7 @@ public sealed class SharedHandleTests
 
     /// <summary>
     /// Skips when the Vulkan device lacks the platform's external semaphore extension: lavapipe (Mesa
-    /// 25) advertises VK_KHR_external_memory_fd but not VK_KHR_external_semaphore_fd (CLAUDE.md:
+    /// 25) advertises VK_KHR_external_memory_fd but not VK_KHR_external_semaphore_fd (AGENTS.md:
     /// Lavapipe), MoltenVK neither. Since NRI d0f5ce49 it is also false when the device exports neither
     /// a timeline nor a binary semaphore of the platform's handle type.
     /// </summary>

@@ -12,7 +12,7 @@
 // Presenting from Vulkan runs in a child process (this test executable, started again with
 // SHARPNRI_TEST_CHILD set; the module initializer below runs the frames and exits before xunit
 // starts) because presenting from Vulkan made later D3D12CreateDevice calls in the same process
-// fail with DXGI_ERROR_DEVICE_RESET (CLAUDE.md: Extensions, Reflex), which a separate process keeps
+// fail with DXGI_ERROR_DEVICE_RESET (AGENTS.md: Extensions, Reflex), which a separate process keeps
 // away from the other tests. The child runs with implicit layers on, so on a machine with RivaTuner
 // Statistics Server it is also the regression test for the binding's enumeration: RTSS's implicit
 // VK_LAYER_RTSS maps physical devices to instances from vkEnumeratePhysicalDevices, which NRI

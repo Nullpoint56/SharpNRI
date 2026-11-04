@@ -21,7 +21,7 @@ public sealed class UpscalerExtensionTests
         var supported = Enum.GetValues<UpscalerType>().Where(t => t != UpscalerType.MAX_NUM && device.Upscaler.IsUpscalerSupported(t)).ToList();
         GpuWork.Record($"{backend}: supported upscalers: {string.Join(", ", supported)}");
 
-        // What is supported is what the native variant compiled in (CLAUDE.md: Native packages): the Base
+        // What is supported is what the native variant compiled in (AGENTS.md: Native packages): the Base
         // variant has no upscaler SDK and reports none on the GPU backends; the Upscalers variant
         // reports NIS, FSR and XeSS; NONE claims everything.
         if (backend.Api == GraphicsAPI.NONE) Assert.Contains(UpscalerType.NIS, supported);
@@ -81,7 +81,7 @@ public sealed class UpscalerExtensionTests
     /// validation reports "CreateUpscaler: 'type' is not supported" and returns UNSUPPORTED, so
     /// NriUnsupportedException with <c>Call</c> "CreateUpscaler" and no object created. For a type
     /// NRI claims whose vendor file is missing, the binding refuses before NRI is called (XeSS would
-    /// otherwise fault in its delay-load stub, CLAUDE.md: Upscalers and vendor runtimes), naming the
+    /// otherwise fault in its delay-load stub, AGENTS.md: Upscalers and vendor runtimes), naming the
     /// file, and NRI says nothing. On the Base payload only NONE claims a vendor type (it claims
     /// every type), so NONE is where that refusal is reachable; it is the binding's own check, NONE
     /// is not asked anything. Types claimed with their runtime present are not created here.

@@ -12,7 +12,13 @@
                              warm  native payload built and saved to the cache, nothing else
                              skip  the job does not run
 
-    pull_request and workflow_dispatch: every job is full.
+    pull_request and workflow_dispatch: every job is full, except macOS (below).
+
+    macOS is opt-in: hosted macOS arm64 runners are often unavailable for long stretches, and a
+    macOS minute costs about ten Linux minutes. osx is full for a pull request labelled "macos",
+    for the "macos" label being added (then win and linux skip: that head ran already), for a
+    manual run with the macos input, and for the weekly schedule (then win and linux skip: every
+    pull request runs them). Pushes to master skip it. The release builds and tests macOS itself.
 
     push to master: when the pushed commit is the merge of a pull request whose head has the
     same tree and passed ci as a pull_request run, that tree has been tested; running the suite
@@ -29,7 +35,11 @@ param(
     [string]$EventName = $env:GITHUB_EVENT_NAME,
     [string]$Sha = $env:GITHUB_SHA,
     [string]$Repository = $env:GITHUB_REPOSITORY,
-    [string]$Token = $env:GH_TOKEN
+    [string]$Token = $env:GH_TOKEN,
+    [string]$Action = $env:GATE_ACTION,           # github.event.action
+    [string]$Label = $env:GATE_LABEL,             # github.event.label.name, for "labeled"
+    [string]$PullRequestLabels = $env:GATE_PR_LABELS, # JSON array of the pull request's label names
+    [string]$MacOSInput = $env:GATE_MACOS         # workflow_dispatch input "macos"
 )
 
 $ErrorActionPreference = 'Stop'
@@ -88,6 +98,39 @@ if ($EventName -eq 'push') {
         Write-Warning "could not establish that this tree was tested ($($_.Exception.Message)); every job runs"
         foreach ($p in $platforms.Keys) { $modes[$p] = 'full' }
         $reason = "push to master: the GitHub API did not answer, every job runs."
+    }
+}
+
+# ------------------------------------------------------------------------------ macOS, opt-in
+$labels = @()
+if ($PullRequestLabels) { try { $labels = @($PullRequestLabels | ConvertFrom-Json) } catch { $labels = @() } }
+switch ($EventName) {
+    'pull_request' {
+        if ($Action -eq 'labeled') {
+            $modes.win = 'skip'; $modes.linux = 'skip'; $modes.osx = 'full'
+            $reason = "the macos label was added: macOS runs; Windows and Linux ran on this head already."
+        }
+        elseif ($labels -contains 'macos') {
+            $reason += " The pull request is labelled macos: macOS runs too."
+        }
+        else {
+            $modes.osx = 'skip'
+            $reason = "$EventName event: Windows and Linux run; macOS is opt-in (label the pull request macos)."
+        }
+    }
+    'workflow_dispatch' {
+        if ($MacOSInput -ne 'true') {
+            $modes.osx = 'skip'
+            $reason = "$EventName event: Windows and Linux run; macOS only with the macos input."
+        }
+    }
+    'schedule' {
+        $modes.win = 'skip'; $modes.linux = 'skip'; $modes.osx = 'full'
+        $reason = "weekly schedule: macOS runs on master; Windows and Linux run on every pull request."
+    }
+    'push' {
+        $modes.osx = 'skip'
+        $reason += " macOS is opt-in and skips on master pushes."
     }
 }
 

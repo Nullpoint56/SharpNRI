@@ -4,7 +4,7 @@
 // wrapper for every version it answers, or the device NRI records with bypasses it. This measures
 // whether it does: COM identity (the IUnknown) of each ID3D12DeviceN queried from NRI's device, and
 // a capture of one submit made on that device, on the inbox runtime and with the Agility SDK.
-// CLAUDE.md: D3D12 and the Agility SDK.
+// AGENTS.md: D3D12 and the Agility SDK.
 //
 // The capture needs RenderDoc injected at process start, so the case runs in a child process (this
 // test executable started by "renderdoccmd capture" with SHARPNRI_TEST_CHILD set; the module
@@ -82,7 +82,7 @@ public sealed unsafe partial class RenderDocTests(ITestOutputHelper output)
         // with RenderDoc 1.44, the device D3D12CreateDevice returns is D3D12Core.dll's own, for the
         // base ID3D12Device as for ID3D12Device15, so RenderDoc never sees it and EndFrameCapture
         // returns 0. Asserted so that a RenderDoc that captures this route fails here and the record
-        // (CLAUDE.md: D3D12 and the Agility SDK) is revisited; capture with D3D12AgilitySdkPath = "".
+        // (AGENTS.md: D3D12 and the Agility SDK) is revisited; capture with D3D12AgilitySdkPath = "".
         var agility = runs.Single(r => r.Name == ChildAgility).Lines;
         Assert.Contains(agility, l => l.StartsWith("RESULT NRI's device ", StringComparison.Ordinal) && l.Contains("(vtable in D3D12Core.dll)", StringComparison.Ordinal));
         Assert.DoesNotContain(agility, l => l.StartsWith("RESULT capture EndFrameCapture=1", StringComparison.Ordinal));

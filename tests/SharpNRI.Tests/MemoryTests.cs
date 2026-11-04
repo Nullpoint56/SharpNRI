@@ -236,7 +236,7 @@ public sealed class MemoryTests
 
     /// <summary>
     /// Records NONE's dummy behaviour, not a feature: NONE's CalculateAllocationNumber answers 0, so
-    /// AllocateAndBindMemory returns no allocations for any group (ImplNONE.cpp; CLAUDE.md: Device
+    /// AllocateAndBindMemory returns no allocations for any group (ImplNONE.cpp; AGENTS.md: Device
     /// creation and callbacks). NONE has no validation layer, so there are no messages to check.
     /// </summary>
     [Fact]
@@ -293,7 +293,7 @@ public sealed class MemoryTests
     /// copy through both buffers still reads back. Disposing the placed buffer drops the first count
     /// to 1; once every resource is gone each allocation disposes. Then, on D3D12, a new device works:
     /// memory freed with a resource bound makes every later D3D12CreateDevice in the process fail
-    /// with 0x887A0007 (measured in probes only; CLAUDE.md: Lifetime).
+    /// with 0x887A0007 (measured in probes only; AGENTS.md: Lifetime).
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]

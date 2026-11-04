@@ -35,7 +35,7 @@ internal static class GpuWork
     /// as if the work were done, so a readback that follows reads memory the queue has not written
     /// yet. lavapipe JIT-compiles shaders while it executes the command buffer; with a cold Mesa
     /// shader cache on a loaded runner that passes 5 s, and the ray query test read an all-zero map
-    /// (CLAUDE.md: CI runners and flakes, item 1). A wait of 250 ms or more is recorded.
+    /// (AGENTS.md: CI runners and flakes, item 1). A wait of 250 ms or more is recorded.
     /// </summary>
     public static void Wait(NriFence fence, ulong value)
     {

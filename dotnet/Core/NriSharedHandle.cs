@@ -3,7 +3,7 @@
 // GetFenceSharedHandle, and f18c6df9's DestroySharedHandle).
 //
 // Exporting a buffer's or texture's memory and a fence to another API, device or process
-// (CLAUDE.md: Shared handles).
+// (AGENTS.md: Shared handles).
 
 using SharpNRI.Native;
 

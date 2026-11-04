@@ -2,7 +2,7 @@
 // vkInstanceCreateInfoNext, NriDeviceOptions.VkInstanceCreateInfoNext). NRI creates the Vulkan
 // instance itself; without a way to chain into VkInstanceCreateInfo, the Khronos layer is configured
 // through environment variables only, which apply to the whole process and which .NET on Linux and
-// macOS does not pass to native code when set at run time. CLAUDE.md: Device creation and callbacks.
+// macOS does not pass to native code when set at run time. AGENTS.md: Device creation and callbacks.
 
 using System.Runtime.InteropServices;
 using SharpNRI.Native;

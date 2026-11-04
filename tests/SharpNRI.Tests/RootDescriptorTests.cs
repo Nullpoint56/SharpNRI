@@ -1,7 +1,7 @@
 // Root descriptors: buffer views bound straight into the pipeline layout by CmdSetRootDescriptor,
 // with no descriptor set (push descriptors on Vulkan, root CBV/SRV/UAV parameters on D3D12). Each
 // case reads back what the shader saw: the constant words, the structured-buffer words, the pixel
-// colour. The offset cases hold the rule in CLAUDE.md (Memory and resources: the root descriptor
+// colour. The offset cases hold the rule in AGENTS.md (Memory and resources: the root descriptor
 // offset): a view the size of a window slides by the offset on both backends, and NRI validation
 // caps the offset at buffer size minus view offset minus view size.
 //

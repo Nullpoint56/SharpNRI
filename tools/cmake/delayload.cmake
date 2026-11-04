@@ -5,12 +5,12 @@
 # d3d12.dll and dxgi.dll: NRI links d3d12.lib and dxgi.lib, which makes both load-time imports of
 # NRI.dll, so every process that loads NRI.dll loads them, a Vulkan-only one included. Delay-loading
 # them defers the load to the first D3D12 or DXGI call (D3D12GetInterface in patch 0001, the D3D
-# pass of an adapter enumeration, a swap chain's display query). CLAUDE.md: Device creation and
+# pass of an adapter enumeration, a swap chain's display query). AGENTS.md: Device creation and
 # callbacks.
 #
 # libxess.dll: NRI links libxess.lib when XeSS is compiled in, which makes libxess.dll a load-time
 # import: without the Intel runtime beside the application, NRI.dll does not load at all.
-# Delay-loading it moves that failure to the first XeSS call (CLAUDE.md: Upscalers and vendor
+# Delay-loading it moves that failure to the first XeSS call (AGENTS.md: Upscalers and vendor
 # runtimes).
 #
 # Only the NRI target is touched, and only when NRI is a shared library built by MSVC.

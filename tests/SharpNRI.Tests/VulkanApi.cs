@@ -7,7 +7,7 @@
 // pointers came from vkGetDeviceProcAddr on a device that no longer exists, i.e. into the call chain
 // (validation layer, driver) of an instance the loader has torn down, unloading the layer library
 // with it. When a later device gets the same handle value (the allocator reuses the freed block),
-// GetApi hands back that dead table: the 107th-test SIGSEGV on the Linux CI leg (CLAUDE.md).
+// GetApi hands back that dead table: the 107th-test SIGSEGV on the Linux CI leg (AGENTS.md).
 // The public constructors resolve every pointer against the given objects at the time of the call.
 
 using Vortice.Vulkan;

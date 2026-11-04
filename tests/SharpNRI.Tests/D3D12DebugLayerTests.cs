@@ -114,7 +114,7 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
     private static AccessLayoutStage Triple(AccessBits access, Layout layout, StageBits stages) => new() { access = access, layout = layout, stages = stages };
     private static readonly AccessLayoutStage ShaderRead = Triple(AccessBits.SHADER_RESOURCE, Layout.SHADER_RESOURCE, StageBits.ALL_SHADERS);
 
-    /// <summary>The six texture barriers measured against message 1331 (CLAUDE.md: Barriers), by name.</summary>
+    /// <summary>The six texture barriers measured against message 1331 (AGENTS.md: Barriers), by name.</summary>
     private static readonly Dictionary<string, (AccessLayoutStage Before, AccessLayoutStage After)> NoAccessBarriers = new()
     {
         ["before NONE access, COPY_DESTINATION layout, COPY stages"] = (Triple(AccessBits.NONE, Layout.COPY_DESTINATION, StageBits.COPY), ShaderRead),
@@ -203,7 +203,7 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
     /// access NONE and no stages, {NONE, COPY_DESTINATION, NONE}, is layout-only: SYNC_NONE /
     /// NO_ACCESS says the subresource was not accessed earlier in the same ExecuteCommandLists, and
     /// the debug layer refuses it with 1417 (D3D12_MESSAGE_ID_INVALID_BARRIER_ACCESS; text in
-    /// CLAUDE.md: Barriers), as NRIDescs.h now says ("StageBits::NONE requires no accesses or
+    /// AGENTS.md: Barriers), as NRIDescs.h now says ("StageBits::NONE requires no accesses or
     /// barriers to the affected subresources on that side within the same QueueSubmit scope").
     /// With NRI v190 and patch 0020 the side with stages was the one refused, since 0020 recorded it
     /// as SYNC_NONE.
@@ -291,7 +291,7 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
     /// the recording state per command buffer only, so neither says anything there. Measured here
     /// with NRI validation on: two command buffers from one allocator, the first begun, then the
     /// second. The portable rule is one recording command buffer per allocator at a time
-    /// (CLAUDE.md: Barriers).
+    /// (AGENTS.md: Barriers).
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]

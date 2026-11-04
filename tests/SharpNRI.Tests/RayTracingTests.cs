@@ -134,7 +134,7 @@ public sealed class RayTracingTests
 
         // One picture of the whole field, in the log and in the failure message. An all-zero map is
         // what a readback looks like before the queue has written it: the CI "miss" was a fence wait
-        // that gave up after 5 s (CLAUDE.md: CI runners and flakes, item 1). A wrong map fails on
+        // that gave up after 5 s (AGENTS.md: CI runners and flakes, item 1). A wrong map fails on
         // every adapter, software included.
         var hitCount = hits.Count(h => h == 1);
         var map = string.Join("\n", Enumerable.Range(0, Width).Select(y =>

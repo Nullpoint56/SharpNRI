@@ -1,7 +1,7 @@
 name: ci
 
 # Billed per job, each rounded up to whole minutes; a macOS minute costs about ten Linux minutes and
-# a Windows minute about two (measured in CLAUDE.md: Actions budget). The shape follows from that:
+# a Windows minute about two (measured in AGENTS.md: Actions budget). The shape follows from that:
 #   - gate (Linux, seconds; tools/ci/ci-gate.ps1) tells each platform job to run fully, only to
 #     build the native payload into the cache, or to skip. A merge to master whose tree a pull
 #     request run already passed is not tested again.
@@ -11,6 +11,9 @@ name: ci
 #     interop generator) start no run; regen.yml checks the interop layer when its inputs change.
 #   - Superseded runs are cancelled. Timeouts sit a few times above the slowest measured job, so a
 #     hang costs minutes, not an hour.
+#   - macOS is opt-in (hosted macOS arm64 runners are often unavailable for long stretches): a pull
+#     request labelled "macos" (adding the label runs only macOS), a manual run with the macos
+#     input, and a weekly run on master. The release builds and tests macOS regardless.
 
 on:
   push:
@@ -26,7 +29,8 @@ on:
       - "tools/coverage.ps1"
       - "tools/coverage/**"
   pull_request:
-    branches: [master] # pull requests into "next" are verified locally (CLAUDE.md: Branches)
+    branches: [master] # pull requests into "next" are verified locally (AGENTS.md: Branches)
+    types: [opened, synchronize, reopened, labeled]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -38,9 +42,18 @@ on:
       - "tools/coverage.ps1"
       - "tools/coverage/**"
   workflow_dispatch:
+    inputs:
+      macos:
+        description: "Run the macOS leg too"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 4 * * 1"   # Mondays 04:00 UTC: the macOS leg on master
 
+# A run started by adding the macos label must not cancel the pull request's own run, nor be
+# cancelled by it.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && '-macos' || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -55,6 +68,8 @@ env:
 jobs:
   # full | warm | skip per platform, and the payload cache key; the reasoning is in the run summary.
   gate:
+    # Of the label events only "macos" starts anything.
+    if: github.event.action != 'labeled' || github.event.label.name == 'macos'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -74,6 +89,10 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          GATE_ACTION: ${{ github.event.action }}
+          GATE_LABEL: ${{ github.event.label.name }}
+          GATE_PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          GATE_MACOS: ${{ inputs.macos }}
         run: ./tools/ci/ci-gate.ps1
 
   win-x64:
@@ -152,7 +171,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.linux != 'skip'
     # Pinned: ubuntu-latest becomes Ubuntu 26 from 2026-10-19, whose loader is 1.4. The suite is
-    # measured on 24.04's stock 1.3 loader, the pairing patches/0004 exists for (CLAUDE.md: Vulkan
+    # measured on 24.04's stock 1.3 loader, the pairing patches/0004 exists for (AGENTS.md: Vulkan
     # loader and validation layers). Moving is a decision, not an image update.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -253,7 +272,7 @@ jobs:
       # The "intermittent ray query miss" was NRI's 5 s fence-wait timeout: lavapipe JIT-compiles
       # its shaders while it executes the command buffer, which with a cold Mesa shader cache on a
       # loaded runner can pass 5 s; Wait then returns with only an ERROR message, and the test read a
-      # readback nothing had written yet (CLAUDE.md: CI runners and flakes, item 1). The tests now wait
+      # readback nothing had written yet (AGENTS.md: CI runners and flakes, item 1). The tests now wait
       # on the fence value (GpuWork.Wait). This step runs the ray tracing classes with the shader
       # cache off, so every run JIT-compiles everything, and prints how long each wait took.
       # Synchronization validation is on here and in the Test step: a hazard is a layer ERROR,
@@ -269,7 +288,7 @@ jobs:
           $t -noColor -showLiveOutput -class SharpNRI.Tests.RayTracingTests -class SharpNRI.Tests.RayTracingPipelineTests
 
       # A SIGSEGV in the test host (seen once, exit 139 after 106 tests, 0 failed) loses the buffered
-      # test list, so the crashing test cannot be read from the log (CLAUDE.md: CI runners and
+      # test list, so the crashing test cannot be read from the log (AGENTS.md: CI runners and
       # flakes). createdump writes a minidump on the signal; the step after prints every thread's
       # managed and native stack from it, which names the test and the native frame.
       - name: Test
