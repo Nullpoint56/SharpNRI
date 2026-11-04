@@ -19,9 +19,9 @@ Windows x64, Linux x64, macOS arm64. On macOS the binding is Vulkan through Molt
 backend is not built, only the Base package exists, the application provides the Vulkan loader and
 MoltenVK, and the library needs macOS 15 or newer (.NET 11's floor).
 
-CI builds the native library from the pinned tag and the patch set on all three platforms and runs
-the suite with NRI's validation and the backend validation layer on: D3D12 on WARP, Vulkan on
-lavapipe and MoltenVK, NONE everywhere. A separate workflow regenerates the interop layer when the
+CI builds the native library from the pinned tag and the patch set and runs the suite with NRI's
+validation and the backend validation layer on: D3D12 on WARP, Vulkan on lavapipe, NONE everywhere,
+and on macOS (Vulkan on MoltenVK) weekly, on request and for every release. A separate workflow regenerates the interop layer when the
 headers, patches or generator change, and fails on drift. Windows is also verified on NVIDIA
 hardware.
 

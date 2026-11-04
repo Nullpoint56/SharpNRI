@@ -11,6 +11,9 @@ name: ci
 #     interop generator) start no run; regen.yml checks the interop layer when its inputs change.
 #   - Superseded runs are cancelled. Timeouts sit a few times above the slowest measured job, so a
 #     hang costs minutes, not an hour.
+#   - macOS is opt-in (hosted macOS arm64 runners are often unavailable for long stretches): a pull
+#     request labelled "macos" (adding the label runs only macOS), a manual run with the macos
+#     input, and a weekly run on master. The release builds and tests macOS regardless.
 
 on:
   push:
@@ -27,6 +30,7 @@ on:
       - "tools/coverage/**"
   pull_request:
     branches: [master] # pull requests into "next" are verified locally (AGENTS.md: Branches)
+    types: [opened, synchronize, reopened, labeled]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -38,9 +42,18 @@ on:
       - "tools/coverage.ps1"
       - "tools/coverage/**"
   workflow_dispatch:
+    inputs:
+      macos:
+        description: "Run the macOS leg too"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 4 * * 1"   # Mondays 04:00 UTC: the macOS leg on master
 
+# A run started by adding the macos label must not cancel the pull request's own run, nor be
+# cancelled by it.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && '-macos' || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -55,6 +68,8 @@ env:
 jobs:
   # full | warm | skip per platform, and the payload cache key; the reasoning is in the run summary.
   gate:
+    # Of the label events only "macos" starts anything.
+    if: github.event.action != 'labeled' || github.event.label.name == 'macos'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -74,6 +89,10 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          GATE_ACTION: ${{ github.event.action }}
+          GATE_LABEL: ${{ github.event.label.name }}
+          GATE_PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          GATE_MACOS: ${{ inputs.macos }}
         run: ./tools/ci/ci-gate.ps1
 
   win-x64:

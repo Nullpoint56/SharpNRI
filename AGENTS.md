@@ -1373,7 +1373,7 @@ have no intermittent failures. Both were test defects, not driver bugs.
    layer crashed). Fixed by `VulkanApi.cs`; the minidump and "Crash stacks" CI steps stay.
 
 - `.github/workflows/ci.yml`: `gate` (Linux, seconds), then `win-x64` (WARP + NONE), `linux-x64`
-  (lavapipe, stock 1.3 loader, 1.4.363 layer, `ubuntu-24.04`), `osx-arm64` (MoltenVK). `regen.yml`
+  (lavapipe, stock 1.3 loader, 1.4.363 layer, `ubuntu-24.04`), `osx-arm64` (MoltenVK; opt-in, below). `regen.yml`
   is the ClangSharp drift check, run only when `nri`, `patches/`, the generator, `dotnet/Native/` or
   the pin change (prints the first 120 diff lines on drift). `coverage.yml` runs `tools/coverage.ps1
   -Check` (Coverage).
@@ -1391,7 +1391,14 @@ have no intermittent failures. Both were test defects, not driver bugs.
 Hosted minutes are limited and billed per job, rounded up; a macOS minute costs about ten Linux
 minutes and a Windows minute about two. That shapes the runs:
 
-- **`gate`** (`tools/ci/ci-gate.ps1`): pull requests and manual runs test everything. A push to
+- **macOS is opt-in** (owner, 2026-11-04): hosted macOS arm64 runners were unavailable for hours at a
+  time ("The job was not acquired by Runner of type hosted even after multiple attempts"; GitHub's
+  annotation: "Due to capacity constraints, jobs targeting macOS arm64 runners may experience
+  longer queue times"). The gate runs `osx-arm64` for a pull request labelled `macos` (adding the
+  label starts a run of macOS alone, in its own concurrency group), a manual run with the `macos`
+  input, and the weekly schedule (Mondays 04:00 UTC, macOS alone, on master); never on master
+  pushes. The release builds and smoke-tests osx-arm64 regardless, re-run until a Mac picks it up.
+- **`gate`** (`tools/ci/ci-gate.ps1`): pull requests and manual runs test everything but macOS (above). A push to
   master whose tree equals the head of a merged pull request that passed CI as a `pull_request` run
   is not tested again; a platform then only builds and caches the payload when master has no cache
   for its key (a pull request's own caches are visible to it alone). A direct push, a merge of a
