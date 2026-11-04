@@ -53,7 +53,9 @@ headers do not say. NRI v191.
   Upscalers, `ExcludeAssets="native"` on `SharpNRI`.
 - Base: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI, AGS, debug names; no upscaler SDK.
   `IsUpscalerSupported` answers nothing there.
-- osx-arm64: Base only; Vulkan and NONE; no Agility, no Upscalers.
+- osx-arm64: not in the packages. Each release gets `SharpNRI-native-base-osx-arm64-<tag>.zip`
+  (`libNRI.dylib`, Base only; Vulkan and NONE) once a macOS runner has built it; put its files
+  where the application loads native libraries from.
 - Windows needs the Visual C++ 2015-2022 runtime; not shipped.
 - No package ships a vendor runtime. Beside your executable, under the vendor's terms:
 
