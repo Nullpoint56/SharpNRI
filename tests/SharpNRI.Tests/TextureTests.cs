@@ -108,7 +108,7 @@ public sealed class TextureTests
         TestDevice.RequireAvailable(backend);
         // Not a missing capability but a driver crash, measured on GitHub's macOS runner: binding
         // memory to a host-transfer image faults inside Apple's paravirtual Metal driver, below
-        // MoltenVK, with no Vulkan error first (CLAUDE.md: MoltenVK and the paravirtual Mac). The device advertises
+        // MoltenVK, with no Vulkan error first (AGENTS.md: MoltenVK and the paravirtual Mac). The device advertises
         // hostImageCopy, so nothing NRI reports can predict it; the skip names the device instead.
         Assert.SkipWhen(usage == TextureUsageBits.HOST_TRANSFER && TestDevice.IsAppleParavirtualVK(backend.Api),
             "MoltenVK on the Apple Paravirtual device crashes in vkBindImageMemory for a VK_IMAGE_USAGE_HOST_TRANSFER_BIT image "
@@ -178,7 +178,7 @@ public sealed class TextureTests
     /// <summary>
     /// Records NONE's dummy behaviour, not a feature: NONE answers GetTextureDesc with one static
     /// desc for every texture, TEXTURE_1D, usage NONE, R8_UNORM, 1x1x1, one mip, one layer, one
-    /// sample (ImplNONE.cpp; CLAUDE.md: Device creation and callbacks). NONE has no validation layer, so there are no
+    /// sample (ImplNONE.cpp; AGENTS.md: Device creation and callbacks). NONE has no validation layer, so there are no
     /// messages to check.
     /// </summary>
     [Fact]

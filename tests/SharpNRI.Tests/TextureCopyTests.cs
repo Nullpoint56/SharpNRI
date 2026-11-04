@@ -640,7 +640,7 @@ public sealed class TextureCopyTests
     private static void RequireHostCopy(NriDevice device, Format format) =>
         Assert.SkipWhen((device.GetFormatSupport(format) & FormatSupportBits.HOST_COPY) == 0, $"{device.GraphicsApi}: {format} lacks HOST_COPY ({device.GetFormatSupport(format)})");
 
-    // Not a missing capability but a driver crash, measured on GitHub's macOS runner (CLAUDE.md:
+    // Not a missing capability but a driver crash, measured on GitHub's macOS runner (AGENTS.md:
     // MoltenVK and the paravirtual Mac): binding memory to a host-transfer image faults below
     // MoltenVK. The device advertises hostImageCopy, so nothing NRI reports predicts it.
     private static void SkipOnParavirtualHostTransfer(Backend backend) =>

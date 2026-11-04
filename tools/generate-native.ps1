@@ -10,7 +10,7 @@
   every enum-typed field and every function-pointer parameter comes out as byte/ushort and Result
   comes out as sbyte: the bytes line up and the types are gone. C++ mode keeps `enum class X : type`,
   typed bitfields and typed signatures. Measured on v190 with ClangSharp 21.1.8.4: C++ mode is 373
-  files and 7,661 lines, builds with 0 errors after the two rules below (CLAUDE.md: Generator and ABI).
+  files and 7,661 lines, builds with 0 errors after the two rules below (AGENTS.md: Generator and ABI).
 
   Post-processing, all mechanical and all re-checked by the tests:
     * NriBits operator overloads (~ & | &= |=) are C++ constexpr functions; ClangSharp translates them

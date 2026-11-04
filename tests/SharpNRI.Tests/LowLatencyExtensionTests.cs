@@ -29,13 +29,13 @@ public sealed partial class LowLatencyExtensionTests
         // Vulkan presents nowhere else in this process, and here it cost two things on the
         // development machine (RTX 4070 SUPER, Windows 11): before the binding enumerated NRI's
         // physical devices after creation, RivaTuner Statistics Server's implicit VK_LAYER_RTSS
-        // killed the process at the first vkQueuePresentKHR (CLAUDE.md: Device creation); with implicit layers
+        // killed the process at the first vkQueuePresentKHR (AGENTS.md: Device creation); with implicit layers
         // disabled the Vulkan case passed and reported every marker, but afterwards the next
         // D3D12CreateDevice calls in the process failed with DXGI_ERROR_DEVICE_RESET (0x887A0007),
         // failing unrelated D3D12 tests, with or without ALLOW_LOW_LATENCY and VSYNC. Until that is
         // understood the Vulkan case does not run in the shared test process.
         Assert.SkipWhen(backend.Api == GraphicsAPI.VK,
-            "VK: presenting from Vulkan in the test process makes later D3D12CreateDevice calls fail with DXGI_ERROR_DEVICE_RESET (measured, CLAUDE.md: Extensions)");
+            "VK: presenting from Vulkan in the test process makes later D3D12CreateDevice calls fail with DXGI_ERROR_DEVICE_RESET (measured, AGENTS.md: Extensions)");
 
         var hwnd = CreateWindowExW(0, "STATIC", "SharpNRI low latency", WS_POPUP, 0, 0, 64, 64, 0, 0, 0, 0);
         Assert.SkipWhen(hwnd == 0, $"no desktop to create a window on (CreateWindowEx error {Marshal.GetLastPInvokeError()})");

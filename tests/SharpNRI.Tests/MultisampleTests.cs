@@ -261,6 +261,12 @@ public sealed class MultisampleTests
         RequireMultisampleColor(device, Format.RGBA8_UNORM);
         RequireResolveOp(device, device.Desc.resolve.command.color, ResolveOp.AVERAGE, "resolve.command.color");
         Assert.SkipWhen(device.Desc.features.regionResolve == 0, $"{backend}: features.regionResolve is false");
+        // MoltenVK 1.4.2 resolves a region smaller than the destination mip through a temporary
+        // multisample image described like the destination (MVKCmdResolveImage::encode,
+        // getTransferDescriptorData), mip count included, and Metal aborts the process: "MTLTextureDescriptor
+        // mipmapLevelCount must equal 1 for multisample textures" (AGENTS.md: MoltenVK and the paravirtual Mac).
+        Assert.SkipWhen(TestDevice.IsMoltenVK(backend.Api),
+            "MoltenVK 1.4.2: a region resolve into a texture with more than one mip makes a multisample texture with mips, and Metal aborts the process");
 
         using var layout = device.CreatePipelineLayout(new NriPipelineLayoutDesc { ShaderStages = StageBits.VERTEX_SHADER | StageBits.FRAGMENT_SHADER });
         using var pattern = CreatePipeline(device, layout, "MsaaPattern", Format.RGBA8_UNORM, Samples);

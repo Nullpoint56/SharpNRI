@@ -57,7 +57,7 @@ internal sealed unsafe class MessageBridge : IDisposable
     /// AbortExecution is always supplied. When it is null NRI installs its own handler, which
     /// calls <c>DebugBreak()</c> on every error (Creation.cpp, CheckAndSetDefaultCallbacks); with
     /// no debugger attached that terminates the process with 0x80000003 before the message
-    /// handler's record is ever read. Measured by the test suite; CLAUDE.md: Device creation and callbacks.
+    /// handler's record is ever read. Measured by the test suite; AGENTS.md: Device creation and callbacks.
     /// </remarks>
     internal CallbackInterface Native => new()
     {

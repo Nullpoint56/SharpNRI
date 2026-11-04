@@ -2,7 +2,7 @@
 // otherwise: a Vulkan instance, a DXGI factory, D3D12 probes and devices on the inbox runtime. With
 // a backend mask (NriAdapter.Enumerate(GraphicsAPI); NRI main 962615b, master's patch 0024) only
 // the asked passes run, and nriCreateDevice with no adapter enumerates Vulkan only for a Vulkan
-// device (patch 0024). CLAUDE.md: Device
+// device (patch 0024). AGENTS.md: Device
 // creation and callbacks.
 //
 // Which DLLs a process has loaded can only be measured in a process that has done nothing else, so

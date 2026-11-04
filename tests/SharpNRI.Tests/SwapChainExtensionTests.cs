@@ -3,7 +3,7 @@
 // NONE's answer recorded alongside as part of the availability table. The NONE backend creates a
 // swap chain for any non-null window handle, which is used for one thing it can measure: the
 // lifetime of the swap chain's non-owning textures and the disposal order. NONE is not validated
-// (CLAUDE.md: Extensions), so nothing there says the calls themselves are legal.
+// (AGENTS.md: Extensions), so nothing there says the calls themselves are legal.
 
 using SharpNRI.Native;
 using Xunit;

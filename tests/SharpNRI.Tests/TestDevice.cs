@@ -50,17 +50,24 @@ public static class TestDevice
     /// <summary>
     /// The Vulkan adapter is MoltenVK on the paravirtualised Apple GPU of a macOS virtual machine
     /// (GitHub's macOS runners). Two driver defects measured there have no capability bit that
-    /// predicts them (CLAUDE.md: MoltenVK and the paravirtual Mac); the tests that hit them skip by this name.
+    /// predicts them (AGENTS.md: MoltenVK and the paravirtual Mac); the tests that hit them skip by this name.
     /// </summary>
     public static bool IsAppleParavirtualVK(GraphicsAPI api) =>
         api == GraphicsAPI.VK && AdapterFor(GraphicsAPI.VK)?.Name == "Apple Paravirtual device";
+
+    /// <summary>
+    /// The Vulkan implementation is MoltenVK: Vulkan on macOS here is always MoltenVK over Metal.
+    /// For defects in MoltenVK's own code, which every Mac shares (AGENTS.md: MoltenVK and the
+    /// paravirtual Mac); the tests that hit them skip by this, quoting the defect.
+    /// </summary>
+    public static bool IsMoltenVK(GraphicsAPI api) => api == GraphicsAPI.VK && OperatingSystem.IsMacOS();
 
     /// <summary>
     /// The Vulkan adapter is lavapipe, Mesa's CPU implementation and CI's Linux adapter. A known
     /// bug, to be removed when Mesa fixes it: lavapipe counts no clipping output primitives in
     /// pipeline statistics (measured 0 for two visible triangles, where Vulkan requires at least one
     /// per primitive with a vertex inside the clip volume). <c>QueryTests</c> asserts the wrong value
-    /// there, so the fix shows up as a failure that names this exception (CLAUDE.md: Tests and skips).
+    /// there, so the fix shows up as a failure that names this exception (AGENTS.md: Tests and skips).
     /// </summary>
     public static bool IsLavapipeVK(GraphicsAPI api) =>
         api == GraphicsAPI.VK && AdapterFor(GraphicsAPI.VK)?.Name.StartsWith("llvmpipe", StringComparison.Ordinal) == true;

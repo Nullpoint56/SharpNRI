@@ -2,7 +2,7 @@
 // creates the swap chain with VkSwapchainPresentScalingCreateInfoKHR, and the best-practices
 // checks then also expect VkSwapchainPresentModesCreateInfoKHR, which tells the implementation the
 // application knows about the maintenance1 present-mode rules (a swap chain without it behaves as
-// if it listed its own presentMode only). Patch 0037 chains it with that one mode. CLAUDE.md:
+// if it listed its own presentMode only). Patch 0037 chains it with that one mode. AGENTS.md:
 // Extensions.
 //
 // Presents run in a child process for the reason SwapChainResizeTests gives, and the checks are

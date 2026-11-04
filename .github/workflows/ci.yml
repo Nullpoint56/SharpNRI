@@ -1,7 +1,7 @@
 name: ci
 
 # Billed per job, each rounded up to whole minutes; a macOS minute costs about ten Linux minutes and
-# a Windows minute about two (measured in CLAUDE.md: Actions budget). The shape follows from that:
+# a Windows minute about two (measured in AGENTS.md: Actions budget). The shape follows from that:
 #   - gate (Linux, seconds; tools/ci/ci-gate.ps1) tells each platform job to run fully, only to
 #     build the native payload into the cache, or to skip. A merge to master whose tree a pull
 #     request run already passed is not tested again.
@@ -26,7 +26,7 @@ on:
       - "tools/coverage.ps1"
       - "tools/coverage/**"
   pull_request:
-    branches: [master] # pull requests into "next" are verified locally (CLAUDE.md: Branches)
+    branches: [master] # pull requests into "next" are verified locally (AGENTS.md: Branches)
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -152,7 +152,7 @@ jobs:
     needs: gate
     if: needs.gate.outputs.linux != 'skip'
     # Pinned: ubuntu-latest becomes Ubuntu 26 from 2026-10-19, whose loader is 1.4. The suite is
-    # measured on 24.04's stock 1.3 loader, the pairing patches/0004 exists for (CLAUDE.md: Vulkan
+    # measured on 24.04's stock 1.3 loader, the pairing patches/0004 exists for (AGENTS.md: Vulkan
     # loader and validation layers). Moving is a decision, not an image update.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -253,7 +253,7 @@ jobs:
       # The "intermittent ray query miss" was NRI's 5 s fence-wait timeout: lavapipe JIT-compiles
       # its shaders while it executes the command buffer, which with a cold Mesa shader cache on a
       # loaded runner can pass 5 s; Wait then returns with only an ERROR message, and the test read a
-      # readback nothing had written yet (CLAUDE.md: CI runners and flakes, item 1). The tests now wait
+      # readback nothing had written yet (AGENTS.md: CI runners and flakes, item 1). The tests now wait
       # on the fence value (GpuWork.Wait). This step runs the ray tracing classes with the shader
       # cache off, so every run JIT-compiles everything, and prints how long each wait took.
       # Synchronization validation is on here and in the Test step: a hazard is a layer ERROR,
@@ -269,7 +269,7 @@ jobs:
           $t -noColor -showLiveOutput -class SharpNRI.Tests.RayTracingTests -class SharpNRI.Tests.RayTracingPipelineTests
 
       # A SIGSEGV in the test host (seen once, exit 139 after 106 tests, 0 failed) loses the buffered
-      # test list, so the crashing test cannot be read from the log (CLAUDE.md: CI runners and
+      # test list, so the crashing test cannot be read from the log (AGENTS.md: CI runners and
       # flakes). createdump writes a minidump on the signal; the step after prints every thread's
       # managed and native stack from it, which names the test and the native frame.
       - name: Test

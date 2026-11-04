@@ -71,7 +71,7 @@ public sealed class BufferTests
 
     /// <summary>
     /// Records NONE's dummy behaviour, not a feature: NONE answers GetBufferDesc with one static
-    /// "{ size = 1 }" for every buffer, everything else zero (ImplNONE.cpp; CLAUDE.md: Device creation and callbacks).
+    /// "{ size = 1 }" for every buffer, everything else zero (ImplNONE.cpp; AGENTS.md: Device creation and callbacks).
     /// NONE has no validation layer, so there are no messages to check.
     /// </summary>
     [Fact]
@@ -131,7 +131,7 @@ public sealed class BufferTests
     /// no barrier between, recorded and never submitted) as the marker that it is active; the layer
     /// reads the process environment at instance creation, which .NET on Unix does not update, so
     /// the test skips there. Without the patch syncval reports a hazard at each barrier-separated
-    /// command that touches the zeroed buffer (CLAUDE.md: Barriers).
+    /// command that touches the zeroed buffer (AGENTS.md: Barriers).
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]

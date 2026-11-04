@@ -16,7 +16,7 @@
      (runtimes-agility/<rid>/native/AgilitySDK/); no package carries it.
   6. Prints a table of what was staged.
 
-  Variants (CLAUDE.md: Native packages). Both produce a library named NRI.dll / libNRI.so / libNRI.dylib,
+  Variants (AGENTS.md: Native packages). Both produce a library named NRI.dll / libNRI.so / libNRI.dylib,
   so a consumer takes exactly one of them:
 
     Base       runtimes/<rid>/native/             no upscaler SDK compiled in. NRI, AMD AGS, licences.
@@ -221,14 +221,14 @@ $fwd = { param($p) $p -replace '\\', '/' }
 # Windows: d3d12.lib and dxgi.lib make d3d12.dll and dxgi.dll load-time imports of NRI.dll, so every
 # process that loads NRI.dll loads them, a Vulkan-only one included; with XeSS, libxess.lib does the
 # same for libxess.dll, without which NRI.dll would not load at all. A CMake fragment injected after
-# NRI's project() adds /DELAYLOAD for the NRI target only (CLAUDE.md: Native packages).
+# NRI's project() adds /DELAYLOAD for the NRI target only (AGENTS.md: Native packages).
 $delayLoad = $targetWindows
 $delayLoadDlls = @(if (& $on NRI_ENABLE_D3D12_SUPPORT) { "d3d12.dll", "dxgi.dll" }) + @(if (& $on NRI_ENABLE_XESS_SDK) { "libxess.dll" })
 $delayLoadFragment = Join-Path $PSScriptRoot "cmake" "delayload.cmake"
 
 $optString = ($opt.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ";"
 # NRI_VERSION alone does not identify the sources: NRI's main moves its dependency pins (VMA, D3D12MA)
-# without bumping it, and the "next" branch builds such commits (CLAUDE.md: Branches).
+# without bumping it, and the "next" branch builds such commits (AGENTS.md: Branches).
 $nriCommit = (git -C $nri rev-parse HEAD 2>$null) -join ""
 $depsKey = "nri=$NriVersion;commit=$nriCommit;patches=$patchHash;rid=$Rid;$optString$(if ($dlssDir) { ";ngx=$dlssDir" })"
 $depsMarker = Join-Path $deps ".sharpnri-deps"
@@ -255,7 +255,7 @@ if ($targetLinux -and -not $env:CXX -and (Get-Command clang++ -ErrorAction Silen
 if ($targetMac) { $cmakeArgs += "-DCMAKE_OSX_ARCHITECTURES=$(if ($targetArm64) { 'arm64' } else { 'x86_64' })" }
 # The loader is loaded at runtime like everywhere else (patch 0007), never linked: a library that
 # links Homebrew's loader by absolute path does not load on a Mac without it. The deployment
-# target is .NET 11's oldest macOS (15); MoltenVK asks for 12, NRI pins nothing (CLAUDE.md: Decisions).
+# target is .NET 11's oldest macOS (15); MoltenVK asks for 12, NRI pins nothing (AGENTS.md: Decisions).
 if ($targetMac) { $cmakeArgs += @("-DNRI_ENABLE_VULKAN_LOADER_LINKING=OFF", "-DCMAKE_OSX_DEPLOYMENT_TARGET=15.0") }
 if (-not $targetWindows -or $Generator) { $cmakeArgs += "-DCMAKE_BUILD_TYPE=$Configuration" }  # single-config generators
 $cmakeArgs += @(
@@ -362,7 +362,7 @@ if ($targetWindows) {
     }
 }
 # macOS: NRI's CMakeLists would link the Vulkan loader into the library on Apple by the absolute
-# install name of whatever loader the build machine had (CLAUDE.md: MoltenVK and the paravirtual Mac); patch 0007 turns that off
+# install name of whatever loader the build machine had (AGENTS.md: MoltenVK and the paravirtual Mac); patch 0007 turns that off
 # and the loader is dlopened at device creation as on Linux. So the library may link nothing but
 # the system: a loader link means the option was lost, MoltenVK linked directly would bypass the
 # loader and with it the validation layer. The minimum macOS version stamped into the library is

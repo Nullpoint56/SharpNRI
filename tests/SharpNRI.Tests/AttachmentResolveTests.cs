@@ -9,7 +9,7 @@
 // COLOR_ATTACHMENT state". Both ways are measured, and both are clean with the layers on and
 // resolve the same pixels (NVIDIA, Agility 1.619, VVL 1.4.341): barriers written for v190 keep
 // working for a plain attachment resolve, and the resolve names are what the header asks for now.
-// See CLAUDE.md: Barriers.
+// See AGENTS.md: Barriers.
 
 using SharpNRI.Native;
 using Xunit;

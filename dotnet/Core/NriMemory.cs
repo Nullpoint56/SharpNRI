@@ -6,7 +6,7 @@
 // Freeing first is not an error NRI recovers from: with NRI validation on, FreeMemory reports the
 // resources still bound and returns without freeing, so the allocation leaks while the wrapper
 // would count it as gone, and on D3D12 every later D3D12CreateDevice in the process then fails with
-// 0x887A0007 (CLAUDE.md: Lifetime). So the memory counts what the binding bound into it, and
+// 0x887A0007 (AGENTS.md: Lifetime). So the memory counts what the binding bound into it, and
 // refuses to be disposed while any of it lives, before NRI is called, as the device does for its
 // children. The allocations of one AllocateAndBindMemory call share one count: NRI does not say
 // which resource went into which, so every resource of the call holds all of them.

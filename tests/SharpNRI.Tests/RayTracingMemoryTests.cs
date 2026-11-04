@@ -108,7 +108,7 @@ public sealed class RayTracingMemoryTests
     /// D3D12 runs without the D3D12 debug layer (NRI's validation stays on), as
     /// <c>RayTracingPipelineTests.An_opacity_micromap_decides_whether_the_ray_query_hits</c> does:
     /// NRI's micromap prebuild query passes no input buffer and no per-OMM descs, which the debug
-    /// layer refuses with error 1162 (CLAUDE.md: Ray tracing). The barriers after the builds and
+    /// layer refuses with error 1162 (AGENTS.md: Ray tracing). The barriers after the builds and
     /// copies name ALL stages; see <see cref="RayScene.MicromapWritten"/>.
     /// </remarks>
     [Theory]

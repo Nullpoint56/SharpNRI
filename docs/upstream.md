@@ -114,6 +114,7 @@ dedicated allocations, so they need a capability check first.
 | N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | patched on master as 0033 (2026-10-22, PR #26); main chose another shape (57d92ff, af45e72, 9131c1b: the submitted picture descs in the desc, a key frame without references, `UNSUPPORTED` for a header on D3D12), so dropped on next (2026-10-23) and the binding follows; nothing to file: the desc carried no frame type, so the fix was an API choice; the patch proposed `VideoAV1EncodeDecodeInfoDesc::keyFrame` and D3D12 describing from the metadata whether a header is given or not; reproduced on main 2f7a49f (2026-10-22) |
 | N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | fixed upstream in 9d276c3 and aa23763 (2026-10-26), dropped on next; patched on master as 0034 (2026-10-22, PR #26), re-cut on next for 72f5f46's creation rollback (#292, 2026-10-23) and carried until 83fd010; filed 2026-10-24 against main 72f5f46, [#301](https://github.com/NVIDIA-RTX/NRI/issues/301); reproduced on main 2f7a49f (2026-10-22) |
 | N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | filed 2026-10-27 against main b5f5c626 as [#305](https://github.com/NVIDIA-RTX/NRI/issues/305), the fix of patch 0035 attached; fixed in v191 by 14a61d47 (2026-10-28, our lines); patch dropped on both branches 2026-11-03 |
+| N12 VK: stage masks name shader stages the device lacks | bug | patched on master and `next` as 0039 (2026-11-04); not filed; measured on v191: MoltenVK in CI, NVIDIA with `disableVKRayTracing` |
 | `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
 | Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
@@ -954,6 +955,29 @@ std::sort(&textures[0], &textures[0] + resourceGroupDesc.textureNum,
 **Scope.** Packing only: every layout is valid. The order the fix restores is not always the
 tightest either: as passed, scratch, constant, vertex fit 3,040 bytes; sorted, vertex, constant,
 scratch take 3,056.
+
+### N12: VK: stage masks name shader stages the device lacks
+
+**Observed.** On a Vulkan device without tessellation, geometry, task, mesh or ray tracing shaders,
+a barrier or fence wait with `StageBits::ALL_SHADERS` and a pipeline layout whose stages are `ALL`
+give stage bits the device does not allow. MoltenVK (no geometry, mesh or ray tracing), v191: every
+such barrier draws VUID-VkImageMemoryBarrier2-dstStageMask-03929, -03934, -03935 and -07946; every
+such layout VUID-VkPushConstantRange-stageFlags-parameter at `vkCreatePipelineLayout` and
+VUID-VkPushConstantsInfo-stageFlags-parameter at `vkCmdPushConstants2`. NVIDIA with
+`disableVKRayTracing`: a global barrier on `ALL_SHADERS` draws VUID-VkMemoryBarrier2-srcStageMask-07946
+and -dstStageMask-07946, a root constant visible to `ALL` both push-constant VUIDs.
+
+**Cause.** `GetPipelineStageFlags` (`ConversionVK.h:356`, since 5f7fd91) and `GetShaderStageFlags`
+(`:436`) map each named stage to its Vulkan bit with no device in reach; `CommandBufferVK::Barrier`
+(`CommandBufferVK.hpp:2648-2688`), `QueueVK::Submit` (`QueueVK.hpp:90`, `:104`) and the layout's
+resolved stages (`PipelineLayoutVK.hpp:34`) pass the result through. `CmdSetDescriptorSet` already
+adds the mesh stages only with `features.meshShader`.
+
+**Fix.** Patch 0039: `DeviceVK` records the shader stages it lacks, from the features it enabled
+(tessellation and geometry from `features`, task and mesh from `VkPhysicalDeviceMeshShaderFeaturesEXT`,
+ray tracing from `rayTracingPipeline`); barriers and fence waits drop those pipeline stages, and a
+pipeline layout drops them from its stages, which `ALL` and `ALL_SHADERS` resolve to. In Vulkan
+terms for barriers, since `StageBits::NONE` is `0x7FFFFFFF` and cannot be masked.
 
 ### Not filed
 

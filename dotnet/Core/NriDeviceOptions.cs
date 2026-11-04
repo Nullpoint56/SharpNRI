@@ -77,7 +77,7 @@ public sealed class NriDeviceOptions
     /// <c>AgilitySDK</c> directory beside the SharpNRI assembly when it exists (the native package
     /// stages it there), otherwise the inbox runtime. An empty string forces the inbox runtime.
     /// A managed host cannot export <c>D3D12SDKVersion</c>, so this is the only way the SDK loads;
-    /// see CLAUDE.md: D3D12 and the Agility SDK, and patches/0001.
+    /// see AGENTS.md: D3D12 and the Agility SDK, and patches/0001.
     /// </summary>
     public string? D3D12AgilitySdkPath { get; init; }
 

@@ -2,7 +2,7 @@
 
 SharpNRI's own code is MIT (`LICENSE.md`). Its native payloads are built by `tools/build-native.ps1` from the NRI
 submodule at the tag pinned in `Directory.Build.props` (versions below are those pinned by NRI v191's
-`CMakeLists.txt`) and ship as two packages (`CLAUDE.md`: Native packages). Each package stages the
+`CMakeLists.txt`) and ship as two packages (`AGENTS.md`: Native packages). Each package stages the
 licence of every component inside it beside its binaries, in `licenses/<Component>/`, copied from the
 exact archive the build fetched. This file is staged with both packages as
 `licenses/THIRD-PARTY-NOTICES.md`; its licence texts section also keeps the texts of the vendor SDKs
@@ -50,7 +50,7 @@ Not in it: the runtimes those SDKs need. The application ships them beside its e
 
 `NriUpscalerExtension.IsRuntimeInstalled` reports whether they are beside the application, and
 `CreateUpscaler` refuses with `NriUnsupportedException` naming the missing file rather than calling
-into NRI without it (`CLAUDE.md`: Upscalers and vendor runtimes).
+into NRI without it (`AGENTS.md`: Upscalers and vendor runtimes).
 
 ## DLSS: a build, not a package
 

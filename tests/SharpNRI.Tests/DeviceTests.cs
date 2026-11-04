@@ -4,7 +4,7 @@
 // well as the GPU backends: what they measure is the binding's bookkeeping, which NONE exercises
 // without a GPU. Everything that asks NRI or its validation layer a question runs on VK and D3D12
 // only, because NRI never wraps NONE in its validation layer and NONE answers success for every
-// call (CLAUDE.md: Device creation and callbacks).
+// call (AGENTS.md: Device creation and callbacks).
 //
 // The creation options below the first block: queue priorities, wrapped devices' queue lists and
 // their failure path, the explicit Agility SDK path, disabling Vulkan ray tracing, and how long the
@@ -130,7 +130,7 @@ public sealed class DeviceTests
 
     // NRI's Wait is void and gives up after NRI_TIMEOUT_FENCE (5 s) with an ERROR message; the
     // binding turns that into an exception so no caller reads results that are not there yet
-    // (CLAUDE.md: CI runners and flakes, item 1). The fence here is never signalled.
+    // (AGENTS.md: CI runners and flakes, item 1). The fence here is never signalled.
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
     public void Fence_wait_throws_when_NRI_gives_up_before_the_value_is_reached(Backend backend)
@@ -174,7 +174,7 @@ public sealed class DeviceTests
 
         // NRI.h documents GetQueue: INVALID_ARGUMENT when the index is out of bounds. Measured:
         // the result comes back without a message through the callback, and NONE answers SUCCESS
-        // for any index because it answers SUCCESS for everything (CLAUDE.md: Device creation and callbacks).
+        // for any index because it answers SUCCESS for everything (AGENTS.md: Device creation and callbacks).
         var e = Assert.Throws<NriException>(() => device.GetQueue(QueueType.GRAPHICS, 1000));
         Assert.Equal(Result.INVALID_ARGUMENT, e.Result);
         Assert.Equal("GetQueue", e.Call);

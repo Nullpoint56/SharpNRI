@@ -149,7 +149,7 @@ public sealed unsafe partial class NriDevice : NriObject
     // (Creation.cpp, DeviceVK::Create), so the layer has no entry for NRI's device and the process
     // dies at the first present. One count-then-fill call on NRI's instance, through the loader NRI
     // loaded, results discarded. Never throws; no managed allocation for up to 32 physical devices.
-    // Not on the wrapped route: that instance is the caller's. See CLAUDE.md: Device creation and
+    // Not on the wrapped route: that instance is the caller's. See AGENTS.md: Device creation and
     // callbacks.
     private static void EnumeratePhysicalDevicesVK(NriDevice device)
     {
