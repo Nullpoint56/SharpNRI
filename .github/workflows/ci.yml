@@ -8,7 +8,8 @@ name: ci
 #   - The native payload is cached under a key of its inputs and rebuilt only when one of them
 #     changes. A rebuilt payload is saved before the tests run, so a red test run keeps it.
 #   - Edits that cannot change a result (Markdown, docs/, the other workflows, tools/consume, the
-#     interop generator) start no run; regen.yml checks the interop layer when its inputs change.
+#     interop generator) start no run on master; on a pull request the gate skips every platform
+#     job for them. regen.yml checks the interop layer when its inputs change.
 #   - Superseded runs are cancelled. Timeouts sit a few times above the slowest measured job, so a
 #     hang costs minutes, not an hour.
 #   - macOS is opt-in (hosted macOS arm64 runners are often unavailable for long stretches): a pull
@@ -31,16 +32,8 @@ on:
   pull_request:
     branches: [master] # pull requests into "next" are verified locally (AGENTS.md: Branches)
     types: [opened, synchronize, reopened, labeled]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - ".github/workflows/release.yml"
-      - ".github/workflows/regen.yml"
-      - ".github/workflows/coverage.yml"
-      - "tools/consume/**"
-      - "tools/generate-native.ps1"
-      - "tools/coverage.ps1"
-      - "tools/coverage/**"
+    # No paths-ignore here: gate decides (a docs-only pull request skips every platform job), so
+    # gate, win-x64 and linux-x64 always report and branch protection can require them.
   workflow_dispatch:
     inputs:
       macos:
@@ -93,6 +86,7 @@ jobs:
           GATE_LABEL: ${{ github.event.label.name }}
           GATE_PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           GATE_MACOS: ${{ inputs.macos }}
+          GATE_PR: ${{ github.event.pull_request.number }}
         run: ./tools/ci/ci-gate.ps1
 
   win-x64:
