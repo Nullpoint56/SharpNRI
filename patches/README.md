@@ -10,7 +10,7 @@ that is already applied, so the submodule working tree normally sits with every 
 `git -C nri status` shows the patched files as modified. Listed and explained in `AGENTS.md` (Patches).
 
 The set for NRI main 7ea93bb5 on `next`: master's twelve for v191 (46c93d79), 0040 for a defect main
-introduced after v191, and 0041 and 0042, found on `next` (`AGENTS.md`: Branches). All fifteen apply
+introduced after v191, and 0041, 0042 and 0043, found on `next` (`AGENTS.md`: Branches). All sixteen apply
 in order onto 7ea93bb5, each
 also alone, and each passes the scripts' `-C0` reverse check. Patches dropped
 when upstream took the fix are in git log and `docs/upstream.md`.
@@ -32,3 +32,4 @@ when upstream took the fix are in git log and `docs/upstream.md`.
 | `0040-d3d12-resource-interface-inbox-runtime` | `ID3D12ResourceBest` back to `ID3D12Resource2` in `BufferD3D12.h` and `TextureD3D12.h` | main's 3dd4cbfa made it `ID3D12Resource3`, which the inbox runtime does not have, so every buffer and texture creation fails there with `E_NOINTERFACE`; NRI uses none of its methods (AGENTS.md: D3D12 and the Agility SDK) |
 | `0041-validation-shader-group-range` | the validation pipeline is created with its desc and keeps its `shaderGroupNum`, and `WriteShaderGroupIdentifiers` refuses a range past it with `INVALID_ARGUMENT` (wrapped pipelines unchecked) | validation checked only the stride; a range past the groups crashed D3D12 (unbounded index) and the NVIDIA Vulkan driver (AGENTS.md: Ray tracing) |
 | `0042-vulkan-mesh-shader-pipeline-statistics` | pipeline-statistics pools carry the task and mesh counters, and queries are 13 counters, only with `features.meshShaderPipelineStats` | gated on `features.meshShader`, a device with mesh shaders but without `meshShaderQueries` drew VUID 07069 on every pool and got a wrong query size (AGENTS.md: Multisampling, copies and queries) |
+| `0043-validation-draw-parameters-emulation-d3d12-metal` | `DrawIndirect` / `DrawIndexedIndirect` validation applies the emulated record stride only on D3D12 and Metal | the flag is "D3D12, METAL", but validation demanded `DrawBaseDesc` strides on Vulkan too, refusing the plain records the Vulkan backend reads (AGENTS.md: Draws, render state and attachments) |

@@ -25,7 +25,9 @@ N15 (0042, with the Khronos Profiles layer standing in for a device without mesh
 With 0040-0042: Windows 541 tests, 0 failed, 13 skipped.
 Filed the same day: the four bugs as issues #309-#312 (fixes inline, N12 as a fork commit); the
 seven proposals as four pull requests from the owner's fork, one commit per item: #313 (0018,
-0019, 0024, 0038), #314 (0001), #315 (0012), #316 (0017).
+0019, 0024, 0038), #314 (0001), #315 (0012), #316 (0017). Later the same day the draw-parameters
+question turned out to be a validation bug (N16, 0043): the flag is D3D12 and Metal only by its own
+documentation.
 
 2026-10-19: all six filed issues were fixed on main within the day. Main is ten commits past v190
 at 8ee40ca, still `NRI_VERSION 190`, untagged.
@@ -130,7 +132,8 @@ dedicated allocations, so they need a capability check first.
 | N13 D3D12: every resource creation fails on the inbox runtime | bug (regression) | introduced on main by 3dd4cbfa (after v191; master unaffected); patched on `next` as 0040 (2026-11-05); filed 2026-11-05 as [#309](https://github.com/NVIDIA-RTX/NRI/issues/309), the fix inline; measured on main 7ea93bb5, Windows 11 26200 inbox runtime, NVIDIA |
 | N14 `WriteShaderGroupIdentifiers` with a group range past the pipeline's groups crashes | bug (crash) | patched on `next` as 0041 (2026-11-05); filed 2026-11-05 as [#311](https://github.com/NVIDIA-RTX/NRI/issues/311), the fix inline; measured on main 7ea93bb5 (v191 has the same code), NVIDIA, VK and D3D12 |
 | N15 VK: pipeline statistics add the mesh counters on `features.meshShader` | bug | patched on `next` as 0042 (2026-11-05); filed 2026-11-05 as [#312](https://github.com/NVIDIA-RTX/NRI/issues/312), the fix inline; measured on main 7ea93bb5 (v191 has the same code), NVIDIA with the Khronos Profiles layer reporting `meshShaderQueries = false` |
-| D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag || Draw-parameters emulation on Vulkan | design question | not filed: validation demands `DrawBaseDesc` strides on every backend, while Vulkan reads plain records at `offset` |
+| D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
+| N16 Validation applies the draw-parameters emulation record layout on Vulkan | bug | patched on `next` as 0043 (2026-11-05); not filed; measured on main 7ea93bb5 (v191 has the same code), NVIDIA, VK; earlier recorded as a design question |
 
 The sections below are the drafts and the audit behind them (every claim re-verified against the
 unpatched tree). The filed ones were posted in a shorter form (Observed, Cause with line numbers,
@@ -1050,6 +1053,23 @@ query for 13 counters, when `features.meshShader` is set (since f53490f). Those 
 
 **Fix.** Patch 0042: the three lines test `features.meshShaderPipelineStats`.
 
+### N16: Validation applies the draw-parameters emulation record layout on Vulkan
+
+**Observed.** Vulkan, a pipeline layout with `ENABLE_DRAW_PARAMETERS_EMULATION`: `CmdDrawIndirect` with
+`DrawDesc` records at stride 16 is refused ("'stride' is too small, expected >= 24"; 28 for
+`DrawIndexedIndirect` at 20), and `DrawBaseDesc` records at stride 24 pass validation but draw nothing
+(read at `offset + 8` they draw). NVIDIA RTX 4070 SUPER, main 7ea93bb5; measured on v190 first.
+
+**Cause.** The flag is "D3D12, METAL" (`NRIDescs.h:1056`), only those backends emulate, and on
+SPIR-V `NRI.hlsl` writes plain `DrawDesc` records that the Vulkan backend reads at `offset` and
+`stride` (`CommandBufferVK.hpp:2215`). `CommandBufferVal::DrawIndirect` and `DrawIndexedIndirect`
+ask `IsDrawParametersEmulationEnabled` (`CommandBufferVal.hpp:111`), which reads the layout flag
+alone, and demand the emulated stride on every backend (`:1033`, `:1053`). `DeviceVal.hpp:638`
+already limits the setting it passes on to D3D12.
+
+**Fix.** Patch 0043: `IsDrawParametersEmulationEnabled` also asks for a D3D12 or Metal device, so
+portable code can set the flag on every backend.
+
 ### Not filed
 
 - **D3D12 attachment resolve into a non-zero layer or mip.** In v190 `EndRendering` passed
@@ -1064,13 +1084,6 @@ query for 13 counters, when `features.meshShader` is set (since f53490f). Those 
 
   Main's 48d4a33 passes `MipLevels` (`:2010`, `:2052`), so it is fixed. Master keeps the bug until
   the next tag, and the test written for it belongs on `next`.
-- **Draw-parameters emulation on Vulkan** (a question).
-  - Validation (`CommandBufferVal.hpp`) demands `sizeof(DrawBaseDesc)` strides for indirect draws
-    with the emulation flag on every backend.
-  - The Vulkan backend reads plain records at `offset`. Measured with the flag on Vulkan, a stride
-    of 16 is refused ("'stride' is too small, expected >= 24"), `DrawBaseDesc` records at stride 24
-    draw nothing, and at `offset + 8` they draw.
-  - The portable rule today: set the flag on D3D12 only.
 - **Driver behaviour, not NRI.**
   - On the development machine's D3D12 driver, an H.265 decode capability query at 64x64 removes the
     device (`[233] ... DXGI_ERROR_DRIVER_INTERNAL_ERROR`), inside the decoder-heap creation of NRI's

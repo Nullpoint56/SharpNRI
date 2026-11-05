@@ -48,7 +48,7 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
 - **State.** Master pins NRI v191 (46c93d79) with twelve patches; `next` pins NRI main 7ea93bb5
-  (2026-11-05) with fifteen: the same twelve, 0040, 0041 and 0042 (Patches).
+  (2026-11-05) with sixteen: the same twelve, 0040, 0041, 0042 and 0043 (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
   `dotnet/Native` resolved by hand. NRI-side work (patches, re-cuts, upstream reports) starts on
@@ -374,8 +374,8 @@ ref and patch count, the payload the tests loaded (by content) and the adapter e
 ## Patches
 
 The set for NRI v191 (46c93d79) on master; `next` (main 7ea93bb5) carries the same twelve plus
-0040 (a defect main introduced after v191), 0041 and 0042 (defects v191 has too, found on `next`
-and not yet on master). Gaps in the numbering are patches dropped when
+0040 (a defect main introduced after v191), 0041, 0042 and 0043 (defects v191 has too, found on
+`next` and not yet on master). Gaps in the numbering are patches dropped when
 upstream took the fix (git log, `docs/upstream.md`).
 
 | Patch | What | Why |
@@ -395,6 +395,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0040 d3d12-resource-interface-inbox-runtime (`next` only) | `ID3D12ResourceBest` back to `ID3D12Resource2` in `BufferD3D12.h` and `TextureD3D12.h` | main's 3dd4cbfa made it `ID3D12Resource3`, which the inbox runtime lacks: every resource creation fails there (D3D12 and the Agility SDK) |
 | 0041 validation-shader-group-range (`next` only) | the validation pipeline is created with its `RayTracingPipelineDesc` (the generic constructor was used), keeps its `shaderGroupNum`, and `WriteShaderGroupIdentifiers` refuses a range past it with `INVALID_ARGUMENT`; wrapped pipelines (count unknown) stay unchecked | validation checked only the stride, and a range past the groups crashed both backends (Ray tracing) |
 | 0042 vulkan-mesh-shader-pipeline-statistics (`next` only) | `QueryPoolVK` adds the task and mesh counters, and sizes queries for 13, on `features.meshShaderPipelineStats` instead of `features.meshShader` | the counters need `meshShaderQueries`; without it every pipeline-statistics pool drew VUID 07069 and a wrong query size (Multisampling, copies and queries) |
+| 0043 validation-draw-parameters-emulation-d3d12-metal (`next` only) | the indirect-draw stride checks apply the emulated `Draw(Indexed)BaseDesc` layout only on D3D12 and Metal | validation applied it on every backend and refused the plain records Vulkan reads (Draws, render state and attachments) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -407,7 +408,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all twelve do; at main 7ea93bb5 all fifteen.
+  all twelve do; at main 7ea93bb5 all sixteen.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
   fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
@@ -829,9 +830,13 @@ pixels of a 64x64 target exactly).
   D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS flag is undefined" on D3D12; NVIDIA Vulkan then
   ignores the bias, D3D12 and WARP apply it. After re-binding the pipeline, Vulkan and WARP restore
   its bias and NVIDIA's D3D12 driver keeps the dynamic one (a driver difference, untested).
-- **Draw-parameters emulation: set the flag on D3D12 only.** On Vulkan, validation demands
-  `sizeof(DrawBaseDesc)` strides while the backend reads plain records at `offset` (stride 16
-  refused, stride 24 draws nothing, `offset + 8` draws). `IndirectTests` sets it on D3D12 only.
+- **Draw-parameters emulation is D3D12 and Metal only (patch 0043, `next` only).** The flag is "D3D12,
+  METAL"; on SPIR-V `NRI.hlsl` writes plain `DrawDesc` records and the Vulkan backend reads them.
+  Validation applied the emulated layout on every backend: on Vulkan with the flag, stride 16 was
+  refused ("'stride' is too small, expected >= 24", 28 indexed) and `DrawBaseDesc` records at 24
+  drew nothing (`offset + 8` drew). Now the flag is inert on Vulkan, so portable code sets it on
+  every backend. `IndirectTests` sets it everywhere and renders Vulkan with and without it, the same
+  picture.
 - **A missing barrier between a compute write and an indirect read is silent on NVIDIA**: VK and
   D3D12 draw nothing with no message from either layer; WARP draws. Only syncval reports it
   ("SYNC-HAZARD-READ-AFTER-WRITE: vkCmdDrawIndirect(): ... previously written by vkCmdDispatch"),
