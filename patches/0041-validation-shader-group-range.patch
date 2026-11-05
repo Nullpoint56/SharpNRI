@@ -1,0 +1,65 @@
+Validation: WriteShaderGroupIdentifiers refuses a group range past the pipeline's groups.
+
+PipelineVal::WriteShaderGroupIdentifiers checks only "dstStride", so a "baseShaderGroupIndex +
+shaderGroupNum" past the pipeline's "shaderGroupNum" reaches the backend. D3D12 reads
+"m_ShaderGroupNames[shaderGroupIndex]" without a bound (PipelineD3D12.hpp:691); Vulkan passes the
+range to vkGetRayTracingShaderGroupHandlesKHR, which the layer reports as
+VUID-vkGetRayTracingShaderGroupHandlesKHR-firstGroup-02419 before the driver reads past its groups.
+
+DeviceVal::CreateRayTracingPipeline wrapped the pipeline with the generic PipelineVal constructor
+(DeviceVal.hpp:1900), so the one taking a RayTracingPipelineDesc was never used; it is now, and it
+keeps the desc's "shaderGroupNum" beside the layout. WriteShaderGroupIdentifiers refuses a range
+past it with INVALID_ARGUMENT. A wrapped pipeline (CreatePipelineVK, CreatePipelineD3D12) has no
+known group count and stays unchecked.
+
+Measured on main 7ea93bb5, NVIDIA RTX 4070 SUPER, NRI validation on, a three-group pipeline: groups
+2..3 end the process with an access violation (0xC0000005) on D3D12 with no message, and on Vulkan
+after the layer's 02419 error; with the patch both return INVALID_ARGUMENT with one message, and
+groups 1..2 are written as before.
+
+diff --git a/Source/Validation/DeviceVal.hpp b/Source/Validation/DeviceVal.hpp
+index fd2f8e66..ef6590d0 100644
+--- a/Source/Validation/DeviceVal.hpp
++++ b/Source/Validation/DeviceVal.hpp
+@@ -1897,7 +1897,7 @@ NRI_INLINE Result DeviceVal::CreatePipeline(const RayTracingPipelineDesc& rayTra
+ 
+     pipeline = nullptr;
+     if (result == Result::SUCCESS)
+-        result = WrapImplementation<PipelineVal>(pipeline, pipelineImpl, m_iCoreImpl.DestroyPipeline);
++        result = WrapImplementation<PipelineVal>(pipeline, pipelineImpl, m_iCoreImpl.DestroyPipeline, rayTracingPipelineDesc);
+ 
+     return result;
+ }
+diff --git a/Source/Validation/PipelineVal.h b/Source/Validation/PipelineVal.h
+index 1996f37b..27448ac2 100644
+--- a/Source/Validation/PipelineVal.h
++++ b/Source/Validation/PipelineVal.h
+@@ -26,6 +26,7 @@ struct PipelineVal final : public ObjectVal {
+ 
+ private:
+     const PipelineLayout* m_PipelineLayout = nullptr;
++    uint32_t m_ShaderGroupNum = 0; // 0 if unknown (a wrapped pipeline)
+ };
+ 
+ } // namespace nri
+diff --git a/Source/Validation/PipelineVal.hpp b/Source/Validation/PipelineVal.hpp
+index 768f589b..007c2724 100644
+--- a/Source/Validation/PipelineVal.hpp
++++ b/Source/Validation/PipelineVal.hpp
+@@ -16,13 +16,15 @@ PipelineVal::PipelineVal(DeviceVal& device, Pipeline* pipeline, const ComputePip
+ 
+ PipelineVal::PipelineVal(DeviceVal& device, Pipeline* pipeline, const RayTracingPipelineDesc& rayTracingPipelineDesc)
+     : ObjectVal(device, pipeline)
+-    , m_PipelineLayout(rayTracingPipelineDesc.pipelineLayout) {
++    , m_PipelineLayout(rayTracingPipelineDesc.pipelineLayout)
++    , m_ShaderGroupNum(rayTracingPipelineDesc.shaderGroupNum) {
+ }
+ 
+ NRI_INLINE Result PipelineVal::WriteShaderGroupIdentifiers(uint32_t baseShaderGroupIndex, uint32_t shaderGroupNum, uint32_t dstStride, void* dst) {
+     const uint32_t identifierSize = m_Device.GetDesc().shaderStage.rayTracing.shaderGroupIdentifierSize;
+ 
+     NRI_RETURN_ON_FAILURE(&m_Device, dstStride >= identifierSize, Result::INVALID_ARGUMENT, "'dstStride' is less than 'shaderStage.rayTracing.shaderGroupIdentifierSize'");
++    NRI_RETURN_ON_FAILURE(&m_Device, (m_ShaderGroupNum == 0 || (uint64_t)baseShaderGroupIndex + shaderGroupNum <= m_ShaderGroupNum), Result::INVALID_ARGUMENT, "'baseShaderGroupIndex + shaderGroupNum' > the pipeline's 'shaderGroupNum=%u'", m_ShaderGroupNum);
+ 
+     return GetRayTracingInterfaceImpl().WriteShaderGroupIdentifiers(*GetImpl(), baseShaderGroupIndex, shaderGroupNum, dstStride, dst);
+ }

@@ -18,7 +18,7 @@ public sealed class RayTracingPipelineTests
     /// <summary>
     /// The RayPipeline.hlsl pipeline on the scene's layout, three groups: raygen, miss, closest hit.
     /// </summary>
-    private static NriPipeline CreatePipeline(NriDevice device, RayScene scene)
+    internal static NriPipeline CreatePipeline(NriDevice device, RayScene scene)
     {
         // Groups index the shader library from 1: raygen, miss, closest hit. On Vulkan the three
         // entry points share one SPIR-V module. On D3D12 each NriShaderDesc becomes a DXIL library

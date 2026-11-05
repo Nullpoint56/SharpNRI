@@ -9,8 +9,9 @@ a header changes the L0 layer and the ABI oracle measures the patched header. Bo
 that is already applied, so the submodule working tree normally sits with every patch applied and
 `git -C nri status` shows the patched files as modified. Listed and explained in `AGENTS.md` (Patches).
 
-The set for NRI v191 (46c93d79), on master and `next` (`AGENTS.md`: Branches). All twelve apply in
-order onto v191, each also alone, and each passes the scripts' `-C0` reverse check. Patches dropped
+The set for NRI v191 (46c93d79) on master: fifteen patches, all applying in order onto v191, each also
+alone, and each passing the scripts' `-C0` reverse check. `next` (NRI main) carries 0040 as well, for
+a defect main introduced after v191 (`AGENTS.md`: Branches). Patches dropped
 when upstream took the fix are in git log and `docs/upstream.md`.
 
 | Patch | What | Why |
@@ -27,3 +28,6 @@ when upstream took the fix are in git log and `docs/upstream.md`.
 | `0037-vulkan-swapchain-present-modes-info` | with `swapchainMaintenance1`, the Vulkan swap chain is created with `VkSwapchainPresentModesCreateInfoKHR` listing its present mode | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (AGENTS.md: Extensions) |
 | `0038-vulkan-instance-create-info-next` | `DeviceCreationDesc::vkInstanceCreateInfoNext`, a caller's chain appended to `VkInstanceCreateInfo::pNext` after NRI's own structures | NRI creates the instance and chains only its own structures, so `VkLayerSettingsCreateInfoEXT` cannot reach the validation layer and its settings go through process-wide environment variables (AGENTS.md: Device creation and callbacks) |
 | `0039-vulkan-unsupported-shader-stages` | `DeviceVK` records the shader stages it lacks (tessellation, geometry, task, mesh, ray tracing); barriers and fence waits drop their pipeline stages, and a pipeline layout drops them from the stages `ALL` and `ALL_SHADERS` resolve to | NRI maps a mask naming every shader stage to every Vulkan stage bit whatever the device has, which the validation layer refuses on a device without those stages: MoltenVK, or any device with `disableVKRayTracing` (AGENTS.md: Barriers) |
+| `0041-validation-shader-group-range` | the validation pipeline is created with its desc and keeps its `shaderGroupNum`, and `WriteShaderGroupIdentifiers` refuses a range past it with `INVALID_ARGUMENT` (wrapped pipelines unchecked) | validation checked only the stride; a range past the groups crashed D3D12 (unbounded index) and the NVIDIA Vulkan driver (AGENTS.md: Ray tracing) |
+| `0042-vulkan-mesh-shader-pipeline-statistics` | pipeline-statistics pools carry the task and mesh counters, and queries are 13 counters, only with `features.meshShaderPipelineStats` | gated on `features.meshShader`, a device with mesh shaders but without `meshShaderQueries` drew VUID 07069 on every pool and got a wrong query size (AGENTS.md: Multisampling, copies and queries) |
+| `0043-validation-draw-parameters-emulation-d3d12-metal` | `DrawIndirect` / `DrawIndexedIndirect` validation applies the emulated record stride only on D3D12 and Metal | the flag is "D3D12, METAL", but validation demanded `DrawBaseDesc` strides on Vulkan too, refusing the plain records the Vulkan backend reads (AGENTS.md: Draws, render state and attachments) |

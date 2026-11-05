@@ -26,18 +26,20 @@ index 0b2bab84..82f636f2 100644
  
      // Statically allocated read/write ring-buffer for generic CPU data
 diff --git a/Source/Shared/StreamerInterface.hpp b/Source/Shared/StreamerInterface.hpp
-index 5bcf36ce..11e61539 100644
+index 5bcf36ce..e1870157 100644
 --- a/Source/Shared/StreamerInterface.hpp
 +++ b/Source/Shared/StreamerInterface.hpp
-@@ -59,6 +59,14 @@ Result StreamerImpl::Create(const StreamerDesc& desc) {
+@@ -59,6 +59,16 @@ Result StreamerImpl::Create(const StreamerDesc& desc) {
  
      m_Desc = desc;
  
 +    // Pre-allocate the dynamic buffer if an initial per-frame size is requested (otherwise it grows on demand)
 +    if (desc.dynamicBufferDesc.size) {
 +        m_DynamicBufferOffset = desc.dynamicBufferDesc.size;
++
 +        if (!Grow())
 +            return Result::FAILURE;
++
 +        m_DynamicBufferOffset = 0;
 +    }
 +
