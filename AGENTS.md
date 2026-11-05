@@ -409,8 +409,8 @@ upstream took the fix (git log, `docs/upstream.md`).
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
   all twelve do; at main 7ea93bb5 all fifteen.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
-  the binding's docs (Streamer ring under Extensions; 0001's order rule under D3D12 and the Agility
-  SDK).
+  the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
+  fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
 - Patch 0007 inserts three lines at `CMakeLists.txt:126`; upstream line numbers past that are three
   lower than the patched tree's.
 - 0001 stays though the wrapped-device route also loads Agility: it keeps `Robustness`,
@@ -932,10 +932,14 @@ Measured by `DebugAidTests`.
   `agsDriverExtensionsDX12_CreateDevice` see the same SDK. **Process-wide**: once applied, the
   inbox runtime is unreachable (`AgilityTests`). The adapter probe in `nriEnumerateAdapters` stays
   on the inbox runtime on purpose.
-- **Patch 0001's comment overstates its order rule** ("Must be called before any other D3D12 entry
-  point in this process"): NRI's own enumeration calls `D3D12CreateDevice` on the inbox runtime
-  first, and the apply still works. What must come first is the first D3D12 device the process
-  keeps. A comment is not a patch; corrected here and in `docs/upstream.md`.
+- **Patch 0001's order rule: the first device the process keeps.** The comment used to say "Must be
+  called before any other D3D12 entry point in this process", stricter than the truth, and Codex's
+  review of NRI PR #314 reasoned from it (P1: "Apply the factory before adapter probing"). With no
+  adapter desc, `nriEnumerateAdapters` creates and releases D3D12 devices on the inbox runtime
+  first (the inbox `D3D12Core.dll` is loaded), and the apply still works: "Using Agility SDK
+  v1.620", "Using ID3D12Device16", main 7ea93bb5, 2026-11-05. The comment now says it must precede
+  the first D3D12 device the process keeps, and that it is process-wide (#314's second commit,
+  0753c63d).
 - **Wrapped route works too**: a device from the host's own `ID3D12DeviceFactory`, passed to
   `nriCreateDeviceFromD3D12Device`, reports `Using ID3D12Device16` (15 on v191), no OPTIONS22 warning
   (`AgilityFactoryRouteTests`); NRI routes such devices' root signatures through
