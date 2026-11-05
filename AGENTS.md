@@ -782,7 +782,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   from `features`, task and mesh from `VkPhysicalDeviceMeshShaderFeaturesEXT`, ray tracing from
   `rayTracingPipeline`, each chained only when its extension is enabled), as `CmdSetDescriptorSet`
   already did for the mesh stages; in Vulkan terms for barriers and fence waits, since NRI's
-  `StageBits::NONE` is `0x7FFFFFFF` and cannot be masked. Not filed (owner's call).
+  `StageBits::NONE` is `0x7FFFFFFF` and cannot be masked. Filed as NRI #310 (2026-11-05).
 - **Attachment resolves are explicit in barriers** (NRI 48d4a33): stage `RESOLVE_ATTACHMENT`,
   accesses `RESOLVE_ATTACHMENT_SOURCE` / `_DESTINATION`, umbrellas `ALL_ATTACHMENT` and
   `ALL_RESOLVE`; `GRAPHICS` and `ALL_ATTACHMENT` no longer include resolves. Every `StageBits` value
@@ -864,7 +864,7 @@ Measured by `MultisampleTests`, `TextureCopyTests` and `QueryTests`.
   measured counts are exact anyway: 256 for a full 16x16 quad, 0 behind a failing depth test.
 - **Pipeline statistics**: results `QuerySize` apart (VK 104 bytes, D3D12 112); fragment
   invocations for 256 pixels: 256 on hardware, 288 on WARP (helper lanes on diagonal quads).
-  **Mesh counters without mesh-shader queries (patch 0042, `next` only).** The Vulkan pool added
+  **Mesh counters without mesh-shader queries (patch 0042, `next` only; NRI #312).** The Vulkan pool added
   the task and mesh counters and sized queries for 13 on `features.meshShader`; the counters need
   `meshShaderQueries` (`features.meshShaderPipelineStats`). Every device here has both, so
   `MeshShaderQueryTests` runs a child with the Khronos Profiles layer (Vulkan SDK) below the
@@ -911,7 +911,7 @@ Measured by `DebugAidTests`.
   `Using ID3D12Device16` on Agility); six remain on main 7ea93bb5, D3D12MA's (its fix, #102, is not
   merged yet). The device-lost child allows exactly these warnings by ID and text and fails when
   none remain (Tests and skips).
-- **Resources on the inbox runtime (patch 0040, `next` only).** 3dd4cbfa made `ID3D12ResourceBest`
+- **Resources on the inbox runtime (patch 0040, `next` only; NRI #309).** 3dd4cbfa made `ID3D12ResourceBest`
   `ID3D12Resource3`. The device and command lists are queried down to what the runtime has
   (`QueryLatestInterface`), resources are created for that IID directly, and the inbox runtime
   (Windows 11 26200) has no `ID3D12Resource3`: every committed, bound and placed buffer and texture
@@ -1115,7 +1115,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
 - **AABB geometry** (`FromAabbs`, offset 32, stride 32): committing every procedural candidate gives
   the boxes' exact hit map on VK, D3D12 and WARP.
 - **`WriteShaderGroupIdentifiers`**: the binding's size check multiplies in 64 bits (2^28 x 16
-  wrapped to 0 in 32). **The group range (patch 0041, `next` only):** validation checked only the
+  wrapped to 0 in 32). **The group range (patch 0041, `next` only; NRI #311):** validation checked only the
   stride, so groups past the pipeline's reached the backend: on a three-group pipeline, groups 2..3
   ended the process (0xC0000005) on D3D12 with no message (`m_ShaderGroupNames` indexed unbounded)
   and on Vulkan after VUID-vkGetRayTracingShaderGroupHandlesKHR-firstGroup-02419, in the NVIDIA

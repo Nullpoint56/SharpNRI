@@ -28,10 +28,10 @@ index 7e425e8e..3b37e72e 100644
  
      // Switches (enabled by default)
 diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
-index c6f1dd5f..f5c5ecec 100644
+index b7e26ef7..8d078250 100644
 --- a/Source/D3D12/DeviceD3D12.hpp
 +++ b/Source/D3D12/DeviceD3D12.hpp
-@@ -515,8 +515,15 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
+@@ -516,8 +516,16 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
      // IMPORTANT: Must be called before the D3D12 device is created, or the D3D12 runtime removes the device
      if (desc.enableGraphicsAPIValidation) {
          ComPtr<ID3D12Debug> debugController;
@@ -41,6 +41,7 @@ index c6f1dd5f..f5c5ecec 100644
 +
 +            if (desc.enableD3D12GpuBasedValidation) {
 +                ComPtr<ID3D12Debug1> debugController1;
++
 +                if (SUCCEEDED(debugController->QueryInterface(IID_PPV_ARGS(&debugController1))))
 +                    debugController1->SetEnableGPUBasedValidation(true);
 +            }
