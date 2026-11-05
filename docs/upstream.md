@@ -20,6 +20,9 @@ interfaces and `CheckFeatureSupport1`, fixing #307; 7ea93bb5 requires 4-byte `Cm
 ranges). All twelve patches apply unchanged; no L0 drift (only a header comment changed). 3dd4cbfa
 broke every resource creation on the inbox runtime (N13), patched as 0040. Measured: Windows 538
 tests, 0 failed, 13 skipped (NVIDIA RTX 4070 SUPER); the `[989]` warnings fell from 33 to D3D12MA's 6.
+The same day the two held read-only findings were measured and patched: N14 (0041, a crash) and
+N15 (0042, with the Khronos Profiles layer standing in for a device without mesh-shader queries).
+With 0040-0042: Windows 541 tests, 0 failed, 13 skipped.
 
 2026-10-19: all six filed issues were fixed on main within the day. Main is ten commits past v190
 at 8ee40ca, still `NRI_VERSION 190`, untagged.
@@ -122,10 +125,9 @@ dedicated allocations, so they need a capability check first.
 | N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | filed 2026-10-27 against main b5f5c626 as [#305](https://github.com/NVIDIA-RTX/NRI/issues/305), the fix of patch 0035 attached; fixed in v191 by 14a61d47 (2026-10-28, our lines); patch dropped on both branches 2026-11-03 |
 | N12 VK: stage masks name shader stages the device lacks | bug | patched on master and `next` as 0039 (2026-11-04); not filed; measured on v191: MoltenVK in CI, NVIDIA with `disableVKRayTracing` |
 | N13 D3D12: every resource creation fails on the inbox runtime | bug (regression) | introduced on main by 3dd4cbfa (after v191; master unaffected); patched on `next` as 0040 (2026-11-05); not filed; measured on main 7ea93bb5, Windows 11 26200 inbox runtime, NVIDIA |
-| `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
-| D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
-| Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
-| Draw-parameters emulation on Vulkan | design question | not filed: validation demands `DrawBaseDesc` strides on every backend, while Vulkan reads plain records at `offset` |
+| N14 `WriteShaderGroupIdentifiers` with a group range past the pipeline's groups crashes | bug (crash) | patched on `next` as 0041 (2026-11-05); not filed; measured on main 7ea93bb5 (v191 has the same code), NVIDIA, VK and D3D12 |
+| N15 VK: pipeline statistics add the mesh counters on `features.meshShader` | bug | patched on `next` as 0042 (2026-11-05); not filed; measured on main 7ea93bb5 (v191 has the same code), NVIDIA with the Khronos Profiles layer reporting `meshShaderQueries = false` |
+| D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag || Draw-parameters emulation on Vulkan | design question | not filed: validation demands `DrawBaseDesc` strides on every backend, while Vulkan reads plain records at `offset` |
 
 The sections below are the drafts and the audit behind them (every claim re-verified against the
 unpatched tree). The filed ones were posted in a shorter form (Observed, Cause with line numbers,
@@ -1008,6 +1010,43 @@ does not implement. NRI calls none of its additions (`GetDesc2`, `GetCastableFor
 encoder has the same shape (`ID3D12VideoEncoderBest` = `ID3D12VideoEncoder1`, created by IID, with
 `TODO-VIDEO: use "QueryLatestInterface"` on the line); not measured on the inbox runtime.
 
+### N14: WriteShaderGroupIdentifiers with a group range past the pipeline's groups crashes
+
+**Observed.** NRI validation on, a ray tracing pipeline with three groups,
+`WriteShaderGroupIdentifiers(pipeline, 2, 2, ...)`: D3D12 ends the process with an access violation
+(0xC0000005) and no message; Vulkan reports
+VUID-vkGetRayTracingShaderGroupHandlesKHR-firstGroup-02419 ("firstGroup (2) + groupCount (2) must be
+less than or equal to the number of shader groups in pipeline (3)") and then ends the process with
+an access violation in the NVIDIA driver. NVIDIA RTX 4070 SUPER, main 7ea93bb5.
+
+**Cause.** `PipelineVal::WriteShaderGroupIdentifiers` checks only `dstStride` (`PipelineVal.hpp:25`);
+the validation pipeline does not keep the group count (`DeviceVal::CreateRayTracingPipeline` wraps
+the pipeline with the generic `PipelineVal` constructor, `DeviceVal.hpp:1900`, so the one taking the
+`RayTracingPipelineDesc` is never used). D3D12 then reads
+`m_ShaderGroupNames[shaderGroupIndex]` without a bound (`PipelineD3D12.hpp:691`), and Vulkan passes the
+range to `vkGetRayTracingShaderGroupHandlesKHR` (`PipelineVK.hpp:707`).
+
+**Fix.** Patch 0041: the validation pipeline is created with its `RayTracingPipelineDesc`, keeps its
+`shaderGroupNum` and refuses
+`baseShaderGroupIndex + shaderGroupNum` past it with `INVALID_ARGUMENT` (64-bit sum). A wrapped
+pipeline has no known count (`PipelineVKDesc` has none) and stays unchecked.
+
+### N15: VK: pipeline statistics add the mesh counters on features.meshShader
+
+**Observed.** On a Vulkan device with mesh shaders but without `meshShaderQueries`, every
+`PIPELINE_STATISTICS` pool draws VUID-VkQueryPoolCreateInfo-meshShaderQueries-07069
+("pipelineStatistics ... contains mesh/task shader bit, but meshShaderQueries feature was not
+enabled"), and `GetQuerySize` answers 104 bytes for 11 counters. Measured on NVIDIA RTX 4070 SUPER,
+main 7ea93bb5, with the Khronos Profiles layer below the validation layer reporting
+`meshShaderQueries = false` and simulating nothing else.
+
+**Cause.** `QueryPoolVK.hpp:38` adds the task and mesh statistic bits, and `:47` and `:56` size the
+query for 13 counters, when `features.meshShader` is set (since f53490f). Those bits need
+`meshShaderQueries`, which `DeviceVK.hpp:1710` reports as `features.meshShaderPipelineStats`, the bit
+`PipelineStatisticsDesc` documents for the two fields.
+
+**Fix.** Patch 0042: the three lines test `features.meshShaderPipelineStats`.
+
 ### Not filed
 
 - **D3D12 attachment resolve into a non-zero layer or mip.** In v190 `EndRendering` passed
@@ -1022,11 +1061,6 @@ encoder has the same shape (`ID3D12VideoEncoderBest` = `ID3D12VideoEncoder1`, cr
 
   Main's 48d4a33 passes `MipLevels` (`:2010`, `:2052`), so it is fixed. Master keeps the bug until
   the next tag, and the test written for it belongs on `next`.
-- **Vulkan pipeline-statistics pool.** `QueryPoolVK.hpp:38` adds the task and mesh counters when
-  `features.meshShader` is set, and the query size follows (`:47`, `:56`). NRI's own
-  `features.meshShaderPipelineStats` (`DeviceVK.hpp:1633`, from `meshShaderQueries`) is the bit that
-  allows them (VUID-VkQueryPoolCreateInfo-meshShaderQueries-07068). Since f53490f. Held: found by
-  reading, and every device here reports both bits, so nothing measures it.
 - **Draw-parameters emulation on Vulkan** (a question).
   - Validation (`CommandBufferVal.hpp`) demands `sizeof(DrawBaseDesc)` strides for indirect draws
     with the emulation flag on every backend.
@@ -1034,11 +1068,6 @@ encoder has the same shape (`ID3D12VideoEncoderBest` = `ID3D12VideoEncoder1`, cr
     of 16 is refused ("'stride' is too small, expected >= 24"), `DrawBaseDesc` records at stride 24
     draw nothing, and at `offset + 8` they draw.
   - The portable rule today: set the flag on D3D12 only.
-- **`WriteShaderGroupIdentifiers` group range.** Held, because it was found by reading and not
-  measured. `PipelineVal::WriteShaderGroupIdentifiers` checks only the stride (`PipelineVal.hpp:25`),
-  and the D3D12 backend reads `m_ShaderGroupNames[shaderGroupIndex]` without a bound
-  (`PipelineD3D12.hpp:691`), so a base index plus group count past the pipeline's groups is never
-  refused.
 - **Driver behaviour, not NRI.**
   - On the development machine's D3D12 driver, an H.265 decode capability query at 64x64 removes the
     device (`[233] ... DXGI_ERROR_DRIVER_INTERNAL_ERROR`), inside the decoder-heap creation of NRI's

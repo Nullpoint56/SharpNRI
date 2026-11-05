@@ -48,7 +48,7 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
 - **State.** Master pins NRI v191 (46c93d79) with twelve patches; `next` pins NRI main 7ea93bb5
-  (2026-11-05) with thirteen: the same twelve and 0040 (Patches).
+  (2026-11-05) with fifteen: the same twelve, 0040, 0041 and 0042 (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
   `dotnet/Native` resolved by hand. NRI-side work (patches, re-cuts, upstream reports) starts on
@@ -374,7 +374,8 @@ ref and patch count, the payload the tests loaded (by content) and the adapter e
 ## Patches
 
 The set for NRI v191 (46c93d79) on master; `next` (main 7ea93bb5) carries the same twelve plus
-0040, for a defect main introduced after v191. Gaps in the numbering are patches dropped when
+0040 (a defect main introduced after v191), 0041 and 0042 (defects v191 has too, found on `next`
+and not yet on master). Gaps in the numbering are patches dropped when
 upstream took the fix (git log, `docs/upstream.md`).
 
 | Patch | What | Why |
@@ -392,6 +393,8 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0038 vulkan-instance-create-info-next | `DeviceCreationDesc::vkInstanceCreateInfoNext` (`NriOptional const void*`, next to `vkExtensions`): a caller's chain appended to `VkInstanceCreateInfo::pNext` after NRI's own structures | `VkLayerSettingsCreateInfoEXT` cannot otherwise reach the layer, and layer settings go through environment variables: process-wide, and unseen on Linux and macOS when set from .NET (Device creation and callbacks); a proposal |
 | 0039 vulkan-unsupported-shader-stages | `DeviceVK` records the shader stages it lacks (tessellation, geometry, task, mesh, ray tracing; from the features it enabled); barriers and fence waits drop their pipeline stages, and a pipeline layout drops them from its stages, which `ALL` / `ALL_SHADERS` resolve to | NRI turns a mask naming every shader stage into every Vulkan stage bit whatever the device has, which the validation layer refuses on a device without those stages (Barriers) |
 | 0040 d3d12-resource-interface-inbox-runtime (`next` only) | `ID3D12ResourceBest` back to `ID3D12Resource2` in `BufferD3D12.h` and `TextureD3D12.h` | main's 3dd4cbfa made it `ID3D12Resource3`, which the inbox runtime lacks: every resource creation fails there (D3D12 and the Agility SDK) |
+| 0041 validation-shader-group-range (`next` only) | the validation pipeline is created with its `RayTracingPipelineDesc` (the generic constructor was used), keeps its `shaderGroupNum`, and `WriteShaderGroupIdentifiers` refuses a range past it with `INVALID_ARGUMENT`; wrapped pipelines (count unknown) stay unchecked | validation checked only the stride, and a range past the groups crashed both backends (Ray tracing) |
+| 0042 vulkan-mesh-shader-pipeline-statistics (`next` only) | `QueryPoolVK` adds the task and mesh counters, and sizes queries for 13, on `features.meshShaderPipelineStats` instead of `features.meshShader` | the counters need `meshShaderQueries`; without it every pipeline-statistics pool drew VUID 07069 and a wrong query size (Multisampling, copies and queries) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -404,7 +407,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all twelve do; at main 7ea93bb5 all thirteen, none re-cut.
+  all twelve do; at main 7ea93bb5 all fifteen.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions; 0001's order rule under D3D12 and the Agility
   SDK).
@@ -860,9 +863,15 @@ Measured by `MultisampleTests`, `TextureCopyTests` and `QueryTests`.
 - **Occlusion queries** begin without `VK_QUERY_CONTROL_PRECISE_BIT` (only non-zero guaranteed);
   measured counts are exact anyway: 256 for a full 16x16 quad, 0 behind a failing depth test.
 - **Pipeline statistics**: results `QuerySize` apart (VK 104 bytes, D3D12 112); fragment
-  invocations for 256 pixels: 256 on hardware, 288 on WARP (helper lanes on diagonal quads). The
-  Vulkan pool adds mesh counters on `features.meshShader` rather than `meshShaderPipelineStats`
-  (read, not filed; lavapipe and NVIDIA report both). Lavapipe counts 0 clipping output primitives
+  invocations for 256 pixels: 256 on hardware, 288 on WARP (helper lanes on diagonal quads).
+  **Mesh counters without mesh-shader queries (patch 0042, `next` only).** The Vulkan pool added
+  the task and mesh counters and sized queries for 13 on `features.meshShader`; the counters need
+  `meshShaderQueries` (`features.meshShaderPipelineStats`). Every device here has both, so
+  `MeshShaderQueryTests` runs a child with the Khronos Profiles layer (Vulkan SDK) below the
+  validation layer, reporting `meshShaderQueries = false` and simulating nothing else
+  (`SIMULATE_FEATURES_BIT`, portability emulation off): without the patch
+  VUID-VkQueryPoolCreateInfo-meshShaderQueries-07069 and 104-byte queries, with it none and 88
+  bytes; skipped where the layer is not installed (CI). Lavapipe counts 0 clipping output primitives
   for two visible triangles (Vulkan requires at least 1 each): the test asserts the bound
   everywhere else and the wrong 0 on lavapipe (Tests and skips).
 - **Timestamps**: a GPU timestamp written between two calibrated readings lies between them; 1 GHz
@@ -1106,8 +1115,12 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
 - **AABB geometry** (`FromAabbs`, offset 32, stride 32): committing every procedural candidate gives
   the boxes' exact hit map on VK, D3D12 and WARP.
 - **`WriteShaderGroupIdentifiers`**: the binding's size check multiplies in 64 bits (2^28 x 16
-  wrapped to 0 in 32). NRI does not check the group range (validation checks only the stride; D3D12
-  indexes `m_ShaderGroupNames` unbounded): read, not measured.
+  wrapped to 0 in 32). **The group range (patch 0041, `next` only):** validation checked only the
+  stride, so groups past the pipeline's reached the backend: on a three-group pipeline, groups 2..3
+  ended the process (0xC0000005) on D3D12 with no message (`m_ShaderGroupNames` indexed unbounded)
+  and on Vulkan after VUID-vkGetRayTracingShaderGroupHandlesKHR-firstGroup-02419, in the NVIDIA
+  driver. Now `INVALID_ARGUMENT` with one message on both (`ShaderGroupRangeTests`, a child per
+  backend).
 
 ### Upscalers and vendor runtimes
 
