@@ -23,6 +23,9 @@ tests, 0 failed, 13 skipped (NVIDIA RTX 4070 SUPER); the `[989]` warnings fell f
 The same day the two held read-only findings were measured and patched: N14 (0041, a crash) and
 N15 (0042, with the Khronos Profiles layer standing in for a device without mesh-shader queries).
 With 0040-0042: Windows 541 tests, 0 failed, 13 skipped.
+Filed the same day: the four bugs as issues #309-#312 (fixes inline, N12 as a fork commit); the
+seven proposals as four pull requests from the owner's fork, one commit per item: #313 (0018,
+0019, 0024, 0038), #314 (0001), #315 (0012), #316 (0017).
 
 2026-10-19: all six filed issues were fixed on main within the day. Main is ten commits past v190
 at 8ee40ca, still `NRI_VERSION 190`, untagged.
@@ -100,18 +103,18 @@ dedicated allocations, so they need a capability check first.
 | 0002 shared buffers, textures and fences | proposal, PR | merged 2026-10-27 as eb4ed356, polished by the maintainer in f18c6df9 (`DestroySharedHandle`) and d0f5ce49 (export support queries, `UNSUPPORTED`, comments); dropped on `next` at b5f5c62. Offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs; re-cut in that shape on `next` 2026-10-23 (section below); filed 2026-10-24 as [PR #294](https://github.com/NVIDIA-RTX/NRI/pull/294) from the owner's fork (`Nullpoint56:shared-handles`, main 72f5f46 + 0002), the `FenceDesc` question asked in a [comment on #49](https://github.com/NVIDIA-RTX/NRI/issues/49) that links it; reviewed 2026-10-26, four items fixed on the branch |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug | filed 2026-10-27 against main b5f5c626 as [#303](https://github.com/NVIDIA-RTX/NRI/issues/303), the fix of patch 0006 attached; fixed in v191 by 0682d020 (2026-10-28, our lines); patch dropped on both branches 2026-11-03 |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | bug | filed 2026-10-27 against main b5f5c626 as [#302](https://github.com/NVIDIA-RTX/NRI/issues/302), the fix of patch 0016 attached; fixed in v191 by 9764221e (2026-10-28, another shape: `GetEffectiveShaderStages` resolves `ALL` and `ALL_SHADERS` to the layout's stages in every backend and in validation); patch dropped on both branches 2026-11-03 |
-| 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | drafted 2026-10-19; pull request planned; the uncapped order stays as it is |
-| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | drafted 2026-10-19; pull request planned; the default (break) stays |
-| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | drafted 2026-10-19; pull request planned |
-| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | drafted 2026-10-19; pull request planned; per-frame or total size is open |
-| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | drafted 2026-10-19; main took the idea in its own shape on 2026-10-22 (962615b, #286: `nriEnumerateAdapters` takes the backends to probe); `next` keeps two lines, `nriCreateDevice` with no adapter probing VK only for a VK device; pull request planned |
-| 0001 Agility SDK from a path | proposal | drafted 2026-10-19; pull request planned (related: #157); the load is process-global, as the report states |
+| 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | drafted 2026-10-19; filed 2026-11-05 as [PR #316](https://github.com/NVIDIA-RTX/NRI/pull/316); the uncapped order stays as it is |
+| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | drafted 2026-10-19; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313) (device creation group, with 0019, 0024, 0038); the default (break) stays |
+| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | drafted 2026-10-19; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313) |
+| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | drafted 2026-10-19; filed 2026-11-05 as [PR #315](https://github.com/NVIDIA-RTX/NRI/pull/315); per-frame or total size is open |
+| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | drafted 2026-10-19; main took the idea in its own shape on 2026-10-22 (962615b, #286: `nriEnumerateAdapters` takes the backends to probe); `next` keeps two lines, `nriCreateDevice` with no adapter probing VK only for a VK device; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313) |
+| 0001 Agility SDK from a path | proposal | drafted 2026-10-19; filed 2026-11-05 as [PR #314](https://github.com/NVIDIA-RTX/NRI/pull/314) (related: #157); the load is process-global, as the report states |
 | 0007 Apple loader link should be optional | build option | not filed: a packaging option (PR 134 added the link) |
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | filed 2026-10-27 against main b5f5c626 as [#304](https://github.com/NVIDIA-RTX/NRI/issues/304), the fix of patch 0009 attached; fixed in v191 by c1261950 (2026-10-28, our lines, a third for `WaitForPresent`, and `ReportMessage` demotes an `OUT_OF_DATE` report to `WARNING`); patch dropped on both branches 2026-11-03 |
 | 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
 | 0015 Khronos message id name not forwarded | reporting | not filed: message format (59d0785) |
 | 0037 Vulkan swap chain without `VkSwapchainPresentModesCreateInfoKHR` | layer warning | not filed: one present mode is what Vulkan assumes without the structure; the best-practices warning is cosmetic (drafted 2026-10-24, section below) |
-| 0038 `vkInstanceCreateInfoNext`: a caller's chain for `VkInstanceCreateInfo` | proposal | drafted 2026-10-24; pull request planned (section below) |
+| 0038 `vkInstanceCreateInfoNext`: a caller's chain for `VkInstanceCreateInfo` | proposal | drafted 2026-10-24; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313) (section below) |
 | N1 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` | bug | fixed upstream in 0593d91 (2026-10-26), dropped on next; patched on master as 0025 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#295](https://github.com/NVIDIA-RTX/NRI/issues/295); reproduced on main 2f7a49f (2026-10-22) |
 | N2 Vulkan empty vertex input makes the binding stride dynamic | bug | fixed upstream in 8a8fc2b (2026-10-26), dropped on next; patched on master as 0026 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#296](https://github.com/NVIDIA-RTX/NRI/issues/296); reproduced on main 2f7a49f (2026-10-22) |
 | N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | fixed upstream in 909a139 (2026-10-26), dropped on next; patched on master as 0027 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#297](https://github.com/NVIDIA-RTX/NRI/issues/297); reproduced on main 2f7a49f (2026-10-22) |
@@ -670,7 +673,7 @@ Patch attached (`patches/0037-vulkan-swapchain-present-modes-info.patch`), eight
 
 ## 0038 — `DeviceCreationDesc::vkInstanceCreateInfoNext` (proposal)
 
-Status: proposal, drafted 2026-10-24; pull request planned.
+Status: proposal, drafted 2026-10-24; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313).
 
 **Title:** `DeviceCreationDesc`: let the caller chain structures into `VkInstanceCreateInfo`
 
