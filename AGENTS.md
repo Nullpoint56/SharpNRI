@@ -830,7 +830,7 @@ pixels of a 64x64 target exactly).
   D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS flag is undefined" on D3D12; NVIDIA Vulkan then
   ignores the bias, D3D12 and WARP apply it. After re-binding the pipeline, Vulkan and WARP restore
   its bias and NVIDIA's D3D12 driver keeps the dynamic one (a driver difference, untested).
-- **Draw-parameters emulation is D3D12 and Metal only (patch 0043, `next` only).** The flag is "D3D12,
+- **Draw-parameters emulation is D3D12 and Metal only (patch 0043, `next` only; NRI #317).** The flag is "D3D12,
   METAL"; on SPIR-V `NRI.hlsl` writes plain `DrawDesc` records and the Vulkan backend reads them.
   Validation applied the emulated layout on every backend: on Vulkan with the flag, stride 16 was
   refused ("'stride' is too small, expected >= 24", 28 indexed) and `DrawBaseDesc` records at 24

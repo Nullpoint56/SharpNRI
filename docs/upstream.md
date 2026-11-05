@@ -133,7 +133,7 @@ dedicated allocations, so they need a capability check first.
 | N14 `WriteShaderGroupIdentifiers` with a group range past the pipeline's groups crashes | bug (crash) | patched on `next` as 0041 (2026-11-05); filed 2026-11-05 as [#311](https://github.com/NVIDIA-RTX/NRI/issues/311), the fix inline; measured on main 7ea93bb5 (v191 has the same code), NVIDIA, VK and D3D12 |
 | N15 VK: pipeline statistics add the mesh counters on `features.meshShader` | bug | patched on `next` as 0042 (2026-11-05); filed 2026-11-05 as [#312](https://github.com/NVIDIA-RTX/NRI/issues/312), the fix inline; measured on main 7ea93bb5 (v191 has the same code), NVIDIA with the Khronos Profiles layer reporting `meshShaderQueries = false` |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
-| N16 Validation applies the draw-parameters emulation record layout on Vulkan | bug | patched on `next` as 0043 (2026-11-05); not filed; measured on main 7ea93bb5 (v191 has the same code), NVIDIA, VK; earlier recorded as a design question |
+| N16 Validation applies the draw-parameters emulation record layout on Vulkan | bug | patched on `next` as 0043 (2026-11-05); filed 2026-11-05 as [#317](https://github.com/NVIDIA-RTX/NRI/issues/317), the fix inline; measured on main 7ea93bb5 (v191 has the same code), NVIDIA, VK; earlier recorded as a design question |
 
 The sections below are the drafts and the audit behind them (every claim re-verified against the
 unpatched tree). The filed ones were posted in a shorter form (Observed, Cause with line numbers,
