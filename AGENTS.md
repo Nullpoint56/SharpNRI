@@ -47,8 +47,8 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
-- **State.** Both pin NRI v191 (46c93d79) with the twelve patches under Patches; `next` moves when
-  NRI main moves past v191.
+- **State.** Master pins NRI v191 (46c93d79) with twelve patches; `next` pins NRI main 7ea93bb5
+  (2026-11-05) with thirteen: the same twelve and 0040 (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
   `dotnet/Native` resolved by hand. NRI-side work (patches, re-cuts, upstream reports) starts on
@@ -373,7 +373,8 @@ ref and patch count, the payload the tests loaded (by content) and the adapter e
 
 ## Patches
 
-The set for NRI v191 (46c93d79), on both branches. Gaps in the numbering are patches dropped when
+The set for NRI v191 (46c93d79) on master; `next` (main 7ea93bb5) carries the same twelve plus
+0040, for a defect main introduced after v191. Gaps in the numbering are patches dropped when
 upstream took the fix (git log, `docs/upstream.md`).
 
 | Patch | What | Why |
@@ -390,6 +391,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0037 vulkan-swapchain-present-modes-info | `SwapChainVK::Create` chains `VkSwapchainPresentModesCreateInfoKHR` listing the chosen `presentMode` only, with `swapchainMaintenance1` | upstream chains present scaling but not this, and best practices warn for every swap chain; one mode is what Vulkan assumes without the structure (Extensions) |
 | 0038 vulkan-instance-create-info-next | `DeviceCreationDesc::vkInstanceCreateInfoNext` (`NriOptional const void*`, next to `vkExtensions`): a caller's chain appended to `VkInstanceCreateInfo::pNext` after NRI's own structures | `VkLayerSettingsCreateInfoEXT` cannot otherwise reach the layer, and layer settings go through environment variables: process-wide, and unseen on Linux and macOS when set from .NET (Device creation and callbacks); a proposal |
 | 0039 vulkan-unsupported-shader-stages | `DeviceVK` records the shader stages it lacks (tessellation, geometry, task, mesh, ray tracing; from the features it enabled); barriers and fence waits drop their pipeline stages, and a pipeline layout drops them from its stages, which `ALL` / `ALL_SHADERS` resolve to | NRI turns a mask naming every shader stage into every Vulkan stage bit whatever the device has, which the validation layer refuses on a device without those stages (Barriers) |
+| 0040 d3d12-resource-interface-inbox-runtime (`next` only) | `ID3D12ResourceBest` back to `ID3D12Resource2` in `BufferD3D12.h` and `TextureD3D12.h` | main's 3dd4cbfa made it `ID3D12Resource3`, which the inbox runtime lacks: every resource creation fails there (D3D12 and the Agility SDK) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -402,7 +404,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all twelve do.
+  all twelve do; at main 7ea93bb5 all thirteen, none re-cut.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions; 0001's order rule under D3D12 and the Agility
   SDK).
@@ -895,11 +897,23 @@ Measured by `DebugAidTests`.
 - **Agility 1.620 reports every legacy `CheckFeatureSupport` as deprecated** (NRI #307, D3D12MA
   #102): WARNING 989 `D3D12_MESSAGE_ID_DEPRECATED_API` ("ID3D12Device::CheckFeatureSupport is
   superseded by ID3D12Device16::CheckFeatureSupport1 ..."), 33 per device creation on NVIDIA and
-  WARP since v191 pins Agility 1.620.1 (c33dd915); answers unchanged. 29 come from
-  `DeviceD3D12.hpp`, six from D3D12MA (its fix, #102, is not merged yet). A local prototype of NRI's
-  part (`ID3D12Device16`, one helper for the 29 calls) left D3D12MA's six and made NRI report `Using
-  ID3D12Device16`, which `AgilityFactoryRouteTests` (expecting 15) would need. The device-lost child
-  allows exactly these warnings by ID and text and fails when none remain (Tests and skips).
+  WARP since v191 pins Agility 1.620.1 (c33dd915); answers unchanged. NRI's own 27 moved to
+  `CheckFeatureSupport1` on main (3dd4cbfa, which also made `ID3D12DeviceBest` `ID3D12Device16`:
+  `Using ID3D12Device16` on Agility); six remain on main 7ea93bb5, D3D12MA's (its fix, #102, is not
+  merged yet). The device-lost child allows exactly these warnings by ID and text and fails when
+  none remain (Tests and skips).
+- **Resources on the inbox runtime (patch 0040, `next` only).** 3dd4cbfa made `ID3D12ResourceBest`
+  `ID3D12Resource3`. The device and command lists are queried down to what the runtime has
+  (`QueryLatestInterface`), resources are created for that IID directly, and the inbox runtime
+  (Windows 11 26200) has no `ID3D12Resource3`: every committed, bound and placed buffer and texture
+  failed with `E_NOINTERFACE` as `INVALID_SDK` ("D3D12MA::CreateResource3(): failed, result =
+  0x80004002", "ID3D12Device10::CreatePlacedResource2(): failed ..."), and with the D3D12 debug
+  layer on a failed bind ended the process (0xC0000409, no message). NRI calls none of
+  `Resource3`'s methods (`GetDesc2`, castable formats), so the patch goes back to `Resource2`.
+  `InboxRuntimeTests` (a child whose first D3D12 device is the inbox one) creates each kind;
+  `RenderDocTests` (inbox capture) failed the same way. v191 is not affected. The video encoder
+  has the same shape (`ID3D12VideoEncoderBest` = `ID3D12VideoEncoder1` by IID, NRI's own
+  `TODO-VIDEO: use "QueryLatestInterface"`), unmeasured on the inbox runtime.
 - **Agility does not load in a managed process without patch 0001.** NRI's CMake writes
   `Include/NRIAgilitySDK.h` declaring `D3D12SDKVersion` / `D3D12SDKPath` exports for the host
   executable; `dotnet.exe`, `testhost.exe` and apphosts export nothing, so the inbox runtime runs.
@@ -914,7 +928,7 @@ Measured by `DebugAidTests`.
   first, and the apply still works. What must come first is the first D3D12 device the process
   keeps. A comment is not a patch; corrected here and in `docs/upstream.md`.
 - **Wrapped route works too**: a device from the host's own `ID3D12DeviceFactory`, passed to
-  `nriCreateDeviceFromD3D12Device`, reports `Using ID3D12Device15`, no OPTIONS22 warning
+  `nriCreateDeviceFromD3D12Device`, reports `Using ID3D12Device16` (15 on v191), no OPTIONS22 warning
   (`AgilityFactoryRouteTests`); NRI routes such devices' root signatures through
   `ID3D12DeviceConfiguration` (upstream PR #177).
 - Developer Mode is not needed for the factory route (Microsoft's documentation; the Windows CI

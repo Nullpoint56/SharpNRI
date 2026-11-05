@@ -392,6 +392,8 @@ public sealed unsafe class NriCommandBuffer : NriObject
     /// Fills a range with zeros. In barriers it is stage <c>COPY</c>, access <c>COPY_DESTINATION</c>, on
     /// both backends: <c>CopyBufferRegion</c> from a zero buffer on D3D12, <c>vkCmdFillBuffer</c> (a clear
     /// command, which NRI's <c>COPY</c> stage covers since 1163658) on Vulkan. Not <c>CLEAR_STORAGE</c>.
+    /// <paramref name="offset"/> and the size (the buffer's size for <c>WHOLE_SIZE</c>) must be multiples
+    /// of 4, which NRI validation checks since 7ea93bb5.
     /// </summary>
     public void ZeroBuffer(NriBuffer buffer, ulong offset, ulong size) => Core.CmdZeroBuffer(Raw, buffer.Raw, offset, size);
 

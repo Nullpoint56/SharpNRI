@@ -102,10 +102,10 @@ public sealed unsafe class AgilityFactoryRouteTests(ITestOutputHelper output)
 
             // The oracle: NRI reports the device interface version it found, and warns about
             // OPTIONS22 only on the inbox runtime (AGENTS.md: D3D12 and the Agility SDK). On Agility 1.619 it found
-            // ID3D12Device15 through patch 0001; the same here means the SDK is in use.
+            // ID3D12Device16 through patch 0001; the same here means the SDK is in use.
             var versionLine = messages.FirstOrDefault(m => m.Text.Contains("Using ID3D12Device", StringComparison.Ordinal));
             Assert.True(versionLine.Text is not null, "NRI did not report the device interface version");
-            Assert.Contains("ID3D12Device15", versionLine.Text);
+            Assert.Contains("ID3D12Device16", versionLine.Text);
             Assert.DoesNotContain(messages, m => m.Text.Contains("options22", StringComparison.OrdinalIgnoreCase));
 
             // And a round trip through the wrapped device: a buffer, a view, a fence.

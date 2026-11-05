@@ -15,6 +15,12 @@ with eleven patches: 0001, 0007, 0012, 0013, 0015, 0017, 0018, 0019, 0024 (two l
 Not filed: 0007 (build option), 0013 and 0037 (layer warnings), 0015 (message format). The
 proposals (0038, 0018, 0019, 0017, 0012, 0024, 0001) go as pull requests, one feature each.
 
+2026-11-05: `next` moved to main 7ea93bb5 (two commits past v191: 3dd4cbfa adopts the Agility 1.620
+interfaces and `CheckFeatureSupport1`, fixing #307; 7ea93bb5 requires 4-byte `CmdZeroBuffer`
+ranges). All twelve patches apply unchanged; no L0 drift (only a header comment changed). 3dd4cbfa
+broke every resource creation on the inbox runtime (N13), patched as 0040. Measured: Windows 538
+tests, 0 failed, 13 skipped (NVIDIA RTX 4070 SUPER); the `[989]` warnings fell from 33 to D3D12MA's 6.
+
 2026-10-19: all six filed issues were fixed on main within the day. Main is ten commits past v190
 at 8ee40ca, still `NRI_VERSION 190`, untagged.
 The other 17 patches apply in order onto 8ee40ca and every one is recognised by the scripts'
@@ -115,6 +121,7 @@ dedicated allocations, so they need a capability check first.
 | N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | fixed upstream in 9d276c3 and aa23763 (2026-10-26), dropped on next; patched on master as 0034 (2026-10-22, PR #26), re-cut on next for 72f5f46's creation rollback (#292, 2026-10-23) and carried until 83fd010; filed 2026-10-24 against main 72f5f46, [#301](https://github.com/NVIDIA-RTX/NRI/issues/301); reproduced on main 2f7a49f (2026-10-22) |
 | N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | filed 2026-10-27 against main b5f5c626 as [#305](https://github.com/NVIDIA-RTX/NRI/issues/305), the fix of patch 0035 attached; fixed in v191 by 14a61d47 (2026-10-28, our lines); patch dropped on both branches 2026-11-03 |
 | N12 VK: stage masks name shader stages the device lacks | bug | patched on master and `next` as 0039 (2026-11-04); not filed; measured on v191: MoltenVK in CI, NVIDIA with `disableVKRayTracing` |
+| N13 D3D12: every resource creation fails on the inbox runtime | bug (regression) | introduced on main by 3dd4cbfa (after v191; master unaffected); patched on `next` as 0040 (2026-11-05); not filed; measured on main 7ea93bb5, Windows 11 26200 inbox runtime, NVIDIA |
 | `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
 | Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
@@ -978,6 +985,28 @@ adds the mesh stages only with `features.meshShader`.
 ray tracing from `rayTracingPipeline`); barriers and fence waits drop those pipeline stages, and a
 pipeline layout drops them from its stages, which `ALL` and `ALL_SHADERS` resolve to. In Vulkan
 terms for barriers, since `StageBits::NONE` is `0x7FFFFFFF` and cannot be masked.
+
+### N13: D3D12: every resource creation fails on the inbox runtime
+
+**Observed.** Main 7ea93bb5 built with `NRI_ENABLE_AGILITY_SDK_SUPPORT`, running on the inbox runtime
+(no Agility SDK in the process; Windows 11 26200, "Using ID3D12Device14"): every committed, bound
+and placed buffer and texture fails with `INVALID_SDK`, "D3D12MA::CreateResource3(): failed, result
+= 0x80004002" (committed) or "ID3D12Device10::CreatePlacedResource2(): failed, result = 0x80004002"
+(bound, placed). With the D3D12 debug layer on, the failed bind ends the process (0xC0000409) with
+no message. RenderDoc, which captures the inbox runtime only, runs no NRI frame. v191 creates all of
+them; with Agility 1.620 both do.
+
+**Cause.** 3dd4cbfa sets `ID3D12ResourceBest` to `ID3D12Resource3` (`BufferD3D12.h:6`,
+`TextureD3D12.h:6`). The device and command lists go through `QueryLatestInterface`, but resources
+are created with `IID_PPV_ARGS(&m_Buffer)` / `IID_PPV_ARGS(&m_Texture)` (`BufferD3D12.hpp:49`, `:98`,
+`:101`; `TextureD3D12.hpp:63`, `:118`, `:121`), i.e. for `ID3D12Resource3`, which the inbox runtime
+does not implement. NRI calls none of its additions (`GetDesc2`, `GetCastableFormatsCount`,
+`GetCastableFormats`).
+
+**Fix.** Patch 0040: `typedef ID3D12Resource2 ID3D12ResourceBest` in both headers. (Creating as
+`ID3D12Resource` and querying the latest would also do, if `Resource3` is wanted later.) The video
+encoder has the same shape (`ID3D12VideoEncoderBest` = `ID3D12VideoEncoder1`, created by IID, with
+`TODO-VIDEO: use "QueryLatestInterface"` on the line); not measured on the inbox runtime.
 
 ### Not filed
 

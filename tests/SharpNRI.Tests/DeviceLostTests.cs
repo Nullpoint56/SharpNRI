@@ -132,13 +132,13 @@ public sealed class DeviceLostTests(ITestOutputHelper output)
         List<NriMessage> Since(int start) { lock (messages) return messages.Skip(start).ToList(); }
         var created = Since(0);
         // Any error or warning during creation fails: a DRED warning means no device lost diagnostics.
-        // One exception, temporary and self-removing (NRI #307, D3D12MA #102): NRI v191 and the D3D12MA it
-        // builds in ask D3D12 through ID3D12Device::CheckFeatureSupport, which the Agility 1.620 debug layer
-        // reports once per call as D3D12_MESSAGE_ID_DEPRECATED_API (989), a WARNING that the call is
-        // superseded by ID3D12Device16::CheckFeatureSupport1: 33 per device on NVIDIA and WARP (2026-11-03),
-        // 27 of them NRI's and 6 D3D12MA's (measured with NRI's calls moved). The answers are unchanged,
-        // so they are allowed here, matched by ID and text; when both move to CheckFeatureSupport1 they
-        // disappear, the check below fails, and the allowance goes.
+        // One exception, temporary and self-removing (D3D12MA #102): the D3D12MA NRI builds in asks D3D12
+        // through ID3D12Device::CheckFeatureSupport, which the Agility 1.620 debug layer reports once per
+        // call as D3D12_MESSAGE_ID_DEPRECATED_API (989), a WARNING that the call is superseded by
+        // ID3D12Device16::CheckFeatureSupport1: 6 per device on NVIDIA (NRI main 7ea93bb5; 33 on v191, the
+        // other 27 NRI's own, moved by 3dd4cbfa for NRI #307). The answers are unchanged, so they are
+        // allowed here, matched by ID and text; when D3D12MA moves to CheckFeatureSupport1 they disappear,
+        // the check below fails, and the allowance goes.
         static bool IsDeprecatedCheckFeatureSupport(NriMessage m) =>
             m.IsWarning && m.Text.Contains("[989] ID3D12Device::CheckFeatureSupport is superseded by ID3D12Device16::CheckFeatureSupport1", StringComparison.Ordinal);
         var unexpected = created.Where(m => m.IsError || (m.IsWarning && !IsDeprecatedCheckFeatureSupport(m))).ToList();
@@ -147,10 +147,10 @@ public sealed class DeviceLostTests(ITestOutputHelper output)
         var deprecated = created.Count(IsDeprecatedCheckFeatureSupport);
         if (deprecated == 0)
         {
-            Console.WriteLine("FAIL during creation: no [989] CheckFeatureSupport warning any more, so NRI #307 and D3D12MA #102 are fixed: remove the allowance in DeviceLostTests.Child");
+            Console.WriteLine("FAIL during creation: no [989] CheckFeatureSupport warning any more, so D3D12MA #102 is fixed: remove the allowance in DeviceLostTests.Child");
             return 1;
         }
-        Console.WriteLine($"RESULT creation reported {deprecated} [989] CheckFeatureSupport deprecation warning(s), allowed until NRI #307 and D3D12MA #102 are fixed");
+        Console.WriteLine($"RESULT creation reported {deprecated} [989] CheckFeatureSupport deprecation warning(s), allowed until D3D12MA #102 is fixed");
 
         var queue = device.GetQueue(QueueType.GRAPHICS);
         using var allocator = queue.CreateCommandAllocator();

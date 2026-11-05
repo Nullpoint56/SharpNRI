@@ -9,8 +9,9 @@ a header changes the L0 layer and the ABI oracle measures the patched header. Bo
 that is already applied, so the submodule working tree normally sits with every patch applied and
 `git -C nri status` shows the patched files as modified. Listed and explained in `AGENTS.md` (Patches).
 
-The set for NRI v191 (46c93d79), on master and `next` (`AGENTS.md`: Branches). All twelve apply in
-order onto v191, each also alone, and each passes the scripts' `-C0` reverse check. Patches dropped
+The set for NRI main 7ea93bb5 on `next`: master's twelve for v191 (46c93d79) and 0040, for a defect
+main introduced after v191 (`AGENTS.md`: Branches). All thirteen apply in order onto 7ea93bb5, each
+also alone, and each passes the scripts' `-C0` reverse check. Patches dropped
 when upstream took the fix are in git log and `docs/upstream.md`.
 
 | Patch | What | Why |
@@ -27,3 +28,4 @@ when upstream took the fix are in git log and `docs/upstream.md`.
 | `0037-vulkan-swapchain-present-modes-info` | with `swapchainMaintenance1`, the Vulkan swap chain is created with `VkSwapchainPresentModesCreateInfoKHR` listing its present mode | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (AGENTS.md: Extensions) |
 | `0038-vulkan-instance-create-info-next` | `DeviceCreationDesc::vkInstanceCreateInfoNext`, a caller's chain appended to `VkInstanceCreateInfo::pNext` after NRI's own structures | NRI creates the instance and chains only its own structures, so `VkLayerSettingsCreateInfoEXT` cannot reach the validation layer and its settings go through process-wide environment variables (AGENTS.md: Device creation and callbacks) |
 | `0039-vulkan-unsupported-shader-stages` | `DeviceVK` records the shader stages it lacks (tessellation, geometry, task, mesh, ray tracing); barriers and fence waits drop their pipeline stages, and a pipeline layout drops them from the stages `ALL` and `ALL_SHADERS` resolve to | NRI maps a mask naming every shader stage to every Vulkan stage bit whatever the device has, which the validation layer refuses on a device without those stages: MoltenVK, or any device with `disableVKRayTracing` (AGENTS.md: Barriers) |
+| `0040-d3d12-resource-interface-inbox-runtime` | `ID3D12ResourceBest` back to `ID3D12Resource2` in `BufferD3D12.h` and `TextureD3D12.h` | main's 3dd4cbfa made it `ID3D12Resource3`, which the inbox runtime does not have, so every buffer and texture creation fails there with `E_NOINTERFACE`; NRI uses none of its methods (AGENTS.md: D3D12 and the Agility SDK) |
