@@ -1,36 +1,33 @@
 name: release
 
-# How a release is made:
+# How a release is made (owner, 2026-11-06: by hand, from master only):
 #   1. Bump <Version> in dotnet/SharpNRI.csproj and, to the same value, in descs/SharpNRI.Descs.csproj,
 #      testing/SharpNRI.Testing.csproj and native/SharpNRI.Native.Upscalers.csproj. Add
 #      docs/releases/v<Version>.md, the release body (NRI pin, changes, breaking changes, verified
-#      hardware and commit, coverage link). Merge to master and let ci go green.
-#   2. git tag v<Version> && git push origin v<Version>     (e.g. v1.0.0-beta.2)
-#   3. This workflow: version (tag == v<Version> in all four csprojs, else fail) -> win-x64, linux-x64
-#      (native payloads, same setup and build-native.ps1 calls as ci.yml) -> pack (one set of .nupkg
-#      files, contents listed and checked) -> consume (tools/consume restores the packages from a
-#      folder feed and creates devices on windows and ubuntu) -> release (GitHub release with the
-#      .nupkg files and one zip per native payload; prerelease when the tag contains '-') -> nuget
-#      (the same .nupkg files to NuGet.org, Trusted Publishing; see the job). Nothing waits for
-#      macOS: osx-arm64 runs after the release and attaches its zip when a runner turns up.
-#   No dry run before tagging: a tag run that fails publishes nothing (release needs consume), and a
-#   dry run repeats every job of the tag run. After a failure: fix through a pull request, then move
-#   the tag (git tag -f v<Version> <commit>; git push -f origin v<Version>), or use "Re-run failed
-#   jobs" when the cause was outside the repository; it keeps the jobs that passed.
-#   Dry run (Actions > release > Run workflow, tag=v<Version>): only to try a change to this file.
-#   It builds, packs, runs consume, uploads artifacts and creates no release and no NuGet push.
-#   Once a version is on NuGet.org it cannot be moved: a failure after the nuget job means a new
-#   version, not a moved tag.
+#      hardware and commit, coverage link). Merge to master; master's ci goes green.
+#   2. Actions > release > Run workflow, on master. Nothing else starts it: no tag push, no merge.
+#   3. This workflow: version (all four csprojs agree on <Version>, v<Version> is not a tag yet,
+#      the notes exist, the run is on master) -> win-x64, linux-x64 (native payloads, same setup and
+#      build-native.ps1 calls as ci.yml) -> pack (one set of .nupkg files, contents listed and
+#      checked) -> consume (tools/consume restores the packages from a folder feed and creates
+#      devices on windows and ubuntu) -> release (creates the tag v<Version> on the run's commit and
+#      the GitHub release with the .nupkg files and one zip per native payload; prerelease when the
+#      version contains '-') -> nuget (the same .nupkg files to NuGet.org, Trusted Publishing, after
+#      the owner approves the nuget environment). Nothing waits for macOS: osx-arm64 runs after the
+#      release and attaches its zip when a runner turns up.
+#   A run that fails before the release job publishes nothing and creates no tag: fix through a pull
+#   request and run again, or "Re-run failed jobs" when the cause was outside the repository.
+#   Dry run (the dry_run input, any branch): only to try a change to this file. It builds, packs,
+#   runs consume, uploads artifacts and creates no tag, release or NuGet push.
+#   A version on NuGet.org is permanent: a failure after the nuget job means a new version.
 
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Tag to name the build after (v + <Version> in dotnet/SharpNRI.csproj). Dry run: no release is created."
-        required: true
-        type: string
+      dry_run:
+        description: "Dry run: build, pack and consume only; no tag, release or NuGet push (any branch)"
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
@@ -43,21 +40,24 @@ env:
   DOTNET_NOLOGO: "1"
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
-  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
-  # Fails in seconds, before the native builds, when the tag and the package versions disagree.
+  # Fails in seconds, before the native builds: package versions that disagree, missing notes, a
+  # version already tagged, or a real run anywhere but master.
   version:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       version: ${{ steps.check.outputs.version }}
+      tag: ${{ steps.check.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Tag equals v<Version>
+      - name: Version, tag and branch
         id: check
         shell: pwsh
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           $projects = "dotnet/SharpNRI.csproj", "descs/SharpNRI.Descs.csproj", "testing/SharpNRI.Testing.csproj",
                       "native/SharpNRI.Native.Upscalers.csproj"
@@ -69,16 +69,25 @@ jobs:
           $version = $versions[0].Version
           $odd = @($versions | Where-Object Version -ne $version)
           if ($odd) { throw "package versions disagree: $(($odd | ForEach-Object { "$($_.Project)=$($_.Version)" }) -join ', ') vs dotnet/SharpNRI.csproj=$version" }
-          if ($env:RELEASE_TAG -cne "v$version") { throw "tag '$env:RELEASE_TAG' is not 'v$version' (<Version> in dotnet/SharpNRI.csproj)" }
-          $notes = "docs/releases/$env:RELEASE_TAG.md"
+          $tag = "v$version"
+          $notes = "docs/releases/$tag.md"
           if (-not (Test-Path $notes)) { throw "release notes $notes missing: add them in the version-bump pull request" }
+          if ($env:DRY_RUN -ne 'true') {
+            if ($env:GITHUB_REF -ne 'refs/heads/master') { throw "a release runs on master only, not $env:GITHUB_REF (a dry run may run anywhere)" }
+            git ls-remote --exit-code --tags origin "refs/tags/$tag" | Out-Null
+            if ($LASTEXITCODE -eq 0) { throw "$tag exists already: bump <Version> for a new release" }
+            $global:LASTEXITCODE = 0   # ls-remote exits 2 for a missing tag, the good case; a pwsh step ends with that code
+          }
           "version=$version" >> $env:GITHUB_OUTPUT
-          Write-Host "release $env:RELEASE_TAG, packages $version"
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "release $tag, packages $version$(if ($env:DRY_RUN -eq 'true') { ' (dry run)' })"
 
   # Base + Upscalers. The Agility runtime build-native.ps1 also stages is for the repository's tests
   # only: no package or zip carries it (applications take Microsoft.Direct3D.D3D12).
   win-x64:
     needs: version
+    env:
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -150,6 +159,8 @@ jobs:
   # NRI, NGX is off without -WithDlss (build-native.ps1).
   linux-x64:
     needs: version
+    env:
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
     # Pinned: ubuntu-latest becomes Ubuntu 26 from 2026-10-19, and libNRI.so built there would need
     # its newer glibc, silently dropping every older distribution. Raising the floor is a decision.
     runs-on: ubuntu-24.04
@@ -242,6 +253,8 @@ jobs:
   # up; the NuGet packages do not carry the macOS library.
   osx-arm64:
     needs: [version, release]
+    env:
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
     runs-on: macos-latest
     timeout-minutes: 20
     permissions:
@@ -426,7 +439,9 @@ jobs:
 
   release:
     needs: [version, pack, consume]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    if: ${{ !inputs.dry_run && github.ref == 'refs/heads/master' }}
+    env:
+      RELEASE_TAG: ${{ needs.version.outputs.tag }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -439,7 +454,7 @@ jobs:
       # docs/releases/<tag>.md, plus where the macOS library comes from.
       - name: Release body
         run: |
-          cp "docs/releases/${GITHUB_REF_NAME}.md" body.md
+          cp "docs/releases/${RELEASE_TAG}.md" body.md
           {
             echo
             echo "The macOS (osx-arm64) library is not in the packages: it is attached here as a zip once a macOS runner has built it."
@@ -462,9 +477,10 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: SharpNRI ${{ github.ref_name }}
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          tag_name: ${{ needs.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}   # the tag is created here, on the run's commit
+          name: SharpNRI ${{ needs.version.outputs.tag }}
+          prerelease: ${{ contains(needs.version.outputs.tag, '-') }}
           body_path: body.md
           fail_on_unmatched_files: true
           files: |
@@ -479,7 +495,7 @@ jobs:
   # environment can require the owner's approval before the push.
   nuget:
     needs: [version, release]
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.NUGET_USER != ''
+    if: ${{ !inputs.dry_run && github.ref == 'refs/heads/master' && vars.NUGET_USER != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: nuget
