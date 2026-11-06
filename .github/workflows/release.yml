@@ -159,14 +159,18 @@ jobs:
         with:
           submodules: true
 
-      # As ci.yml. libx11-dev / libwayland-dev decide NRI's X11 / Wayland swapchain paths, so the
-      # release payload is the one CI tested. The test-only validation layer fetch is not needed.
-      - name: Install system packages
+      # The build packages of ci.yml's "Install build packages", installed the same way (lists
+      # refreshed only after a failed install). libx11-dev / libwayland-dev decide NRI's X11 /
+      # Wayland swapchain paths, so the release payload is the one CI tested. No test packages: this
+      # job runs no tests.
+      - name: Install build packages
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends \
-            ninja-build clang libvulkan1 mesa-vulkan-drivers vulkan-validationlayers vulkan-tools \
-            libx11-dev libwayland-dev
+          apt_install() {
+            sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=30 "$@" ||
+              { sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 &&
+                sudo apt-get install -y -qq --no-install-recommends "$@"; }
+          }
+          apt_install ninja-build clang libx11-dev libwayland-dev
 
       - name: Read NRI pin
         id: pin
@@ -384,12 +388,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Vulkan loader + lavapipe (software ICD).
+      # Vulkan loader + lavapipe (software ICD); lists refreshed only after a failed install, as in ci.yml.
       - name: Install system packages (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends libvulkan1 mesa-vulkan-drivers
+          apt_install() {
+            sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=30 "$@" ||
+              { sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 &&
+                sudo apt-get install -y -qq --no-install-recommends "$@"; }
+          }
+          apt_install libvulkan1 mesa-vulkan-drivers
 
       - uses: actions/setup-dotnet@v4
         with:

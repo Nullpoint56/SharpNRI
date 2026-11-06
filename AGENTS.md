@@ -1466,6 +1466,12 @@ minutes and a Windows minute about two. That shapes the runs:
   failure after the push means a new version, never a moved tag. Releases only: no CI or merge
   build is published there. Each package carries `docs/nuget/README.md` (absolute links), which the
   `pack` job requires.
+- **apt without an up-front refresh**: packages install from the runner image's lists; only an
+  install that fails on a stale list runs `apt-get update` and retries (the unconditional refresh
+  alone took minutes on a slow mirror, 2026-11-06). Test packages (`libvulkan1`,
+  `mesa-vulkan-drivers`, `vulkan-tools`) install only when tests run, build packages (`clang`,
+  `ninja-build`, X11/Wayland headers) only when the payload is built. Ubuntu's
+  `vulkan-validationlayers` is not installed: the SDK layer replaces it.
 - **Ubuntu pinned to 24.04** in the Linux leg and the release's Linux build and consume jobs:
   `ubuntu-latest` moved to Ubuntu 26, whose newer glibc a payload built there would need and whose
   1.4 loader would stop exercising the old-loader path. Moving is a decision.
