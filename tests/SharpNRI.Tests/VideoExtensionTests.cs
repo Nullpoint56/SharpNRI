@@ -1,4 +1,4 @@
-// The Video extension. Acquisition must follow features.video on every backend (UNSUPPORTED is a
+﻿// The Video extension. Acquisition must follow features.video on every backend (UNSUPPORTED is a
 // false from TryAcquire, never an exception). The bitstream serializers are host-only code shared by
 // every backend (Source/Shared/SharedVideo.h), so where the extension exists they are exercised for
 // real, through the managed parameter-set forms, on the GPU backends. NONE takes part only in the
@@ -185,11 +185,6 @@ public sealed class VideoExtensionTests
         GpuWork.Record($"{backend}: H.264 encode {width}x{height}: resolve on {caps.resolvedMetadataQueueType}, min {caps.widthMin}x{caps.heightMin}, bitstream alignment {caps.bitstreamOffsetAlignment}/{caps.bitstreamSizeAlignment}, "
             + $"metadata {caps.metadataSize} B, resolved {caps.resolvedMetadataSize} B, feedback {caps.encodeFeedbackSupported != 0} (resolve {caps.encodeFeedbackResolveRequired != 0}), DPB array {caps.dpbTextureArrayRequired != 0}");
         Assert.SkipWhen(caps.encodeFeedbackSupported == 0, $"{backend}: H.264 encode without feedback; the written size cannot be measured");
-        // Measured on the development machine's GPU: the Vulkan encode records and submits without a validation
-        // error, but its feedback query never becomes available: the resolve's
-        // vkCmdCopyQueryPoolResults with WAIT never completes (NRI's fence wait times out), the
-        // feedback reads 0 bytes, and the device is left with work pending. Not run until understood.
-        Assert.SkipWhen(backend.Api == GraphicsAPI.VK, "VK: the H.264 encode feedback query never becomes available and the resolve hangs (measured, AGENTS.md: Extensions)");
 
         TextureDesc Picture(TextureUsageBits usage) => new()
         {
@@ -269,9 +264,12 @@ public sealed class VideoExtensionTests
         Assert.Equal(0UL, feedback.errorFlags);
         Assert.InRange(feedback.encodedBitstreamWrittenBytes, 1UL, bitstreamSize - feedback.encodedBitstreamOffset);
 
+        // The encode ran on the encode queue and its fence was waited for, so on GRAPHICS the
+        // bitstream's first barrier names no stages: VIDEO_ENCODE there is a stage the queue does not
+        // have (VUID-vkCmdPipelineBarrier2-srcStageMask-09675, measured once the encode ran on Vulkan).
         GpuWork.Run(device, cmd =>
         {
-            cmd.Barrier([], [new NriBufferBarrier(bitstream, new AccessStage { access = AccessBits.VIDEO_ENCODE_WRITE, stages = StageBits.VIDEO_ENCODE }, GpuWork.CopySource), new NriBufferBarrier(bitstreamReadback, GpuWork.Nothing, GpuWork.CopyDestination)], []);
+            cmd.Barrier([], [new NriBufferBarrier(bitstream, GpuWork.Nothing, GpuWork.CopySource), new NriBufferBarrier(bitstreamReadback, GpuWork.Nothing, GpuWork.CopyDestination)], []);
             cmd.CopyBuffer(bitstreamReadback, 0, bitstream, 0, bitstreamSize);
         });
         var bytes = bitstreamReadback.Map().Slice((int)feedback.encodedBitstreamOffset, (int)feedback.encodedBitstreamWrittenBytes).ToArray();
@@ -619,6 +617,38 @@ public sealed class VideoExtensionTests
     }
 
     /// <summary>
+    /// AV1 encode session parameters from a sequence without a colour description, its colour
+    /// primaries, transfer characteristics and matrix coefficients left 0. Without
+    /// COLOR_DESCRIPTION_PRESENT AV1 infers "unspecified" (2) for all three, and NRI's own sequence
+    /// header writer omits them; NRI's Vulkan backend on v191 passed the desc's 0s (reserved for
+    /// primaries and transfer) into StdVideoAV1ColorConfig, and NVIDIA's driver refused the
+    /// parameters with VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR, no validation message (patch 0047).
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void AV1_session_parameters_take_a_sequence_without_a_colour_description(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var adapter = TestDevice.AdapterFor(backend.Api);
+        Assert.SkipWhen(adapter is null || adapter.QueueCount(QueueType.VIDEO_ENCODE) == 0, $"{backend}: the adapter has no video encode queue");
+        var messages = new List<NriMessage>();
+        using var device = CreateWithVideoQueues(backend.Api, messages);
+        Assert.SkipWhen(device.TryVideo is null, $"{backend}: no video (features.video is false)");
+        var video = device.Video;
+        var desc = SessionDesc(VideoSessionType.ENCODE, VideoCodec.AV1);
+        RequireSession(backend, video, desc);
+        var sequence = Av1Sequence();
+        Assert.False(sequence.flags.HasFlag(VideoAV1SequenceBits.COLOR_DESCRIPTION_PRESENT));
+        Assert.Equal((0, 0, 0), (sequence.colorPrimaries, sequence.transferCharacteristics, sequence.matrixCoefficients));
+
+        using var session = video.CreateVideoSession(desc);
+        using (video.CreateVideoSessionParameters(new NriVideoSessionParametersDesc { Session = session, Av1Parameters = new VideoAV1SessionParametersDesc { sequence = sequence } }))
+        {
+        }
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
+    /// <summary>
     /// AV1 key frames encoded on the video encode queue through NRI's defaults (a null picture desc)
     /// at constant q index 40, and through an explicit <see cref="NriVideoAV1EncodePictureDesc"/>
     /// (NRI's default key-frame flags, a single-tile layout, quantization, loop filter, CDEF, order
@@ -649,11 +679,12 @@ public sealed class VideoExtensionTests
     /// the submitted picture desc's, a key frame also without references.
     /// The picture desc's base q index is not what the encoder uses under CQP (the rate control's
     /// is), so the q index is set through the rate control.
-    /// Vulkan resolves encode feedback through CmdResolveVideoEncodeFeedback, the same
-    /// codec-independent feedback query and copy for every codec (CommandBufferVK.hpp, EncodeVideo
-    /// and ResolveVideoEncodeFeedback). Measured for H.264, the query never becomes available and the
-    /// resolve's vkCmdCopyQueryPoolResults with WAIT never completes, leaving the GPU waiting; that is
-    /// not repeated here.
+    /// Vulkan resolves encode feedback through CmdResolveVideoEncodeFeedback on the queue and in the
+    /// state the capabilities name, as the H.264 test does; since 90112642 (in v191) NRI reads the
+    /// results on the host, and H.264 encodes on Vulkan. AV1 on Vulkan first failed to create its
+    /// session parameters (reserved colour values, patch 0047); past that, measured on NVIDIA, the
+    /// encode writes no byte and its feedback query never becomes available, for NRI's default and an
+    /// explicit picture desc alike, with no validation message, so Vulkan skips naming that.
     /// </remarks>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -669,7 +700,8 @@ public sealed class VideoExtensionTests
         var desc = SessionDesc(VideoSessionType.ENCODE, VideoCodec.AV1);
         var caps = RequireSession(backend, video, desc);
         Assert.SkipWhen(caps.encodeFeedbackSupported == 0, $"{backend}: AV1 encode without feedback; the written size cannot be measured");
-        Assert.SkipWhen(caps.encodeFeedbackResolveRequired != 0, $"{backend}: AV1 encode feedback needs CmdResolveVideoEncodeFeedback, whose query never became available for H.264 (the resolve hangs, measured, AGENTS.md: Extensions)");
+        Assert.SkipWhen(backend.Api == GraphicsAPI.VK,
+            "VK: the AV1 encode writes no byte of bitstream and its feedback query never becomes available, with no validation message (measured on NVIDIA at v191 with patch 0047; NRI or driver not yet determined, AGENTS.md: Extensions)");
 
         using var encoder = new Av1Encoder(device, video, desc, caps);
         var av1Caps = video.GetVideoAV1Capabilities(desc);
@@ -836,6 +868,7 @@ public sealed class VideoExtensionTests
         private readonly NriBuffer _bitstream, _readback;
         private readonly NriBuffer? _metadata;
         private readonly NriFence _fence;
+        private readonly VideoCapabilities _caps;
         private readonly ulong _bitstreamSize;
         private ulong _fenceValue;
 
@@ -843,21 +876,32 @@ public sealed class VideoExtensionTests
         {
             _device = device;
             _video = video;
-            _queue = device.GetQueue(QueueType.VIDEO_ENCODE);
-            _ = device.GetQueue(QueueType.GRAPHICS);
-            _source = Own(device.CreateCommittedTexture(MemoryLocation.DEVICE, VideoTexture(TextureUsageBits.VIDEO_ENCODE, VideoCodec.AV1)));
-            _reconstructed = Own(device.CreateCommittedTexture(MemoryLocation.DEVICE, VideoTexture(TextureUsageBits.VIDEO_ENCODE | TextureUsageBits.VIDEO_REFERENCE_ONLY, VideoCodec.AV1)
-                with { layerNum = (ushort)Math.Max(1u, caps.dpbTextureArrayRequired != 0 ? caps.dpbTextureArrayMinLayerNum : 1) }));
-            _bitstreamSize = GpuWork.Align(1 << 20, Math.Max(1u, caps.bitstreamSizeAlignment));
-            _bitstream = Own(device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = _bitstreamSize, usage = BufferUsageBits.VIDEO_ENCODE }));
-            _readback = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = _bitstreamSize }));
-            _metadata = caps.metadataSize == 0 ? null : Own(device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = caps.metadataSize, usage = BufferUsageBits.VIDEO_ENCODE }));
-            Resolved = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = Math.Max(caps.resolvedMetadataSize, 256), usage = BufferUsageBits.VIDEO_ENCODE }));
-            Session = Own(video.CreateVideoSession(desc));
-            _parameters = Own(video.CreateVideoSessionParameters(new NriVideoSessionParametersDesc { Session = Session, Av1Parameters = new VideoAV1SessionParametersDesc { sequence = Av1Sequence() } }));
-            _sourcePicture = Own(video.CreateVideoPicture(new NriVideoPictureDesc { Texture = _source, Usage = VideoPictureUsage.ENCODE_INPUT }));
-            _reconstructedPicture = Own(video.CreateVideoPicture(new NriVideoPictureDesc { Texture = _reconstructed, Usage = VideoPictureUsage.ENCODE_REFERENCE }));
-            _fence = Own(device.CreateFence());
+            _caps = caps;
+            // A creation that throws disposes what came before it, so the device can still be
+            // disposed and the first exception is the one reported
+            try
+            {
+                _queue = device.GetQueue(QueueType.VIDEO_ENCODE);
+                _ = device.GetQueue(QueueType.GRAPHICS);
+                _source = Own(device.CreateCommittedTexture(MemoryLocation.DEVICE, VideoTexture(TextureUsageBits.VIDEO_ENCODE, VideoCodec.AV1)));
+                _reconstructed = Own(device.CreateCommittedTexture(MemoryLocation.DEVICE, VideoTexture(TextureUsageBits.VIDEO_ENCODE | TextureUsageBits.VIDEO_REFERENCE_ONLY, VideoCodec.AV1)
+                    with { layerNum = (ushort)Math.Max(1u, caps.dpbTextureArrayRequired != 0 ? caps.dpbTextureArrayMinLayerNum : 1) }));
+                _bitstreamSize = GpuWork.Align(1 << 20, Math.Max(1u, caps.bitstreamSizeAlignment));
+                _bitstream = Own(device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = _bitstreamSize, usage = BufferUsageBits.VIDEO_ENCODE }));
+                _readback = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = _bitstreamSize }));
+                _metadata = caps.metadataSize == 0 ? null : Own(device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = caps.metadataSize, usage = BufferUsageBits.VIDEO_ENCODE }));
+                Resolved = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = Math.Max(caps.resolvedMetadataSize, 256), usage = BufferUsageBits.VIDEO_ENCODE }));
+                Session = Own(video.CreateVideoSession(desc));
+                _parameters = Own(video.CreateVideoSessionParameters(new NriVideoSessionParametersDesc { Session = Session, Av1Parameters = new VideoAV1SessionParametersDesc { sequence = Av1Sequence() } }));
+                _sourcePicture = Own(video.CreateVideoPicture(new NriVideoPictureDesc { Texture = _source, Usage = VideoPictureUsage.ENCODE_INPUT }));
+                _reconstructedPicture = Own(video.CreateVideoPicture(new NriVideoPictureDesc { Texture = _reconstructed, Usage = VideoPictureUsage.ENCODE_REFERENCE }));
+                _fence = Own(device.CreateFence());
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
         }
 
         public NriVideoSession Session { get; }
@@ -887,11 +931,27 @@ public sealed class VideoExtensionTests
                 _queue.Submit(commandBuffer, _fence, ++_fenceValue);
                 GpuWork.Wait(_fence, _fenceValue);
             }
+
+            // Where the backend needs the feedback resolved, it says on which queue and in which state.
+            if (_caps.encodeFeedbackResolveRequired != 0)
+            {
+                var resolveQueue = _device.GetQueue(_caps.resolvedMetadataQueueType);
+                using var allocator = resolveQueue.CreateCommandAllocator();
+                using var commandBuffer = allocator.CreateCommandBuffer();
+                commandBuffer.Begin();
+                commandBuffer.Barrier(new NriBufferBarrier(Resolved, GpuWork.Nothing, _caps.resolvedMetadataState));
+                _video.ResolveVideoEncodeFeedback(commandBuffer, Session, Resolved, 0);
+                commandBuffer.End();
+                resolveQueue.Submit(commandBuffer, _fence, ++_fenceValue);
+                GpuWork.Wait(_fence, _fenceValue);
+            }
             var feedback = _video.GetVideoEncodeFeedback(Session, Resolved, 0);
 
+            // The encode ran on the encode queue, waited for: on GRAPHICS the bitstream's first barrier
+            // names no stages (VIDEO_ENCODE is not a GRAPHICS queue stage, VUID-...-srcStageMask-09675)
             GpuWork.Run(_device, cmd =>
             {
-                cmd.Barrier([], [new NriBufferBarrier(_bitstream, new AccessStage { access = AccessBits.VIDEO_ENCODE_WRITE, stages = StageBits.VIDEO_ENCODE }, GpuWork.CopySource), new NriBufferBarrier(_readback, GpuWork.Nothing, GpuWork.CopyDestination)], []);
+                cmd.Barrier([], [new NriBufferBarrier(_bitstream, GpuWork.Nothing, GpuWork.CopySource), new NriBufferBarrier(_readback, GpuWork.Nothing, GpuWork.CopyDestination)], []);
                 cmd.CopyBuffer(_readback, 0, _bitstream, 0, _bitstreamSize);
             });
             var payload = _readback.Map().Slice((int)feedback.encodedBitstreamOffset, (int)Math.Min(feedback.encodedBitstreamWrittenBytes, _bitstreamSize - feedback.encodedBitstreamOffset)).ToArray();
