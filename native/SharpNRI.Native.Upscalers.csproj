@@ -17,7 +17,7 @@
 
   <PropertyGroup>
     <PackageId>SharpNRI.Native.Upscalers</PackageId>
-    <Version>1.0.0-beta.1</Version>
+    <Version>1.0.0-beta.2</Version>
     <Description>NRI native library for SharpNRI with the NIS, FSR and XeSS upscalers compiled in. Replaces the NRI library of the SharpNRI package (take one or the other). Vendor runtimes (FidelityFX, XeSS) are not included: the application ships them.</Description>
     <PackageTags>nri;upscaler;fsr;xess;nis;native</PackageTags>
     <IncludeBuildOutput>false</IncludeBuildOutput>

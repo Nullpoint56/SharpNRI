@@ -32,12 +32,13 @@ headers do not say. NRI v191.
 | `SharpNRI.Native.Upscalers` | NRI with NIS, FSR, XeSS | upscaler extension |
 
 ```xml
-<PackageReference Include="SharpNRI" Version="1.0.0-beta.1" ExcludeAssets="native" />  <!-- only with Upscalers -->
-<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.1" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.2" ExcludeAssets="native" />  <!-- only with Upscalers -->
+<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.2" />
 ```
 
-- Not on NuGet.org: the `.nupkg` files are GitHub release assets. Folder feed, `nuget.config` beside
-  the project:
+- On NuGet.org since 1.0.0-beta.2 (prereleases while in beta: `dotnet add package SharpNRI
+  --prerelease`). Each GitHub release carries the same `.nupkg` files, usable as a folder feed
+  (`nuget.config` beside the project):
 
   ```xml
   <configuration>
@@ -48,7 +49,7 @@ headers do not say. NRI v191.
   ```
 
 - The release workflow's `consume` job restores them that way (`tools/consume`) and creates NONE
-  plus a GPU device on windows, ubuntu and macos before publishing.
+  plus a GPU device on windows and ubuntu before the release and the NuGet push.
 - Base and Upscalers both contain `NRI.dll` / `libNRI.so` at the same path: take exactly one; with
   Upscalers, `ExcludeAssets="native"` on `SharpNRI`.
 - Base: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI, AGS, debug names; no upscaler SDK.
@@ -768,8 +769,9 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   requested size), so do not rely on either answer for a minimised window: skip frames while it
   has no client area.
 - **`SwapChainBits.LATEST_READY` with `VSYNC`** (patch 0017) asks for Vulkan's FIFO_LATEST_READY:
-  paced to the display like FIFO, no tearing, but at each vblank the newest ready image is shown
-  and older queued ones are dropped. It applies only when `device.Desc.features.latestReadySwapChain`
+  the display changes image only at vblank, without tearing, and shows the newest ready image,
+  dropping older ones. Several frames may finish per vblank, so rendering is not capped at the
+  refresh rate (`VSYNC` caps it except with this bit, as NRI's header now says). It applies only when `device.Desc.features.latestReadySwapChain`
   is set (Vulkan with `VK_EXT_present_mode_fifo_latest_ready`); otherwise, and on D3D12, the bit is
   ignored and `VSYNC` gives FIFO (FIFO_RELAXED with `ALLOW_TEARING`). Without `VSYNC` the bit does
   nothing: NRI's uncapped order is MAILBOX (or IMMEDIATE with tearing) first, and FIFO_LATEST_READY

@@ -19,7 +19,7 @@
   <PropertyGroup>
     <RootNamespace>SharpNRI</RootNamespace>
     <PackageId>SharpNRI</PackageId>
-    <Version>1.0.0-beta.1</Version>
+    <Version>1.0.0-beta.2</Version>
     <Description>C# bindings over NRI (NVIDIA Render Interface): Vulkan and D3D12 through one API. Pure managed P/Invoke over a pinned NRI build. Windows x64, Linux x64 and macOS arm64 (Vulkan through MoltenVK). Alpha.</Description>
     <PackageTags>nri;vulkan;d3d12;rhi;graphics;rendering</PackageTags>
     <NoWarn>$(NoWarn);CS0169;CS0649;CS1591;CS8981;NU5128</NoWarn>

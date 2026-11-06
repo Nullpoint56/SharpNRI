@@ -1457,6 +1457,15 @@ minutes and a Windows minute about two. That shapes the runs:
   failed jobs" (also when hosted jobs never started). A release can be published by hand from a
   complete run of the identical tree (its `nupkg` and `zips-*` artifacts, kept 90 days, uploaded
   and compared by SHA-256).
+- **NuGet.org** (since 1.0.0-beta.2): `release.yml`'s `nuget` job pushes the release's `.nupkg`
+  artifact after the GitHub release, by Trusted Publishing: `NuGet/login` trades the job's OIDC
+  token for a one-hour key, which nuget.org grants because the owner's policy names this
+  repository, `release.yml` and the `nuget` environment. No key is stored. The repository variable
+  `NUGET_USER` is the nuget.org account; without it the job skips. The `nuget` environment can
+  require the owner's approval. A version on NuGet.org is permanent (unlisting only hides it), so a
+  failure after the push means a new version, never a moved tag. Releases only: no CI or merge
+  build is published there. Each package carries `docs/nuget/README.md` (absolute links), which the
+  `pack` job requires.
 - **Ubuntu pinned to 24.04** in the Linux leg and the release's Linux build and consume jobs:
   `ubuntu-latest` moved to Ubuntu 26, whose newer glibc a payload built there would need and whose
   1.4 loader would stop exercising the old-loader path. Moving is a decision.

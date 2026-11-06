@@ -5,20 +5,22 @@ name: release
 #      testing/SharpNRI.Testing.csproj and native/SharpNRI.Native.Upscalers.csproj. Add
 #      docs/releases/v<Version>.md, the release body (NRI pin, changes, breaking changes, verified
 #      hardware and commit, coverage link). Merge to master and let ci go green.
-#   2. git tag v<Version> && git push origin v<Version>     (e.g. v1.0.0-beta.1)
+#   2. git tag v<Version> && git push origin v<Version>     (e.g. v1.0.0-beta.2)
 #   3. This workflow: version (tag == v<Version> in all four csprojs, else fail) -> win-x64, linux-x64
 #      (native payloads, same setup and build-native.ps1 calls as ci.yml) -> pack (one set of .nupkg
 #      files, contents listed and checked) -> consume (tools/consume restores the packages from a
 #      folder feed and creates devices on windows and ubuntu) -> release (GitHub release with the
-#      .nupkg files and one zip per native payload; prerelease when the tag contains '-'). Nothing
-#      waits for macOS: osx-arm64 runs after the release and attaches its zip when a runner turns up.
+#      .nupkg files and one zip per native payload; prerelease when the tag contains '-') -> nuget
+#      (the same .nupkg files to NuGet.org, Trusted Publishing; see the job). Nothing waits for
+#      macOS: osx-arm64 runs after the release and attaches its zip when a runner turns up.
 #   No dry run before tagging: a tag run that fails publishes nothing (release needs consume), and a
 #   dry run repeats every job of the tag run. After a failure: fix through a pull request, then move
 #   the tag (git tag -f v<Version> <commit>; git push -f origin v<Version>), or use "Re-run failed
 #   jobs" when the cause was outside the repository; it keeps the jobs that passed.
 #   Dry run (Actions > release > Run workflow, tag=v<Version>): only to try a change to this file.
-#   It builds, packs, runs consume, uploads artifacts and creates no release.
-#   Nothing is pushed to NuGet.org (see the commented step in the release job).
+#   It builds, packs, runs consume, uploads artifacts and creates no release and no NuGet push.
+#   Once a version is on NuGet.org it cannot be moved: a failure after the nuget job means a new
+#   version, not a moved tag.
 
 on:
   push:
@@ -331,10 +333,10 @@ jobs:
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $must = @{
-            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll"
-            "SharpNRI.Descs"            = @("lib/net11.0/SharpNRI.Descs.dll")
-            "SharpNRI.Testing"          = @("lib/net11.0/SharpNRI.Testing.dll")
-            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so"
+            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "README.md"
+            "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "README.md"
+            "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "README.md"
+            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "README.md"
           }
           $version = "${{ needs.version.outputs.version }}"
           $failed = @()
@@ -461,6 +463,31 @@ jobs:
             dist/*.nupkg
             dist/*.zip
 
-      # NuGet.org: not yet. With an API key stored as the NUGET_API_KEY secret this is the step:
-      # - name: Push to NuGet.org
-      #   run: dotnet nuget push "dist/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+  # NuGet.org, after the GitHub release, from the same nupkg artifact. Trusted Publishing: no stored
+  # key; NuGet/login exchanges this job's GitHub OIDC token for an API key valid one hour, accepted
+  # because the owner's nuget.org policy names this repository, release.yml and the nuget
+  # environment. NUGET_USER (a repository variable) is the nuget.org account; without it the job
+  # skips. A version on NuGet.org is permanent (unlisting hides it, nothing deletes it); the nuget
+  # environment can require the owner's approval before the push.
+  nuget:
+    needs: [version, release]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && vars.NUGET_USER != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nupkg
+          path: dist
+
+      - name: NuGet login
+        id: login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
+      - name: Push to NuGet.org
+        run: dotnet nuget push "dist/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
