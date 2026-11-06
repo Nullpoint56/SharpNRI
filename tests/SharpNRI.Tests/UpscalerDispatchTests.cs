@@ -35,6 +35,7 @@ public sealed class UpscalerDispatchTests
     public static TheoryData<Backend, UpscalerType> BackendsAndTypes() => Combine(Types);
     public static TheoryData<Backend, UpscalerType> BackendsAndTemporalTypes() => Combine(Temporal);
     public static TheoryData<Backend, UpscalerType> BackendsAndSharpeningTypes() => Combine([UpscalerType.NIS, UpscalerType.FSR]);
+    public static TheoryData<Backend, UpscalerType> BackendsAndDlssTypes() => Combine([UpscalerType.DLSR, UpscalerType.DLRR]);
 
     public static TheoryData<Backend, UpscalerType, UpscalerMode> BackendsTypesAndModes()
     {
@@ -355,10 +356,9 @@ public sealed class UpscalerDispatchTests
     /// which the other tests cover.
     /// </summary>
     [Theory]
-    [MemberData(nameof(BackendsAndTypes))]
+    [MemberData(nameof(BackendsAndDlssTypes))]
     public void DLSS_creation_recorded_into_the_callers_command_buffer_works(Backend backend, UpscalerType type)
     {
-        Assert.SkipUnless(type is UpscalerType.DLSR or UpscalerType.DLRR, $"{type} takes no creation command buffer (NRIUpscaler.h: DLSR/DLRR only)");
         var messages = new List<NriMessage>();
         using var device = Open(backend, type, messages);
         var queue = device.GetQueue(QueueType.GRAPHICS);
