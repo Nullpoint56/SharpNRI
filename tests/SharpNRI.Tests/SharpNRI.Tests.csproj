@@ -37,4 +37,17 @@
     <AssemblyMetadata Include="RepoRoot" Value="$(MSBuildThisFileDirectory)..\..\" />
   </ItemGroup>
 
+  <!--
+    The upscaler tests run locally on -p:SharpNRIDevPayload=upscalers or upscalers-dlss
+    (dotnet/SharpNRI.csproj, tools/upscalers.ps1). A later build without it puts Base back, and this
+    removes the vendor runtimes that build left here, so a Base run never finds them beside the tests.
+  -->
+  <Target Name="RemoveDevVendorRuntimes" AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(SharpNRIDevPayload)' == '' or '$(SharpNRIDevPayload)' == 'base'">
+    <ItemGroup>
+      <_SharpNRIVendorLeftover Include="$(OutDir)amd_fidelityfx_*.dll;$(OutDir)libxess*.dll;$(OutDir)nvngx_*.dll" />
+    </ItemGroup>
+    <Delete Files="@(_SharpNRIVendorLeftover)" />
+  </Target>
+
 </Project>
