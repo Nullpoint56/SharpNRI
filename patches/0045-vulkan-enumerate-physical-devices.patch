@@ -1,0 +1,177 @@
+VK: find physical devices through vkEnumeratePhysicalDevices, not device groups.
+
+NRI dropped mGPU support in v1.124 (7bb624d), but DeviceVK::Create and the adapter enumeration
+(UpdateAdaptersVK) still list physical devices through vkEnumeratePhysicalDeviceGroups and then use
+only "physicalDevices[0]" of each group: a device is created on one physical device, without
+VkDeviceGroupDeviceCreateInfo. The groups add nothing but the subset-allocation warning, which
+describes a multi-device group NRI no longer creates.
+
+Group-only enumeration breaks overlay layers that track physical devices from
+vkEnumeratePhysicalDevices. RivaTuner Statistics Server's implicit VK_LAYER_RTSS (bundled with MSI
+Afterburner; the overlay of CapFrameX and HWiNFO too) maps each physical device to its instance from
+that call and uses the map when its overlay initialises at the first vkQueuePresentKHR. Measured on
+v191, RTSS 7.3.5, NVIDIA RTX 4070 SUPER: every NRI-created Vulkan device that presents dies with
+0xC0000409 inside the first QueuePresent, with NRI validation and the Khronos layer each on or off,
+hidden or shown window (16 runs); with DISABLE_RTSS_LAYER=1, or after one extra
+vkEnumeratePhysicalDevices on NRI's instance, each run presents 120 frames. Engines that call
+vkEnumeratePhysicalDevices themselves never see it; the 7.3.7 release notes name no such fix.
+
+This enumerates physical devices in both places, the same number of calls, and drops the group
+warning. One difference on hardware with linked GPUs (a group of more than one physical device):
+each physical device is listed instead of the group's first; the adapter list still merges entries
+with the same uid, and device creation still takes the first match.
+
+diff --git a/Source/Creation/Creation.cpp b/Source/Creation/Creation.cpp
+index c92fbb3b..8648d1c4 100644
+--- a/Source/Creation/Creation.cpp
++++ b/Source/Creation/Creation.cpp
+@@ -368,16 +368,16 @@ static void UpdateAdaptersVK(AdapterDesc* adapterDescs, uint32_t& adapterDescNum
+     VkInstance instance = VK_NULL_HANDLE;
+     Uid_t uidNeeded = {};
+     VkResult vkResult = VK_SUCCESS;
+-    uint32_t deviceGroupNum = 0;
++    uint32_t physicalDeviceNum = 0;
+     uint32_t maxFamilyNum = 1;
+-    VkPhysicalDeviceGroupProperties* deviceGroupProperties = nullptr;
++    VkPhysicalDevice* physicalDevices = nullptr;
+     VkQueueFamilyProperties2* familyProps2 = nullptr;
+     VkQueueFamilyVideoPropertiesKHR* familyVideoProps = nullptr;
+ 
+     PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = nullptr;
+     PFN_vkCreateInstance vkCreateInstance = nullptr;
+     PFN_vkDestroyInstance vkDestroyInstance = nullptr;
+-    PFN_vkEnumeratePhysicalDeviceGroups vkEnumeratePhysicalDeviceGroups = nullptr;
++    PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices = nullptr;
+     PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2 = nullptr;
+     PFN_vkGetPhysicalDeviceMemoryProperties vkGetPhysicalDeviceMemoryProperties = nullptr;
+     PFN_vkGetPhysicalDeviceQueueFamilyProperties2 vkGetPhysicalDeviceQueueFamilyProperties2 = nullptr;
+@@ -411,30 +411,26 @@ static void UpdateAdaptersVK(AdapterDesc* adapterDescs, uint32_t& adapterDescNum
+ 
+     // Get needed functions
+     vkDestroyInstance = (PFN_vkDestroyInstance)vkGetInstanceProcAddr(instance, "vkDestroyInstance");
+-    vkEnumeratePhysicalDeviceGroups = (PFN_vkEnumeratePhysicalDeviceGroups)vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDeviceGroups");
++    vkEnumeratePhysicalDevices = (PFN_vkEnumeratePhysicalDevices)vkGetInstanceProcAddr(instance, "vkEnumeratePhysicalDevices");
+     vkGetPhysicalDeviceProperties2 = (PFN_vkGetPhysicalDeviceProperties2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2");
+     vkGetPhysicalDeviceMemoryProperties = (PFN_vkGetPhysicalDeviceMemoryProperties)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceMemoryProperties");
+     vkGetPhysicalDeviceQueueFamilyProperties2 = (PFN_vkGetPhysicalDeviceQueueFamilyProperties2)vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceQueueFamilyProperties2");
+ 
+-    if (!vkDestroyInstance || !vkEnumeratePhysicalDeviceGroups || !vkGetPhysicalDeviceProperties2)
++    if (!vkDestroyInstance || !vkEnumeratePhysicalDevices || !vkGetPhysicalDeviceProperties2)
+         goto CLEANUP;
+ 
+-    vkResult = vkEnumeratePhysicalDeviceGroups(instance, &deviceGroupNum, nullptr);
++    vkResult = vkEnumeratePhysicalDevices(instance, &physicalDeviceNum, nullptr);
+     if (vkResult != VK_SUCCESS)
+         goto CLEANUP;
+ 
+-    // Query device groups
+-    deviceGroupProperties = (VkPhysicalDeviceGroupProperties*)alloca(sizeof(VkPhysicalDeviceGroupProperties) * deviceGroupNum);
+-    for (uint32_t i = 0; i < deviceGroupNum; i++) {
+-        deviceGroupProperties[i].sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GROUP_PROPERTIES;
+-        deviceGroupProperties[i].pNext = nullptr;
+-    }
+-    vkEnumeratePhysicalDeviceGroups(instance, &deviceGroupNum, deviceGroupProperties);
++    // Query physical devices (a device is created on one physical device, not on a group)
++    physicalDevices = (VkPhysicalDevice*)alloca(sizeof(VkPhysicalDevice) * physicalDeviceNum);
++    vkEnumeratePhysicalDevices(instance, &physicalDeviceNum, physicalDevices);
+ 
+     // Max queue families
+     if (vkGetPhysicalDeviceQueueFamilyProperties2) {
+-        for (uint32_t i = 0; i < deviceGroupNum; i++) {
+-            VkPhysicalDevice physicalDevice = deviceGroupProperties[i].physicalDevices[0];
++        for (uint32_t i = 0; i < physicalDeviceNum; i++) {
++            VkPhysicalDevice physicalDevice = physicalDevices[i];
+ 
+             uint32_t familyNum = 0;
+             vkGetPhysicalDeviceQueueFamilyProperties2(physicalDevice, &familyNum, nullptr);
+@@ -463,9 +459,9 @@ static void UpdateAdaptersVK(AdapterDesc* adapterDescs, uint32_t& adapterDescNum
+         uidNeeded = ConstructUid(deviceIDProperties.deviceLUID, deviceIDProperties.deviceUUID, deviceIDProperties.deviceLUIDValid);
+     }
+ 
+-    // Query device groups properties
+-    for (uint32_t i = 0; i < deviceGroupNum && adapterDescNum < ADAPTER_MAX_NUM; i++) {
+-        VkPhysicalDevice physicalDevice = deviceGroupProperties[i].physicalDevices[0];
++    // Query physical devices properties
++    for (uint32_t i = 0; i < physicalDeviceNum && adapterDescNum < ADAPTER_MAX_NUM; i++) {
++        VkPhysicalDevice physicalDevice = physicalDevices[i];
+ 
+         VkPhysicalDeviceProperties2 deviceProps2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+ 
+diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
+index d3359ded..0be44436 100644
+--- a/Source/VK/DeviceVK.hpp
++++ b/Source/VK/DeviceVK.hpp
+@@ -787,27 +787,23 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+         m_PhysicalDevice = (VkPhysicalDevice)descVK.vkPhysicalDevice;
+ 
+         if (!isWrapper) {
+-            uint32_t deviceGroupNum = 0;
+-            VkResult vkResult = m_VK.EnumeratePhysicalDeviceGroups(m_Instance, &deviceGroupNum, nullptr);
+-            NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkEnumeratePhysicalDeviceGroups");
+-
+-            Scratch<VkPhysicalDeviceGroupProperties> deviceGroups = NRI_ALLOCATE_SCRATCH(*this, VkPhysicalDeviceGroupProperties, deviceGroupNum);
+-            for (uint32_t j = 0; j < deviceGroupNum; j++) {
+-                deviceGroups[j].sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GROUP_PROPERTIES;
+-                deviceGroups[j].pNext = nullptr;
+-            }
++            // Physical devices, not groups: a device is created on one physical device, and some overlay layers (RTSS) know only physical devices returned by "vkEnumeratePhysicalDevices"
++            uint32_t physicalDeviceNum = 0;
++            VkResult vkResult = m_VK.EnumeratePhysicalDevices(m_Instance, &physicalDeviceNum, nullptr);
++            NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkEnumeratePhysicalDevices");
+ 
+-            vkResult = m_VK.EnumeratePhysicalDeviceGroups(m_Instance, &deviceGroupNum, deviceGroups);
+-            NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkEnumeratePhysicalDeviceGroups");
++            Scratch<VkPhysicalDevice> physicalDevices = NRI_ALLOCATE_SCRATCH(*this, VkPhysicalDevice, physicalDeviceNum);
++            vkResult = m_VK.EnumeratePhysicalDevices(m_Instance, &physicalDeviceNum, physicalDevices);
++            NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkEnumeratePhysicalDevices");
+ 
+             uint32_t i = 0;
+-            for (i = 0; i < deviceGroupNum; i++) {
++            for (i = 0; i < physicalDeviceNum; i++) {
+                 VkPhysicalDeviceProperties2 props = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+ 
+                 VkPhysicalDeviceIDProperties idProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+                 props.pNext = &idProps;
+ 
+-                m_VK.GetPhysicalDeviceProperties2(deviceGroups[i].physicalDevices[0], &props);
++                m_VK.GetPhysicalDeviceProperties2(physicalDevices[i], &props);
+ 
+                 uint32_t majorVersion = VK_API_VERSION_MAJOR(props.properties.apiVersion);
+                 m_MinorVersion = std::min(VK_API_VERSION_MINOR(props.properties.apiVersion), VK_API_VERSION_MINOR(m_InstanceVersion));
+@@ -823,12 +819,9 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
+                     break;
+             }
+ 
+-            NRI_RETURN_ON_FAILURE(this, i != deviceGroupNum, Result::INVALID_ARGUMENT, "Can't create a device: physical device not found");
+-
+-            if (deviceGroups[i].physicalDeviceCount > 1 && deviceGroups[i].subsetAllocation == VK_FALSE)
+-                NRI_REPORT_WARNING(this, "The device group does not support memory allocation on a subset of the physical devices");
++            NRI_RETURN_ON_FAILURE(this, i != physicalDeviceNum, Result::INVALID_ARGUMENT, "Can't create a device: physical device not found");
+ 
+-            m_PhysicalDevice = deviceGroups[i].physicalDevices[0];
++            m_PhysicalDevice = physicalDevices[i];
+         }
+     }
+ 
+@@ -2311,7 +2304,7 @@ Result DeviceVK::ResolveInstanceDispatchTable(const Vector<const char*>& desired
+     GET_INSTANCE_FUNC(GetPhysicalDeviceExternalSemaphoreProperties);
+     GET_INSTANCE_FUNC(CreateDevice);
+     GET_INSTANCE_FUNC(GetDeviceQueue2);
+-    GET_INSTANCE_FUNC(EnumeratePhysicalDeviceGroups);
++    GET_INSTANCE_FUNC(EnumeratePhysicalDevices);
+     GET_INSTANCE_FUNC(GetPhysicalDeviceProperties2);
+     GET_INSTANCE_FUNC(GetPhysicalDeviceFeatures2);
+     GET_INSTANCE_FUNC(GetPhysicalDeviceQueueFamilyProperties2);
+diff --git a/Source/VK/DispatchTable.h b/Source/VK/DispatchTable.h
+index 403df31f..ca0f8cf8 100644
+--- a/Source/VK/DispatchTable.h
++++ b/Source/VK/DispatchTable.h
+@@ -24,7 +24,7 @@ struct DispatchTable {
+     VK_FUNC(GetPhysicalDeviceExternalSemaphoreProperties);
+     VK_FUNC(CreateDevice); // may return "VK_ERROR_DEVICE_LOST"
+     VK_FUNC(GetDeviceQueue2);
+-    VK_FUNC(EnumeratePhysicalDeviceGroups);
++    VK_FUNC(EnumeratePhysicalDevices);
+     VK_FUNC(GetPhysicalDeviceProperties2);
+     VK_FUNC(GetPhysicalDeviceFeatures2);
+     VK_FUNC(GetPhysicalDeviceQueueFamilyProperties2);

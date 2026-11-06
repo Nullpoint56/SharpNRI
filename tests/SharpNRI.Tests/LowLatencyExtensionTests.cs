@@ -27,8 +27,8 @@ public sealed partial class LowLatencyExtensionTests
         Assert.SkipWhen(device.Desc.features.lowLatency == 0, $"{backend}: features.lowLatency is false (no NVIDIA Reflex through NVAPI on D3D12, no VK_NV_low_latency2 on Vulkan)");
         Assert.SkipWhen(device.Desc.features.swapChain == 0, $"{backend}: features.swapChain is false");
         // Vulkan presents nowhere else in this process, and here it cost two things on the
-        // development machine (RTX 4070 SUPER, Windows 11): before the binding enumerated NRI's
-        // physical devices after creation, RivaTuner Statistics Server's implicit VK_LAYER_RTSS
+        // development machine (RTX 4070 SUPER, Windows 11): before NRI enumerated physical devices
+        // (patch 0045), RivaTuner Statistics Server's implicit VK_LAYER_RTSS
         // killed the process at the first vkQueuePresentKHR (AGENTS.md: Device creation); with implicit layers
         // disabled the Vulkan case passed and reported every marker, but afterwards the next
         // D3D12CreateDevice calls in the process failed with DXGI_ERROR_DEVICE_RESET (0x887A0007),

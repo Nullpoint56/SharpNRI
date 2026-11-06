@@ -48,7 +48,7 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
-- **State.** Master pins NRI v191 (46c93d79) with sixteen patches; `next` pins NRI main b90cfb57
+- **State.** Master pins NRI v191 (46c93d79) with seventeen patches; `next` pins NRI main b90cfb57
   (2026-11-06) with five, 0007, 0013, 0015, 0037 and 0044: upstream took every other one (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
@@ -204,8 +204,9 @@ Decided; not reopened as a side effect of other work.
   (measured) and in `next`'s `docs/upstream.md`, filed or not. The patch is dropped (on `next`
   first) when upstream carries a fix.
 - **Third-party defects are worked around, not patched, with one exception.** A layer's or a
-  driver's bug is not NRI's: the RivaTuner layer is worked around in the binding and not offered
-  upstream (Device creation and callbacks). The exception is patch 0044 (owner, 2026-11-06), a
+  driver's bug is not NRI's. RivaTuner's layer is not one of these: it broke on a leftover in NRI
+  (device-group enumeration after mGPU was dropped), which patch 0045 removes (Device creation and
+  callbacks). The exception is patch 0044 (owner, 2026-11-06), a
   one-line value change that lets lavapipe on Windows run at all, harmless on every driver and
   dropped once the pinned Mesa is fixed (Lavapipe). It is reported to the driver, not to NRI.
 - **The library knows nothing about any consumer.** No project, test, package or doc references a
@@ -409,6 +410,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0042 vulkan-mesh-shader-pipeline-statistics | `QueryPoolVK` adds the task and mesh counters, and sizes queries for 13, on `features.meshShaderPipelineStats` instead of `features.meshShader` | the counters need `meshShaderQueries`; without it every pipeline-statistics pool drew VUID 07069 and a wrong query size (Multisampling, copies and queries) |
 | 0043 validation-draw-parameters-emulation-d3d12-metal | the indirect-draw stride checks apply the emulated `Draw(Indexed)BaseDesc` layout only on D3D12 and Metal | validation applied it on every backend and refused the plain records Vulkan reads (Draws, render state and attachments) |
 | 0044 vulkan-disabled-logic-op-valid-value | a pipeline without a logic op passes `logicOp = VK_LOGIC_OP_COPY` (with `logicOpEnable = VK_FALSE`) instead of `VK_LOGIC_OP_MAX_ENUM` | a driver workaround, not an NRI defect: lavapipe on Windows converts the disabled value and its MSVC build jumps to a garbage address (Lavapipe; the exception under Rules) |
+| 0045 vulkan-enumerate-physical-devices | `DeviceVK::Create` and `UpdateAdaptersVK` list physical devices with `vkEnumeratePhysicalDevices` instead of `vkEnumeratePhysicalDeviceGroups`; the subset-allocation warning goes | a leftover of the mGPU support dropped in v1.124 (7bb624d): NRI used only each group's first device, and group-only enumeration killed every presenting process under RivaTuner's layer (Device creation and callbacks) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -421,7 +423,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all sixteen do; at main b90cfb57 the five.
+  all seventeen do; at main b90cfb57 the five, and 0045 applies there too.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
   fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
@@ -546,24 +548,27 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   `NriAdapter.Enumerate(GraphicsAPI)`; `NriDeviceOptions.Adapter = null` passes null, so NRI's null
   path decides. A filtered desc carries only the asked APIs' bits (plus `NONE`): never hand it to
   another API's device creation.
-- **RivaTuner's implicit layer killed presenting Vulkan processes; the binding enumerates physical
-  devices after creation.** `VK_LAYER_RTSS` maps physical devices to instances from
+- **RivaTuner's implicit layer killed presenting Vulkan processes; NRI enumerates physical devices
+  (patch 0045).** `VK_LAYER_RTSS` (RivaTuner Statistics Server: MSI Afterburner's overlay, also
+  CapFrameX's and HWiNFO's in-game display) maps physical devices to instances from
   `vkEnumeratePhysicalDevices` (not the `Groups` variant), and its overlay uses the map at the first
-  `vkQueuePresentKHR`. NRI enumerates only groups, so: `vkEnumeratePhysicalDevices: Invalid instance
-  [VUID-vkEnumeratePhysicalDevices-instance-parameter]`, exit 0xC0000409 at the first present (3 of
-  3). One count-then-fill `vkEnumeratePhysicalDevices` on NRI's instance after creation, results
-  unused: 3 of 3 survive. `NriDevice.Create` makes that call for VK (`EnumeratePhysicalDevicesVK`:
-  `vkGetInstanceProcAddr` and the instance from the WrapperVK table, `stackalloc` up to 32, never
-  throws, skipped on any null); opt-out `NriDeviceOptions.VkEnumeratePhysicalDevicesAfterCreation`;
-  not in `CreateFromVulkan` (the caller's instance). An instance-count cause is refuted.
-  Validation plays no part (RTSS 7.3.5, 2026-11-06, a scratch app on the binding): NRI validation
-  off and on, the Khronos layer off and on, hidden and shown window, 16 runs: without the call
-  every one dies with 0xC0000409 inside the first `QueuePresent`, with it each presents 120
-  frames; `DISABLE_RTSS_LAYER=1` survives without the call. So it hits release builds of any NRI
-  Vulkan application presenting while RTSS runs; applications that call
-  `vkEnumeratePhysicalDevices` themselves, as most engines do, never see it, and NRI calls only
-  `vkEnumeratePhysicalDeviceGroups` (`DeviceVK.hpp:791`). Not patched: a third-party layer's
-  problem.
+  `vkQueuePresentKHR`. v191 enumerates only groups (`DeviceVK.hpp:791`, `Creation.cpp:422`), a
+  leftover of the mGPU support dropped in v1.124 (7bb624d): it uses only each group's
+  `physicalDevices[0]` and creates the device without `VkDeviceGroupDeviceCreateInfo`. So: the loader
+  logs `vkEnumeratePhysicalDevices: Invalid instance
+  [VUID-vkEnumeratePhysicalDevices-instance-parameter]` and the process exits 0xC0000409 inside the
+  first `QueuePresent`, with or without any validation (RTSS 7.3.5, 2026-11-06, a scratch app on
+  the binding: NRI validation off and on, the Khronos layer off and on, hidden and shown window, 16
+  runs; `DISABLE_RTSS_LAYER=1` survives). It hits release builds of any NRI Vulkan application
+  presenting while RTSS runs; applications that call `vkEnumeratePhysicalDevices` themselves, as most
+  engines do, never see it; the 7.3.7 release notes name no fix. Until 0045 the binding made one
+  extra count-then-fill call on NRI's instance after creation (an option, now removed); the patch
+  instead replaces the group enumeration in both places, the same number of calls. Difference on
+  linked GPUs (a group of several physical devices): each is listed, merged by uid as before.
+  `OverlayLayerTests.An_NRI_Vulkan_device_presents_under_the_RivaTuner_Statistics_Server_layer` (a
+  child; skips unless the loader reports `VK_LAYER_RTSS` and `RTSS.exe` runs): red without the patch
+  (0xC0000409 before the first of 8 presents), green with it. A wrapped device's instance is the
+  caller's: it must have run `vkEnumeratePhysicalDevices` itself. An instance-count cause is refuted.
 - **NRI.dll loads no D3D module by itself; the Vulkan loader loads `dxgi.dll`.**
   `AdapterEnumerationTests.A_Vulkan_only_enumeration_and_device_load_no_D3D_module_of_NRI`: NRI.dll
   loaded, nothing else: none of `d3d12.dll`, `dxgi.dll`, `D3D12Core.dll`; VK-only enumeration and a
@@ -1309,8 +1314,8 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   presentation"; for `QueuePresent`, "Use 0 for an untracked presentation". Caller's rule (in the
   binding's docs): pass the id of the last present queued with a non-zero id.
 - **The resize test runs in a child** (`swapchain-resize`): Vulkan presents poison later D3D12
-  device creation (Reflex, below). With implicit layers on, it is the RTSS regression test (Device
-  creation and callbacks).
+  device creation (Reflex, below). It runs with implicit layers on; the RTSS regression test is
+  `OverlayLayerTests` (Device creation and callbacks).
 - **Wrapped VK device + swap chain needs `VK_KHR_get_surface_capabilities2`** on the instance
   (`SwapChainVK::Create` calls `vkGetPhysicalDeviceSurfaceCapabilities2KHR` unconditionally; an
   access violation without it). A caller error; NRI's own instance enables it.

@@ -126,7 +126,6 @@ ref readonly DeviceDesc caps = ref device.Desc;
 | `ForwardAllocatorToThirdParty` | also routes VMA / D3D12MA host allocations; off by default (chatty) |
 | `D3D12AgilitySdkPath` | null: the `AgilitySDK` directory beside the assembly when present (`NriDevice.DefaultAgilitySdkPath`), else inbox. `""`: force inbox |
 | `VkBindingOffsets` | see [Descriptors and layouts](#descriptors-and-layouts) |
-| `VkEnumeratePhysicalDevicesAfterCreation` | Vulkan, default true: one `vkEnumeratePhysicalDevices` on NRI's instance right after creation, results discarded, so implicit layers that map physical devices from that call (RivaTuner's) know NRI's device; false skips it. Not on `CreateFromVulkan` (the instance is yours) |
 | `VkInstanceCreateInfoNext` | Vulkan: a pointer to your own `pNext` chain, which NRI appends to `VkInstanceCreateInfo` after its `VkDebugUtilsMessengerCreateInfoEXT` and (with `EnableGraphicsApiValidation`) `VkValidationFeaturesEXT`; do not repeat those two (patch 0038). The use is `VkLayerSettingsCreateInfoEXT`: validation-layer settings (`validate_best_practices`, `validate_sync`, ...) for this device's instance only, where `VK_KHRONOS_VALIDATION_*` environment variables apply to the whole process and, set from .NET at run time, are not seen by native code on Linux or macOS. Your memory; it must stay valid until `Create` returns. Not on `CreateFromVulkan` (the instance is yours) |
 | `Robustness`, `DeviceLostInfoLevel`, `EnableD3D12RayTracingValidation`, `EnableD3D12GpuBasedValidation` | only on `NriDevice.Create`, not on the wrapped routes (a wrapped D3D12 device has the debug layer its creator gave it, and NRI sets no break on it) |
 
@@ -177,15 +176,15 @@ Caveats:
   4). Keep the `NriAdapter` and pass it, and the device's own Vulkan instance is the process's
   second, not its third.
 - **RivaTuner Statistics Server's implicit layer** (`VK_LAYER_RTSS`) maps each physical device to
-  its instance from `vkEnumeratePhysicalDevices` and uses that map at the first present. NRI finds
-  physical devices only through `vkEnumeratePhysicalDeviceGroups`, so on NRI's device the loader
-  logged `vkEnumeratePhysicalDevices: Invalid instance` and the process failed fast at the first
-  present (exit 0xC0000409), with or without validation (RTSS 7.3.5). `NriDevice.Create` therefore calls `vkEnumeratePhysicalDevices` once
-  on NRI's instance after creation (`VkEnumeratePhysicalDevicesAfterCreation`, default true), and
-  a presenting Vulkan process survives with the layer on. A device from `CreateFromVulkan` is on
-  your instance: enumerate physical devices on it with `vkEnumeratePhysicalDevices` yourself. The
-  number of instances is not the cause (measured with the device's instance the only one the
-  layer saw).
+  its instance from `vkEnumeratePhysicalDevices` and uses that map at the first present. NRI v191
+  finds physical devices only through `vkEnumeratePhysicalDeviceGroups`, so on NRI's device the
+  loader logged `vkEnumeratePhysicalDevices: Invalid instance` and the process failed fast at the
+  first present (exit 0xC0000409), with or without validation (RTSS 7.3.5). The shipped `NRI.dll`
+  carries patch 0045, which enumerates physical devices instead, so a presenting Vulkan process
+  survives with the layer on and the binding makes no call of its own. A device from
+  `CreateFromVulkan` is on your instance: enumerate physical devices on it with
+  `vkEnumeratePhysicalDevices` yourself. The number of instances is not the cause (measured with
+  the device's instance the only one the layer saw).
 - **Adapter uid** (`NriAdapter.Uid`): LUID when `high` is 0, UUID otherwise. On Linux
   `deviceLUIDValid` is false, so NRI builds it from `VkPhysicalDeviceIDProperties.deviceUUID`;
   match on the UUID there.
@@ -698,9 +697,8 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   `ALLOW_LOW_LATENCY` and `VSYNC`. Do not mix a Vulkan Reflex swap chain with D3D12 devices in one
   process.
 - RivaTuner Statistics Server's implicit `VK_LAYER_RTSS` killed the process at the first Vulkan
-  present until the binding started enumerating NRI's physical devices after creation
-  (`NriDeviceOptions.VkEnumeratePhysicalDevicesAfterCreation`, default true; see
-  [Device creation](#device-creation)). Leave the option on when RTSS may be installed.
+  present on NRI v191, which enumerates only device groups; patch 0045 enumerates physical devices
+  (see [Device creation](#device-creation)).
 
 ### Video
 
@@ -1008,7 +1006,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | `IsUpscalerSupported` true, DLL absent | `CreateUpscaler` throws naming the file | Upscaler |
 | XeSS without the guard | lock held, next creation hangs | Upscaler |
 | Vulkan Reflex + D3D12 in one process | `D3D12CreateDevice` 0x887A0007 | LowLatency |
-| RTSS installed, `VkEnumeratePhysicalDevicesAfterCreation = false` or a wrapped device whose instance never ran `vkEnumeratePhysicalDevices` | process dies at first Vulkan present | Device creation |
+| RTSS running, a wrapped device whose instance never ran `vkEnumeratePhysicalDevices` (or an `NRI.dll` without patch 0045) | process dies at first Vulkan present | Device creation |
 | Reflex report in the first frames | all zeros | LowLatency |
 | H.264 encode on Vulkan | feedback resolve hangs | Video |
 | H.264 encode 64x64 on D3D12 | debug error 1312; minimum is 256x256 | Video |

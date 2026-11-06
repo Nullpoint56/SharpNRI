@@ -82,16 +82,6 @@ public sealed class NriDeviceOptions
     public string? D3D12AgilitySdkPath { get; init; }
 
     /// <summary>
-    /// Vulkan: after NRI creates the device, call <c>vkEnumeratePhysicalDevices</c> once on NRI's
-    /// instance and discard the results. NRI discovers physical devices only through device groups,
-    /// and at least one implicit layer (RivaTuner's) maps physical devices to instances from
-    /// <c>vkEnumeratePhysicalDevices</c> and kills the process at the first present without it; the
-    /// call is one loader round trip. Not applied by <see cref="NriDevice.CreateFromVulkan"/>, whose
-    /// instance is the caller's.
-    /// </summary>
-    public bool VkEnumeratePhysicalDevicesAfterCreation { get; init; } = true;
-
-    /// <summary>
     /// Vulkan: the per-register-class binding shifts applied to every descriptor range. All zero
     /// means the shader's binding is the register index. Must match what the shader compiler was
     /// given.
