@@ -70,7 +70,10 @@ No package ships a vendor upscaler runtime or Microsoft's Agility SDK; the guide
 All of NRI's Core interface, the device creation and helper interfaces, and the DescriptorHeap,
 Imgui, LowLatency, MeshShader, RayTracing, Streamer, SwapChain, Upscaler, Video, WrapperD3D12 and
 WrapperVK extensions. [docs/coverage.md](docs/coverage.md) lists the bound surface and the test
-coverage at the commit it was measured on.
+coverage at the commit it was measured on. [docs/upscalers.md](docs/upscalers.md) has what the
+upscaler tests measured on a local payload with the vendor runtimes (NIS, FSR, XeSS, DLSS super
+resolution and ray reconstruction on Vulkan and D3D12): render resolutions, accuracy and GPU time
+per mode. CI cannot run those, since no package ships the vendor runtimes.
 
 Each release pins one NRI release (currently v191), built from source with a small set of
 [patches](patches/README.md): fixes not yet upstream and a few additions.

@@ -9,9 +9,9 @@ a header changes the L0 layer and the ABI oracle measures the patched header. Bo
 that is already applied, so the submodule working tree normally sits with every patch applied and
 `git -C nri status` shows the patched files as modified. Listed and explained in `AGENTS.md` (Patches).
 
-The set for NRI v191 (46c93d79) on master: fifteen patches, all applying in order onto v191, each also
-alone, and each passing the scripts' `-C0` reverse check. `next` (NRI main) carries 0040 as well, for
-a defect main introduced after v191 (`AGENTS.md`: Branches). Patches dropped
+The set for NRI v191 (46c93d79) on master: sixteen patches, all applying in order onto v191, each also
+alone, and each passing the scripts' `-C0` reverse check. `next` (NRI main) carries five of them:
+upstream took the others on 2026-11-06 (`AGENTS.md`: Branches, Patches). Patches dropped
 when upstream took the fix are in git log and `docs/upstream.md`.
 
 | Patch | What | Why |
@@ -31,3 +31,4 @@ when upstream took the fix are in git log and `docs/upstream.md`.
 | `0041-validation-shader-group-range` | the validation pipeline is created with its desc and keeps its `shaderGroupNum`, and `WriteShaderGroupIdentifiers` refuses a range past it with `INVALID_ARGUMENT` (wrapped pipelines unchecked) | validation checked only the stride; a range past the groups crashed D3D12 (unbounded index) and the NVIDIA Vulkan driver (AGENTS.md: Ray tracing) |
 | `0042-vulkan-mesh-shader-pipeline-statistics` | pipeline-statistics pools carry the task and mesh counters, and queries are 13 counters, only with `features.meshShaderPipelineStats` | gated on `features.meshShader`, a device with mesh shaders but without `meshShaderQueries` drew VUID 07069 on every pool and got a wrong query size (AGENTS.md: Multisampling, copies and queries) |
 | `0043-validation-draw-parameters-emulation-d3d12-metal` | `DrawIndirect` / `DrawIndexedIndirect` validation applies the emulated record stride only on D3D12 and Metal | the flag is "D3D12, METAL", but validation demanded `DrawBaseDesc` strides on Vulkan too, refusing the plain records the Vulkan backend reads (AGENTS.md: Draws, render state and attachments) |
+| `0044-vulkan-disabled-logic-op-valid-value` | a pipeline without a logic op passes `VK_LOGIC_OP_COPY` for the (ignored) `logicOp` | workaround for lavapipe on Windows, which converts the disabled value and jumps to a garbage address in MSVC builds; not an NRI defect, dropped once the pinned Mesa is fixed (AGENTS.md: Lavapipe) |
