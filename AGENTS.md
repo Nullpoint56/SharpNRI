@@ -913,8 +913,11 @@ Measured by `DebugAidTests`.
   0)` returns the same `VkQueue`; a raw `vkCmdCopyBuffer` / `CopyBufferRegion` recorded between NRI
   commands executes in order.
 - **Memory budget.** A 64 MiB allocation raises usage by exactly 67,108,864 bytes on hardware VK,
-  D3D12 and WARP, and the free returns it. Lavapipe reports system-wide usage, which moves only once
-  pages are written. WARP is UMA; DXGI's non-local budget there is 0.
+  D3D12 and WARP, and the free returns it. Lavapipe reports system-wide usage (heap size minus
+  available system memory, `lvp_device.c`) where `VK_EXT_memory_budget` defines the process's, so it
+  moves with every allocation on the machine, the parallel test classes included: 64 MiB written
+  raised it by 41 MB on a CI runner (PR #44; also PR #40). The test asserts the budget there and
+  skips the delta, quoting that (Tests and skips). WARP is UMA; DXGI's non-local budget there is 0.
 
 ### D3D12 and the Agility SDK
 
@@ -1383,6 +1386,9 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   - Lavapipe's clipping-primitive counter (`TestDevice.IsLavapipeVK`): a known bug to remove. The
     test asserts the wrong value 0 on lavapipe instead of skipping, so the day Mesa counts the
     primitives it fails, naming the exception, and the exception goes.
+  - Lavapipe's memory budget (`TestDevice.IsLavapipeVK`): its heap usage is the machine's, not the
+    process's, so the 64 MiB delta is skipped there after the budget checks (Debug aids). Not
+    assertable as a wrong value: it moves with everything else on the machine.
   - The same pattern for the D3D12 device-lost child's allowance of the `[989]`
     `CheckFeatureSupport` warnings (D3D12 and the Agility SDK): any other warning fails it, and it
     fails when none of these remain, naming the allowance to remove.
