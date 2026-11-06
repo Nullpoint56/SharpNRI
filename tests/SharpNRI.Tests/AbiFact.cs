@@ -11,7 +11,8 @@ namespace SharpNRI.Tests;
 /// <summary>A fact needing a C++ compiler; says where to get one when there is none.</summary>
 public sealed class AbiFactAttribute : FactAttribute
 {
-    public AbiFactAttribute()
+    public AbiFactAttribute([System.Runtime.CompilerServices.CallerFilePath] string? sourceFilePath = null, [System.Runtime.CompilerServices.CallerLineNumber] int sourceLineNumber = -1)
+        : base(sourceFilePath, sourceLineNumber)
     {
         if (NativeAbi.Compiler is null) Skip = NativeAbi.Unavailable;
     }
