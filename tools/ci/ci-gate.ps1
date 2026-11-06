@@ -7,10 +7,9 @@
 
       key                  hash of every input of the native payload: git object ids, which are
                            the same on every OS whatever the checkout's line endings
-      win, linux, osx      full | warm | skip
+      win, linux, osx      full | skip
                              full  native payload (from the cache when the key hits), managed build, tests
-                             warm  native payload built and saved to the cache, nothing else
-                             skip  the job does not run
+                             skip  the job does not run (counts as passed for the required checks)
 
     ci.yml runs by itself only for pushes to master (and the weekly schedule); on any other branch it
     runs when started by hand (workflow_dispatch), and its checks on the branch's head commit are
@@ -25,11 +24,12 @@
 
     push to master: when the pushed commit is the merge of a pull request whose head has the same
     tree and passed ci in a run of that head (a workflow_dispatch run on the branch), that tree has
-    been tested; running the suite again finds nothing and costs minutes. Each platform is then warm
-    when master has no payload cache for the key, else skip. A cache made on a branch is visible to
-    that branch only, so master is where a payload must be cached for the next branch to find it.
-    Anything else on master (a direct push, a merge of a branch that was behind master, an API error)
-    is full. macOS skips on master pushes.
+    been tested and every platform skips. The ruleset requires a branch to be up to date with master
+    before it merges, so a merged tree is the tested one. Master then builds no payload for its cache
+    either (owner, 2026-11-06): a cache made on a branch is visible to that branch only, so the next
+    branch run after a payload change builds the payload in its own run, which is cheaper than a
+    separate warming job on master. Anything else on master (a direct push, an API error) is full,
+    which caches the payload there. macOS skips on master pushes.
 
     Run locally against the repository's history:
       pwsh tools/ci/ci-gate.ps1 -EventName push -Sha <merge commit> -Repository owner/name -Token <token>
@@ -89,11 +89,8 @@ if ($EventName -eq 'push') {
             }
         }
         if ($tested) {
-            foreach ($p in $platforms.Keys) {
-                $caches = Get-Api "actions/caches?ref=refs/heads/master&key=native-$($platforms[$p])-$key"
-                $modes[$p] = if ($caches.total_count -gt 0) { 'skip' } else { 'warm' }
-            }
-            $reason = "push to master, tested as $tested. Tests are not repeated; a platform without a payload cache on master builds one."
+            foreach ($p in $platforms.Keys) { $modes[$p] = 'skip' }
+            $reason = "push to master, tested as $tested. Nothing is repeated; the next branch run whose payload key master has not cached builds the payload in its own run."
         }
     }
     catch {

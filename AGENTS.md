@@ -1429,7 +1429,8 @@ Hosted minutes are limited and billed per job, rounded up; a macOS minute costs 
 minutes and a Windows minute about two. That shapes the runs:
 
 - **Repository rules** (public since 2026-11-04): ruleset `master` (no deletion, no force-push,
-  pull requests only with 0 approvals, required checks `gate`, `win-x64`, `linux-x64`; repository
+  pull requests only with 0 approvals, required checks `gate`, `win-x64`, `linux-x64` on a branch
+  that is up to date with master (since 2026-11-06); repository
   admins may bypass when merging a pull request, for GitHub outages); ruleset `release tags`
   (`v*` cannot be deleted, moved or force-pushed; admins may bypass, to move a failed release's
   tag). Actions: the workflow token is read-only by default and cannot approve pull requests (the
@@ -1445,14 +1446,16 @@ minutes and a Windows minute about two. That shapes the runs:
 - **Branch runs are started by hand** (owner, 2026-11-06): `ci.yml` has no pull-request trigger. On
   a branch, Actions > ci > Run workflow (the branch selected); its checks attach to the branch's head
   commit, which is what the ruleset's required checks read, so a pull request merges only after a
-  green run of its latest commit. Pushes to master run by themselves. A fork's branch cannot be
+  green run of its latest commit. Pushes to master run by themselves. When master has moved, the branch must be
+  updated (merge or rebase master into it) and `ci` started again before it can merge. A fork's branch cannot be
   started that way: push its commits to a branch here first.
 - **`gate`** (`tools/ci/ci-gate.ps1`): a manual run tests everything but macOS (above); on a branch
   whose changes against master are all in the `paths-ignore` list it skips every platform job, which
   the required checks count as passed. A push to master whose tree equals the head of a merged pull
-  request that passed a `ci` run of that head is not tested again; a platform then only builds and
-  caches the payload when master has no cache for its key (a branch's own caches are visible to it
-  alone). A direct push, a merge of a branch behind master, or an API error runs everything. The run
+  request that passed a `ci` run of that head runs nothing: the up-to-date rule makes the merged tree
+  the tested one, and master builds no payload for its cache (owner, 2026-11-06). A branch's caches
+  are visible to it alone, so the first branch run after a payload change builds the payload in its
+  own run, cheaper than a separate warming job. A direct push or an API error runs everything. The run
   summary gives the decision.
 - **Native payload cache**: key `native-<rid>-<20 hex>` over the git object ids of `nri`, `patches`,
   `tools/build-native.ps1`, `tools/cmake`, `Directory.Build.props`, `THIRD-PARTY-NOTICES.md` and

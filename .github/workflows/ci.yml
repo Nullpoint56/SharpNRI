@@ -6,10 +6,10 @@ name: ci
 #     Actions > ci > Run workflow, choosing the branch. The run's checks attach to the branch's head
 #     commit, which is what a pull request's required checks (gate, win-x64, linux-x64) read, so a
 #     pull request still merges only after a green run of its latest commit.
-#   - gate (Linux, seconds; tools/ci/ci-gate.ps1) tells each platform job to run fully, only to
-#     build the native payload into the cache, or to skip. A merge to master whose tree a branch
-#     run already passed is not tested again; a branch run whose changes cannot change a result
-#     skips every platform job.
+#   - gate (Linux, seconds; tools/ci/ci-gate.ps1) tells each platform job to run or to skip. A
+#     merge to master whose tree a branch run already passed runs nothing (branches must be up to
+#     date with master to merge, so the merged tree is the tested one); a branch run whose changes
+#     cannot change a result skips every platform job.
 #   - The native payload is cached under a key of its inputs and rebuilt only when one of them
 #     changes. A rebuilt payload is saved before the tests run, so a red test run keeps it.
 #   - Edits that cannot change a result (Markdown, docs/, the other workflows, tools/consume, the
@@ -58,7 +58,7 @@ env:
   MESA_WIN_SHA256: "B2E00615FEABA45942343C265CC8C5F576142CA682C1AC6661922D4B72492877"
 
 jobs:
-  # full | warm | skip per platform, and the payload cache key; the reasoning is in the run summary.
+  # full | skip per platform, and the payload cache key; the reasoning is in the run summary.
   gate:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
