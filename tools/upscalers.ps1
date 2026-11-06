@@ -253,6 +253,7 @@ $md.Add("|---|---|---|")
 foreach ($s in $skips) { $md.Add("| ``$($s.Test)`` | $($s.Args) | $($s.Reason -replace '\|', '\|') |") }
 $md.Add("")
 
+while ($md.Count -and $md[$md.Count - 1] -eq "") { $md.RemoveAt($md.Count - 1) }
 ($md -join "`n") + "`n" | Set-Content $report -NoNewline
 Write-Host "measured at $stamp with $($m.Payload): $($total[1].Value) tests, $($total[3].Value) failed, $($total[4].Value) skipped"
 Write-Host "==> docs/upscalers.md"

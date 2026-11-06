@@ -139,4 +139,3 @@ frame). Render resolution per mode as in the table above.
 | `UpscalerDispatchTests.An_HDR_constant_with_an_exposure_texture_and_pre_exposure_stays_constant` | backend: VK, type: XESS | VK: IsUpscalerSupported(XESS) is false: NRI offers XeSS on D3D12 only |
 | `UpscalerDispatchTests.Every_mode_creates_and_reports_its_documented_props` | backend: VK, type: XESS | VK: IsUpscalerSupported(XESS) is false: NRI offers XeSS on D3D12 only |
 | `UpscalerExtensionTests.CreateUpscaler_answers_UNSUPPORTED_for_a_missing_type_or_runtime_before_NRI_creates_anything` | backend: NONE | NONE: every upscaler type is compiled in and has its runtime beside the tests; nothing to refuse |
-
