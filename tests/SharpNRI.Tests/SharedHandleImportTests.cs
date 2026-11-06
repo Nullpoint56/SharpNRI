@@ -181,6 +181,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Require(GraphicsAPI.VK);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
+        Assert.SkipWhen(device.Desc.features.sharedResources == 0, "features.sharedResources is false: the adapter lacks VK_KHR_external_memory_win32 or exports no image");
 
         using var texture = device.CreateSharedTexture(SharedDesc);
         var expected = RenderShared(device, texture);
@@ -311,6 +312,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Require(GraphicsAPI.VK);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
+        Assert.SkipWhen(device.Desc.features.sharedFences == 0, "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_win32 or exports no semaphore type");
         using var fence = device.CreateSharedFence(0);
 
         using var vk = SecondVulkanDevice.Create(TestDevice.AdapterFor(GraphicsAPI.VK)!);
@@ -385,6 +387,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Require(GraphicsAPI.VK);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
+        Assert.SkipWhen(device.Desc.features.sharedFences == 0, "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_win32 or exports no semaphore type");
         using var binary = device.CreateSharedBinaryFence();
         using var fence = device.CreateFence();
 
