@@ -670,8 +670,23 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   `dotnet app.dll` that is `dotnet.exe`'s directory: FSR fails, XeSS kills the process.
   `CreateUpscaler` therefore preloads each file by full path from `AppContext.BaseDirectory`, which
   makes both hosts work. Put the files beside your app's assembly.
-- XeSS: D3D12 only. FSR: D3D12 and Vulkan. NIS: everywhere the Upscalers build runs.
+- XeSS: D3D12 only. FSR: D3D12 and Vulkan. NIS: everywhere the Upscalers build runs. DLSR and
+  DLRR (a `-WithDlss` build): NVIDIA adapters with ray tracing, both backends.
 - Raw DLSR creation without `nvngx_dlss*.dll`: clean `FAILURE` on both backends.
+- A failed vendor dispatch (`ffxDispatch`, `xessD3D12Execute`, NGX's evaluation) is only an
+  `NRI_CHECK` inside NRI, gone in a release `NRI.dll`: nothing is reported. Check your output.
+- Measured on every type and backend (figures in [upscalers.md](upscalers.md)): a constant image
+  stays constant in every mode, at the dynamic-resolution minimum too; HDR with an exposure texture
+  and pre-exposure; a moving edge with motion vectors lands where it should; `RESET_HISTORY` drops
+  the history; NIS and FSR sharpness work. Motion vectors are `previous - current` in pixels with
+  `MvScale = (1, 1)`; the tests use R16_SFLOAT colour, R32_SFLOAT depth, RG16_SFLOAT motion.
+- **DLRR on D3D12: no R8 reactive mask.** NGX views the mask with the resource's own format, which
+  is `R8_TYPELESS` (NRI creates D3D12 textures TYPELESS): debug error [28], then the device is
+  removed. An R16_SFLOAT mask works; DLSR takes R8_UNORM.
+- DLRR on D3D12 with an input below its creation size: the debug layer reports [527] on NGX's own
+  internal resources (`nv.ngx.dlssd.resource`); the output is right. NGX's, not yours.
+- The NIS and FSR sharpness settings show on low-contrast detail; NIS leaves strong edges as they
+  are (a 0.2 to 0.6 edge measured the same at 0 and 1).
 
 ### LowLatency (Reflex)
 
