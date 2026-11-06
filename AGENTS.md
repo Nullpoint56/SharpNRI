@@ -1409,12 +1409,33 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   "unspecified" (2) without `COLOR_DESCRIPTION_PRESENT` and NRI's own OBU writer omits them; the
   desc's 0 is reserved for primaries and transfer. Measured: refused for 0/0/0 with or without the
   flag and for 1/0/0 with it; accepted for 2/2/2 with it and 1/1/1 without.
-  `VideoExtensionTests.AV1_session_parameters_take_a_sequence_without_a_colour_description`. Past
-  that, open (2026-11-07, NVIDIA, v191 + 0047): the AV1 encode writes no byte of bitstream and its
-  feedback query never becomes available (still `FAILURE` after 2 s; query index 0 recorded by the
-  resolve), for NRI's default and an explicit picture desc alike, with no validation message. NRI
-  or the driver is not determined; the AV1 encode test skips on VK naming that. D3D12's AV1 and
-  H.265 encode need no feedback resolve.
+  `VideoExtensionTests.AV1_session_parameters_take_a_sequence_without_a_colour_description`.
+- **NVIDIA's Vulkan AV1 encode fails into a bitstream without `HOST_VISIBLE` (driver 617.14, RTX
+  4070 SUPER; a driver defect, worked around in the test).** Past 0047 the AV1 encode wrote no byte
+  and its feedback query never became available, no validation message. Pinned 2026-11-07 with a
+  minimal NRI-free program (one 256x256 key frame, intra, CQP q index 40): the feedback query
+  answers `VK_NOT_READY` with status -1 (`VK_QUERY_RESULT_STATUS_ERROR_KHR`) and nothing is written
+  when the bitstream buffer's memory type is 0 (no flags) or 1 (`DEVICE_LOCAL`), and 35 bytes with
+  status 1 for types 2, 3 and 4 (`HOST_VISIBLE`, including `DEVICE_LOCAL | HOST_VISIBLE`); all five
+  are in the buffer's `memoryTypeBits`, so every placement is valid Vulkan. Every other NRI choice
+  was ruled out in that program, one by one and all together (the AV1 rate-control GOP info, the
+  quality level at reset, the separate reset scope, DPB slots 2 / one active reference, the decoder
+  model and buffer delays, the encode usage info, profile-independent and `CONCURRENT` resources,
+  `disable_cdf_update`, loop-filter deltas, global motion, plane-aspect barriers, video
+  maintenance 1/2, unified image layouts, descriptor heaps, zero-initialized memory, maintenance10,
+  allocation callbacks, the quality level in the parameters, `vkQueueSubmit2` with a timeline
+  semaphore, `ONE_TIME_SUBMIT`, the Khronos layer); NRI's H.264 encode into the same device-local
+  memory works. The AV1 encode test puts the Vulkan bitstream in `HOST_READBACK` memory, and then
+  Vulkan encodes a 39-byte key frame (an OBU stream, `32 A2 ...`). Caller's rule: on NVIDIA Vulkan
+  give the AV1 bitstream a host-visible location. Not NRI's: NRI does not choose the memory.
+- **AV1 encode info per backend.** Vulkan's payload is OBUs, so NRI describes a frame only from the
+  payload passed as the header (`UNSUPPORTED` without it); D3D12's is bare tile data, so the
+  reverse. The described payload is the frame OBU on Vulkan (34 B at 5: frame header, then the
+  tile group) and the tile itself on D3D12; a tile's offset is relative to the payload, so the one
+  tile ends where the payload does. With `seq_force_screen_content_tools` / `seq_force_integer_mv`
+  0 in the sequence, a picture asking for screen-content tools or integer MVs is refused on Vulkan
+  ("session parameters do not allow screen-content tools", as AV1 requires) and ignored on D3D12.
+  D3D12's AV1 and H.265 encode need no feedback resolve.
 - **D3D12 AV1 encode with default picture flags** (fixed upstream, N8, af45e72): the encoder needs
   `AUTO_SEGMENTATION`, `LOOP_RESTORATION_FILTER`, `CDEF_FILTERING`; v190 enabled auto segmentation
   only with `SEGMENTATION_ENABLED` ("[1306] ... ENABLE_FRAME_SEGMENTATION_AUTO is required in
@@ -1475,7 +1496,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
     crash and timestamps (MoltenVK and the paravirtual Mac).
   - `TestDevice.IsMoltenVK` (Vulkan on macOS): defects in MoltenVK's own code, which every Mac
     shares: the region-resolve abort (MoltenVK and the paravirtual Mac).
-  - Backend-keyed: Reflex on VK, AV1 encode on VK (an encode that writes nothing; Extensions), NVIDIA Vulkan's refused
+  - Backend-keyed: Reflex on VK (Extensions), NVIDIA Vulkan's refused
     micromap-size query pools (Ray tracing).
   - Lavapipe's clipping-primitive counter (`TestDevice.IsLavapipeVK`): a known bug to remove. The
     test asserts the wrong value 0 on lavapipe instead of skipping, so the day Mesa counts the

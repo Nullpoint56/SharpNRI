@@ -716,9 +716,13 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   v191 reads the results on the host.) The bitstream's first barrier on another queue after the
   encode names no stages: `VIDEO_ENCODE` is not a stage of a GRAPHICS queue.
 - **AV1 encode, Vulkan**: session parameters take a sequence without a colour description with the
-  shipped `NRI.dll` (patch 0047; v191 passed reserved colour values and NVIDIA refused them). On
-  NVIDIA the encode itself then writes nothing and its feedback never arrives, with no validation
-  message (cause not yet known): do not rely on Vulkan AV1 encode yet.
+  shipped `NRI.dll` (patch 0047; v191 passed reserved colour values and NVIDIA refused them).
+  **On NVIDIA put the AV1 bitstream in host-visible memory** (`MemoryLocation.HOST_READBACK`
+  through NRI; every host-visible memory type in a raw-Vulkan reproduction): driver 617.14 fails an AV1 encode into a `DEVICE` bitstream (no byte written,
+  feedback never complete, no validation message), though that placement is valid; H.264 is
+  unaffected. Vulkan describes an AV1 frame (`GetVideoAV1EncodeDecodeInfo`) only from the encoded
+  payload passed as the header; D3D12 only without it. A picture's screen-content and
+  integer-MV flags must agree with the sequence's `seqForce*` values on Vulkan.
 - `WriteVideoAnnexBParameterSets` for H.265 returns `UNSUPPORTED` for short- and long-term reference
   sets, VUI, scaling lists and tiles. The header does not say.
 - `GetVideoAV1EncodeDecodeInfo` returns pointers into the result struct itself: keep the struct
@@ -1018,7 +1022,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Vulkan Reflex + D3D12 in one process | `D3D12CreateDevice` 0x887A0007 | LowLatency |
 | RTSS running, a wrapped device whose instance never ran `vkEnumeratePhysicalDevices` (or an `NRI.dll` without patch 0045) | process dies at first Vulkan present | Device creation |
 | Reflex report in the first frames | all zeros | LowLatency |
-| AV1 encode on Vulkan (NVIDIA) | writes nothing, feedback never arrives | Video |
+| AV1 encode on Vulkan (NVIDIA), bitstream in `DEVICE` memory | driver fails the encode, nothing written | Video |
 | H.264 encode 64x64 on D3D12 | debug error 1312; minimum is 256x256 | Video |
 | `StreamerDesc` default memory location | validation error | Streamer |
 | Wrapped device from D3D12 without queue families | no queues | Wrappers |

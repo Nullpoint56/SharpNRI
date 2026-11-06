@@ -700,16 +700,17 @@ public sealed class VideoExtensionTests
         var desc = SessionDesc(VideoSessionType.ENCODE, VideoCodec.AV1);
         var caps = RequireSession(backend, video, desc);
         Assert.SkipWhen(caps.encodeFeedbackSupported == 0, $"{backend}: AV1 encode without feedback; the written size cannot be measured");
-        Assert.SkipWhen(backend.Api == GraphicsAPI.VK,
-            "VK: the AV1 encode writes no byte of bitstream and its feedback query never becomes available, with no validation message (measured on NVIDIA at v191 with patch 0047; NRI or driver not yet determined, AGENTS.md: Extensions)");
 
         using var encoder = new Av1Encoder(device, video, desc, caps);
         var av1Caps = video.GetVideoAV1Capabilities(desc);
         GpuWork.Record($"{backend}: the AV1 encoder requires {av1Caps.av1EncodeRequiredFeatureFlags}");
-        // NRI's default key-frame flags: ERROR_RESILIENT_MODE, DISABLE_CDF_UPDATE, ALLOW_SCREEN_CONTENT_TOOLS,
-        // FORCE_INTEGER_MV, SHOW_FRAME, SHOWABLE_FRAME.
-        var flags = VideoAV1PictureBits.ERROR_RESILIENT_MODE | VideoAV1PictureBits.DISABLE_CDF_UPDATE | VideoAV1PictureBits.ALLOW_SCREEN_CONTENT_TOOLS
-            | VideoAV1PictureBits.FORCE_INTEGER_MV | VideoAV1PictureBits.SHOW_FRAME | VideoAV1PictureBits.SHOWABLE_FRAME;
+        // NRI's default key-frame flags (ERROR_RESILIENT_MODE, DISABLE_CDF_UPDATE, ALLOW_SCREEN_CONTENT_TOOLS,
+        // FORCE_INTEGER_MV, SHOW_FRAME, SHOWABLE_FRAME) without the two the sequence forbids: its
+        // seq_force_screen_content_tools and seq_force_integer_mv are 0, which AV1 requires the picture to
+        // follow. NRI's Vulkan backend refuses the pair ("session parameters do not allow screen-content
+        // tools"); D3D12 ignored it.
+        var flags = VideoAV1PictureBits.ERROR_RESILIENT_MODE | VideoAV1PictureBits.DISABLE_CDF_UPDATE
+            | VideoAV1PictureBits.SHOW_FRAME | VideoAV1PictureBits.SHOWABLE_FRAME;
         var explicitDesc = new NriVideoAV1EncodePictureDesc
         {
             RefreshFrameFlags = 0xFF,
@@ -761,8 +762,10 @@ public sealed class VideoExtensionTests
             Assert.Equal(0UL, feedback.errorFlags);
             Assert.True(feedback.encodedBitstreamWrittenBytes > 0, "the encode wrote nothing");
 
-            // Without a payload header NRI describes the frame from the metadata and the submitted
-            // picture descs (frame type, order hint, refresh flags); NRI's defaults are an empty desc.
+            // D3D12 writes bare tile data: NRI describes the frame from the metadata and the submitted
+            // picture descs (frame type, order hint, refresh flags) without a payload header; NRI's
+            // defaults are an empty desc. Vulkan writes OBUs, and NRI describes the frame by parsing
+            // them, so there the payload is passed as the header.
             NriVideoAV1EncodeDecodeInfoDesc InfoDesc(VideoFrameType encodedAs, ReadOnlyMemory<NriVideoAV1ReferenceDesc> references = default) => new()
             {
                 Feedback = feedback,
@@ -770,6 +773,7 @@ public sealed class VideoExtensionTests
                 PictureDesc = new VideoEncodePictureDesc { frameType = encodedAs },
                 Av1PictureDesc = picture ?? new NriVideoAV1EncodePictureDesc(),
                 References = references,
+                EncodedPayloadHeader = backend.Api == GraphicsAPI.VK ? payload : default,
             };
             var info = new VideoAV1EncodeDecodeInfo();
             video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, InfoDesc(VideoFrameType.IDR), ref info);
@@ -780,7 +784,9 @@ public sealed class VideoExtensionTests
             Assert.Equal(0xFF, info.picture.refreshFrameFlags);
             Assert.True(info.bitstreamSize > 0 && info.bitstreamOffset + info.bitstreamSize <= feedback.encodedBitstreamWrittenBytes, $"payload range {info.bitstreamOffset}+{info.bitstreamSize} outside the {feedback.encodedBitstreamWrittenBytes} written bytes");
             Assert.Equal(1u, info.picture.tileNum);
-            Assert.Equal(info.bitstreamSize, (ulong)info.tiles[0].size);
+            // The tile's offset is relative to the payload: D3D12's payload is the tile itself, Vulkan's
+            // the frame OBU (frame header, then the tile group), so the one tile ends where the payload does
+            Assert.Equal(info.bitstreamSize, (ulong)info.tiles[0].offset + info.tiles[0].size);
             Assert.Equal((ushort)(Size - 1), info.sequence.maxFrameWidthMinus1);
             Assert.Equal((ushort)(Size - 1), info.picture.renderWidthMinus1);
             Assert.Equal(expectedQIndex, info.picture.baseQIndex);
@@ -788,23 +794,13 @@ public sealed class VideoExtensionTests
                 && info.picture.cdef == &p->cdef && info.picture.references == &p->references.e0 && info.tileLayout.miColumnStarts == &p->miColumnStarts.e0, "the picture's pointers do not point into the info");
             sizes.Add(feedback.encodedBitstreamWrittenBytes);
 
-            // With the payload's first bytes passed as the header: a D3D12 payload is tile data, with
-            // no OBUs to parse, so NRI answers UNSUPPORTED there (9131c1b); Vulkan parses the OBUs.
+            // The other way round on each backend: a D3D12 payload is tile data, with no OBUs to parse,
+            // so a header is UNSUPPORTED there (9131c1b); Vulkan has only the OBUs, so no header is.
             {
                 var parsed = new VideoAV1EncodeDecodeInfo();
-                var withHeader = InfoDesc(VideoFrameType.IDR) with { EncodedPayloadHeader = payload };
-                if (backend.Api == GraphicsAPI.D3D12)
-                {
-                    var unsupported = Assert.Throws<NriUnsupportedException>(() => video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, withHeader, ref parsed));
-                    GpuWork.Record($"{backend}: info with the payload header ({payload.Length} B) passed: {unsupported.Message}");
-                }
-                else
-                {
-                    video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, withHeader, ref parsed);
-                    GpuWork.Record($"{backend}: info with the payload header ({payload.Length} B) passed: payload {parsed.bitstreamSize} B at {parsed.bitstreamOffset}, frame {parsed.picture.frameType}, base q index {parsed.picture.baseQIndex}");
-                    Assert.Equal((info.bitstreamOffset, info.bitstreamSize, info.picture.frameType, info.picture.baseQIndex, info.picture.refreshFrameFlags),
-                        (parsed.bitstreamOffset, parsed.bitstreamSize, parsed.picture.frameType, parsed.picture.baseQIndex, parsed.picture.refreshFrameFlags));
-                }
+                var other = InfoDesc(VideoFrameType.IDR) with { EncodedPayloadHeader = backend.Api == GraphicsAPI.VK ? default : payload };
+                var unsupported = Assert.Throws<NriUnsupportedException>(() => video.GetVideoAV1EncodeDecodeInfo(encoder.Session, encoder.Resolved, 0, other, ref parsed));
+                GpuWork.Record($"{backend}: info {(backend.Api == GraphicsAPI.VK ? "without" : "with")} the payload header ({payload.Length} B): {unsupported.Message}");
             }
 
             // Reference keys: two entries for slot 0 must agree on everything, saved order hints included.
@@ -887,7 +883,11 @@ public sealed class VideoExtensionTests
                 _reconstructed = Own(device.CreateCommittedTexture(MemoryLocation.DEVICE, VideoTexture(TextureUsageBits.VIDEO_ENCODE | TextureUsageBits.VIDEO_REFERENCE_ONLY, VideoCodec.AV1)
                     with { layerNum = (ushort)Math.Max(1u, caps.dpbTextureArrayRequired != 0 ? caps.dpbTextureArrayMinLayerNum : 1) }));
                 _bitstreamSize = GpuWork.Align(1 << 20, Math.Max(1u, caps.bitstreamSizeAlignment));
-                _bitstream = Own(device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = _bitstreamSize, usage = BufferUsageBits.VIDEO_ENCODE }));
+                // Vulkan: host-visible memory. NVIDIA's driver (617.14) fails an AV1 encode into a bitstream in a
+                // memory type without HOST_VISIBLE (query status ERROR, no byte written) though the buffer's
+                // memoryTypeBits allow it; reproduced without NRI, H.264 unaffected (AGENTS.md: Extensions)
+                var bitstreamLocation = device.Desc.graphicsAPI == GraphicsAPI.VK ? MemoryLocation.HOST_READBACK : MemoryLocation.DEVICE;
+                _bitstream = Own(device.CreateCommittedBuffer(bitstreamLocation, new BufferDesc { size = _bitstreamSize, usage = BufferUsageBits.VIDEO_ENCODE }));
                 _readback = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = _bitstreamSize }));
                 _metadata = caps.metadataSize == 0 ? null : Own(device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = caps.metadataSize, usage = BufferUsageBits.VIDEO_ENCODE }));
                 Resolved = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = Math.Max(caps.resolvedMetadataSize, 256), usage = BufferUsageBits.VIDEO_ENCODE }));
