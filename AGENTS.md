@@ -47,8 +47,8 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
-- **State.** Master pins NRI v191 (46c93d79) with twelve patches; `next` pins NRI main 7ea93bb5
-  (2026-11-05) with sixteen: the same twelve, 0040, 0041, 0042 and 0043 (Patches).
+- **State.** Master pins NRI v191 (46c93d79) with fifteen patches; `next` pins NRI main b90cfb57
+  (2026-11-06) with four, 0007, 0013, 0015 and 0037: upstream took every other one (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
   `dotnet/Native` resolved by hand. NRI-side work (patches, re-cuts, upstream reports) starts on
@@ -373,29 +373,19 @@ ref and patch count, the payload the tests loaded (by content) and the adapter e
 
 ## Patches
 
-The set for NRI v191 (46c93d79) on master; `next` (main 7ea93bb5) carries the same twelve plus
-0040 (a defect main introduced after v191), 0041, 0042 and 0043 (defects v191 has too, found on
-`next` and not yet on master). Gaps in the numbering are patches dropped when
-upstream took the fix (git log, `docs/upstream.md`).
+The set for NRI main b90cfb57 on `next`: the four the owner holds back (a build option, two layer
+warnings, a message format; never filed). Master still carries fifteen for v191 until v192: these four
+and 0001, 0012, 0017, 0018, 0019, 0024, 0038, 0039, 0041, 0042, 0043, all upstream on main since
+2026-11-06 (PRs #313-#316; #310, #311, #312, #317 via PR #318; and #309, which was main-only and
+made 0040; `docs/upstream.md`). Gaps in the numbering are patches dropped when upstream took the fix
+(git log, `docs/upstream.md`).
 
 | Patch | What | Why |
 |---|---|---|
-| 0001 agility-sdk-device-factory | `DeviceCreationDesc::d3d12AgilitySdkPath`; `D3D12GetInterface(CLSID_D3D12SDKConfiguration)` -> `ID3D12SDKConfiguration1::CreateDeviceFactory(NRI_AGILITY_SDK_VERSION_MAJOR, path)` -> `ApplyToGlobalState()` before any other D3D12 call | a managed host cannot export `D3D12SDKVersion`, so the SDK never loads otherwise (D3D12 and the Agility SDK) |
 | 0007 cmake-vulkan-loader-link-option | `NRI_ENABLE_VULKAN_LOADER_LINKING` (default ON) wraps the Apple `find_package(Vulkan)` + link; the build passes OFF | the shipped dylib otherwise needs the build machine's loader path; NRI PR 134 added the link for an IDE case, upstream: "just not needed" (MoltenVK and the paravirtual Mac) |
-| 0012 streamer-dynamic-buffer-initial-size | `StreamerDesc::dynamicBufferDesc.size` is the initial per-frame size of the dynamic buffer, allocated in `Create` through `Grow` (rounded up to 64 KiB, times `queuedFrameNum`); 0 keeps on-demand growth | upstream ignores the field (`"size" is ignored`) and grows from empty, one committed buffer per new per-frame high-water mark, each destroyed `queuedFrameNum + 1` frames later inside `EndStreamerFrame`; measured: 222 stream calls at 477 ms and `EndStreamerFrame` at 189 ms per level load from that (Extensions) |
 | 0013 vulkan-exclusive-image-no-family-indices | `DeviceVK::FillCreateInfo` passes `queueFamilyIndexCount = 0` and null indices for `VK_SHARING_MODE_EXCLUSIVE` images | upstream passes every active family's index whatever the sharing mode; best practices report `BestPractices-vkCreateImage-sharing-mode-exclusive` per image (Memory and resources) |
 | 0015 vulkan-message-id-name | the debug-utils callback forwards `pMessageIdName` as `[id] name: text` when the layer provides one | upstream forwards number and text; current Khronos layers keep the VUID / check name only in `pMessageIdName` (Device creation and callbacks) |
-| 0017 swapchain-latest-ready-bit | `SwapChainBits::LATEST_READY` + `DeviceDesc::features.latestReadySwapChain` (VK: swap chain + `fifoLatestReady`); with `VSYNC` the capped list is FIFO_LATEST_READY, FIFO_RELAXED/FIFO, FIFO; the bit is cleared from `m_Flags` unless that mode was chosen; D3D11/D3D12 clear it | upstream reaches FIFO_LATEST_READY only without `VSYNC` and after MAILBOX, which NVIDIA always offers; NRI never reports the chosen mode (Extensions) |
-| 0018 d3d12-break-on-error-switch | `DeviceCreationDesc::disableD3D12BreakOnError` wraps the two `SetBreakOnSeverity` calls in `DeviceD3D12::Create`; the binding passes it unless `BreakOnError` and a debugger is attached | upstream sets the info-queue break on ERROR and CORRUPTION for every debug-layer device: without a debugger the first D3D12 error is an `SEHException` out of the NRI call or a dead headless process, though the message callback already reports it (D3D12 and the Agility SDK) |
-| 0019 d3d12-gpu-based-validation-switch | `DeviceCreationDesc::enableD3D12GpuBasedValidation` (beside `enableD3D12RayTracingValidation`): `ID3D12Debug1::SetEnableGPUBasedValidation(true)` after `EnableDebugLayer` | upstream never enables GPU-based validation, which must precede device creation; the alternative is D3D12 COM in the binding (D3D12 and the Agility SDK) |
-| 0024 enumerate-adapters-by-graphics-api | `nriCreateDevice` with a null `adapterDesc` calls `nriEnumerateAdapters` with `GraphicsAPI::VK` for a VK device and `ALL` otherwise (`Creation.cpp`, 2 lines) | `nriEnumerateAdapters` takes the backends to probe (962615b), but device creation still probed all: a Vulkan device created a DXGI factory and D3D12 devices and kept `D3D12Core.dll` loaded; a D3D-only probe would change a D3D12 device's queue counts, so D3D keeps the full one (Device creation and callbacks) |
 | 0037 vulkan-swapchain-present-modes-info | `SwapChainVK::Create` chains `VkSwapchainPresentModesCreateInfoKHR` listing the chosen `presentMode` only, with `swapchainMaintenance1` | upstream chains present scaling but not this, and best practices warn for every swap chain; one mode is what Vulkan assumes without the structure (Extensions) |
-| 0038 vulkan-instance-create-info-next | `DeviceCreationDesc::vkInstanceCreateInfoNext` (`NriOptional const void*`, next to `vkExtensions`): a caller's chain appended to `VkInstanceCreateInfo::pNext` after NRI's own structures | `VkLayerSettingsCreateInfoEXT` cannot otherwise reach the layer, and layer settings go through environment variables: process-wide, and unseen on Linux and macOS when set from .NET (Device creation and callbacks); a proposal |
-| 0039 vulkan-unsupported-shader-stages | `DeviceVK` records the shader stages it lacks (tessellation, geometry, task, mesh, ray tracing; from the features it enabled); barriers and fence waits drop their pipeline stages, and a pipeline layout drops them from its stages, which `ALL` / `ALL_SHADERS` resolve to | NRI turns a mask naming every shader stage into every Vulkan stage bit whatever the device has, which the validation layer refuses on a device without those stages (Barriers) |
-| 0040 d3d12-resource-interface-inbox-runtime (`next` only) | `ID3D12ResourceBest` back to `ID3D12Resource2` in `BufferD3D12.h` and `TextureD3D12.h` | main's 3dd4cbfa made it `ID3D12Resource3`, which the inbox runtime lacks: every resource creation fails there (D3D12 and the Agility SDK) |
-| 0041 validation-shader-group-range (`next` only) | the validation pipeline is created with its `RayTracingPipelineDesc` (the generic constructor was used), keeps its `shaderGroupNum`, and `WriteShaderGroupIdentifiers` refuses a range past it with `INVALID_ARGUMENT`; wrapped pipelines (count unknown) stay unchecked | validation checked only the stride, and a range past the groups crashed both backends (Ray tracing) |
-| 0042 vulkan-mesh-shader-pipeline-statistics (`next` only) | `QueryPoolVK` adds the task and mesh counters, and sizes queries for 13, on `features.meshShaderPipelineStats` instead of `features.meshShader` | the counters need `meshShaderQueries`; without it every pipeline-statistics pool drew VUID 07069 and a wrong query size (Multisampling, copies and queries) |
-| 0043 validation-draw-parameters-emulation-d3d12-metal (`next` only) | the indirect-draw stride checks apply the emulated `Draw(Indexed)BaseDesc` layout only on D3D12 and Metal | validation applied it on every backend and refused the plain records Vulkan reads (Draws, render state and attachments) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -408,7 +398,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all twelve do; at main 7ea93bb5 all sixteen.
+  all fifteen do; at main b90cfb57 all four.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
   fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
@@ -500,7 +490,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
 
 ### Device creation and callbacks
 
-- **Layer settings for one instance (patch 0038).** NRI chains only its own
+- **Layer settings for one instance (patch 0038; upstream since PR #313, d296386a).** NRI chains only its own
   `VkDebugUtilsMessengerCreateInfoEXT` and (with `enableGraphicsAPIValidation`)
   `VkValidationFeaturesEXT` into the instance, so otherwise the Khronos layer is configurable only
   through environment variables (process-wide, read at instance creation, and not updated by .NET
@@ -518,7 +508,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   `BreakOnError` and a debugger is attached.
 - **`GetQueue` out of range**: `INVALID_ARGUMENT` on VK and D3D12 with no message; NONE returns
   `SUCCESS` even for index 1000. Tests wanting a message must provoke the validation layer.
-- **Adapter enumeration (patch 0024).** `nriEnumerateAdapters` with `ALL` runs the Vulkan pass
+- **Adapter enumeration (patch 0024; upstream since PR #313, d296386a).** `nriEnumerateAdapters` with `ALL` runs the Vulkan pass
   (a throwaway VkInstance, API 1.2, so the loader loads and unloads every implicit layer), then the
   D3D pass (a DXGI factory, a null-device `D3D12CreateDevice` probe per adapter, and for an adapter
   Vulkan did not list, real devices for the architecture and video-queue queries, on the inbox
@@ -768,7 +758,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   - `CrossQueueCopyTests.A_hand_off_between_two_queues_is_no_ownership_transfer_on_a_CONCURRENT_image`,
     `A_release_and_acquire_naming_different_transitions_is_an_error_only_on_an_EXCLUSIVE_image`;
     both skip on lavapipe (one queue family).
-- **Stage masks naming shader stages the device lacks (patch 0039).** `GetPipelineStageFlags` and
+- **Stage masks naming shader stages the device lacks (patch 0039; upstream since #310, 667d47de, which also masks explicitly named stages).** `GetPipelineStageFlags` and
   `GetShaderStageFlags` (`ConversionVK.h`) turn `ALL_SHADERS` (a barrier, a fence wait) and a
   layout whose stages are `ALL` into every Vulkan shader stage bit, whatever the device has. On
   MoltenVK (no geometry, mesh or ray tracing shaders) every barrier naming `ALL_SHADERS` drew
@@ -830,7 +820,7 @@ pixels of a 64x64 target exactly).
   D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS flag is undefined" on D3D12; NVIDIA Vulkan then
   ignores the bias, D3D12 and WARP apply it. After re-binding the pipeline, Vulkan and WARP restore
   its bias and NVIDIA's D3D12 driver keeps the dynamic one (a driver difference, untested).
-- **Draw-parameters emulation is D3D12 and Metal only (patch 0043, `next` only; NRI #317).** The flag is "D3D12,
+- **Draw-parameters emulation is D3D12 and Metal only (patch 0043 on master; upstream since #317, via PR #318, 12891278).** The flag is "D3D12,
   METAL"; on SPIR-V `NRI.hlsl` writes plain `DrawDesc` records and the Vulkan backend reads them.
   Validation applied the emulated layout on every backend: on Vulkan with the flag, stride 16 was
   refused ("'stride' is too small, expected >= 24", 28 indexed) and `DrawBaseDesc` records at 24
@@ -869,7 +859,7 @@ Measured by `MultisampleTests`, `TextureCopyTests` and `QueryTests`.
   measured counts are exact anyway: 256 for a full 16x16 quad, 0 behind a failing depth test.
 - **Pipeline statistics**: results `QuerySize` apart (VK 104 bytes, D3D12 112); fragment
   invocations for 256 pixels: 256 on hardware, 288 on WARP (helper lanes on diagonal quads).
-  **Mesh counters without mesh-shader queries (patch 0042, `next` only; NRI #312).** The Vulkan pool added
+  **Mesh counters without mesh-shader queries (patch 0042 on master; upstream since #312, b787bd77).** The Vulkan pool added
   the task and mesh counters and sized queries for 13 on `features.meshShader`; the counters need
   `meshShaderQueries` (`features.meshShaderPipelineStats`). Every device here has both, so
   `MeshShaderQueryTests` runs a child with the Khronos Profiles layer (Vulkan SDK) below the
@@ -916,7 +906,7 @@ Measured by `DebugAidTests`.
   `Using ID3D12Device16` on Agility); six remain on main 7ea93bb5, D3D12MA's (its fix, #102, is not
   merged yet). The device-lost child allows exactly these warnings by ID and text and fails when
   none remain (Tests and skips).
-- **Resources on the inbox runtime (patch 0040, `next` only; NRI #309).** 3dd4cbfa made `ID3D12ResourceBest`
+- **Resources on the inbox runtime (upstream since #309, 3ac981f1: resources and video encoders query the latest interface the runtime has; 0040 dropped).** 3dd4cbfa made `ID3D12ResourceBest`
   `ID3D12Resource3`. The device and command lists are queried down to what the runtime has
   (`QueryLatestInterface`), resources are created for that IID directly, and the inbox runtime
   (Windows 11 26200) has no `ID3D12Resource3`: every committed, bound and placed buffer and texture
@@ -928,7 +918,7 @@ Measured by `DebugAidTests`.
   `RenderDocTests` (inbox capture) failed the same way. v191 is not affected. The video encoder
   has the same shape (`ID3D12VideoEncoderBest` = `ID3D12VideoEncoder1` by IID, NRI's own
   `TODO-VIDEO: use "QueryLatestInterface"`), unmeasured on the inbox runtime.
-- **Agility does not load in a managed process without patch 0001.** NRI's CMake writes
+- **Agility does not load in a managed process without `d3d12AgilitySdkPath`** (patch 0001 on master; upstream since PR #314, e52e46e2, with the maintainer's 2658d48d: `InitializeFromGlobalState` before the apply keeps the host's debug settings, `D3D12GetInterface` resolved at run time, a null path inherits the current selection). NRI's CMake writes
   `Include/NRIAgilitySDK.h` declaring `D3D12SDKVersion` / `D3D12SDKPath` exports for the host
   executable; `dotnet.exe`, `testhost.exe` and apphosts export nothing, so the inbox runtime runs.
   Symptom: `CheckFeatureSupport(options22) failed, result = 0x80070057!`. Success line: `Using
@@ -961,7 +951,7 @@ Measured by `DebugAidTests`.
   COM identity. Caller's rule: capture with `D3D12AgilitySdkPath = ""` (the process's first D3D12
   device). The test asserts both halves, so a RenderDoc that captures Agility fails it; it skips
   without `renderdoccmd.exe`. NRI turns NVAPI off when `renderdoc.dll` is loaded.
-- **Info-queue break (patch 0018).** With `enableGraphicsAPIValidation` NRI sets the break on
+- **Info-queue break (patch 0018; upstream since PR #313, d296386a).** With `enableGraphicsAPIValidation` NRI sets the break on
   CORRUPTION and ERROR unconditionally (since d003e22), and with `NRI_ENABLE_AGILITY_SDK_SUPPORT`
   also registers `ID3D12InfoQueue1::RegisterMessageCallback`, which reports every message below
   WARNING as `Message::ERROR` (`[id] text`, then `AbortExecution`, handled by `MessageBridge`). The
@@ -972,7 +962,7 @@ Measured by `DebugAidTests`.
   ID3D12CommandList::CopyBufferRegion: The destination region extends past the end of the
   destination resource ..." as an ERROR and returns; `End` then throws `INVALID_ARGUMENT`. With the
   break on, the copy threw `SEHException`.
-- **GPU-based validation (patch 0019).** NRI never calls `ID3D12Debug1::SetEnableGPUBasedValidation`,
+- **GPU-based validation (patch 0019; upstream since PR #313, d296386a).** NRI never calls `ID3D12Debug1::SetEnableGPUBasedValidation`,
   which must precede device creation and stays on for the process.
   `NriDeviceOptions.EnableD3D12GpuBasedValidation` maps 1:1.
   `D3D12DebugLayerTests.GPU_based_validation_reports_a_never_written_descriptor_and_only_when_asked_for`
@@ -1124,7 +1114,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
 - **AABB geometry** (`FromAabbs`, offset 32, stride 32): committing every procedural candidate gives
   the boxes' exact hit map on VK, D3D12 and WARP.
 - **`WriteShaderGroupIdentifiers`**: the binding's size check multiplies in 64 bits (2^28 x 16
-  wrapped to 0 in 32). **The group range (patch 0041, `next` only; NRI #311):** validation checked only the
+  wrapped to 0 in 32). **The group range (patch 0041 on master; upstream since #311, 022fda45, which also refuses `shaderGroupNum` 0 and a null `dst`):** validation checked only the
   stride, so groups past the pipeline's reached the backend: on a three-group pipeline, groups 2..3
   ended the process (0xC0000005) on D3D12 with no message (`m_ShaderGroupNames` indexed unbounded)
   and on Vulkan after VUID-vkGetRayTracingShaderGroupHandlesKHR-firstGroup-02419, in the NVIDIA
@@ -1248,7 +1238,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   device answers `NOT_READY` while NRI's own device creates one. Binding: `TryCreateSwapChain`
   returns `NriSwapChainStatus.NotReady`; `CreateSwapChain` throws. Read the real size from the
   swap chain's textures.
-- **FIFO_LATEST_READY with `VSYNC` (patch 0017).** Upstream's capped list (`VSYNC`) is FIFO_RELAXED
+- **FIFO_LATEST_READY with `VSYNC` (patch 0017; upstream since PR #316, 425a8323).** Upstream's capped list (`VSYNC`) is FIFO_RELAXED
   (with `ALLOW_TEARING`) or FIFO; the uncapped one MAILBOX, IMMEDIATE, then FIFO_LATEST_READY
   ("Uncapped frame rate ... Similar to MAILBOX"), then FIFO. NVIDIA always offers MAILBOX, so the
   mode was never chosen. Reordering the uncapped list was rejected: FIFO_LATEST_READY queues like
@@ -1276,7 +1266,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   NV12/P010/P016 stay on texel rows (unmeasured). Batches not recorded by `EndStreamerFrame` are
   discarded; the stale-batch check is an `NRI_CHECK` (gone in release builds), so only NRI
   validation refuses one.
-- **Streamer initial size (patch 0012).** Upstream grows from empty: `Grow` sizes exactly
+- **Streamer initial size (patch 0012; upstream since PR #315, efb158d1).** Upstream grows from empty: `Grow` sizes exactly
   `Align(offset, 64 KiB) * queuedFrameNum`, parks the old buffer, and `EndFrame` destroys it
   `queuedFrameNum + 1` frames later under the streamer's spin lock, which `StreamBufferData` /
   `StreamTextureData` also hold across `Grow`, map, memcpy and unmap (`MapBuffer` is a pointer add on
