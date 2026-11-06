@@ -1211,8 +1211,10 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   (0x3c, R8_TYPELESS) is invalid", then "[232] ... RemoveDevice ... DXGI_ERROR_INVALID_CALL", after
   which every `D3D12CreateDevice` in the process fails (0x887A0001). R16_SFLOAT (R16_TYPELESS) works
   there, DLSR takes R8 on D3D12, Vulkan passes formats explicitly. The case skips quoting it (it
-  poisons the process). Whose defect is undecided: NGX guesses a typed format for R16/R32 TYPELESS
-  and not for R8; NRI hands typeless resources to an SDK that views them itself.
+  poisons the process). NGX's defect: NRI hands both features the mask the same way, a bare
+  `ID3D12Resource` (`UpscalerInterface.hpp:1731` DLSR's `Bias_Current_Color_Mask`, `:1820` DLRR's
+  `ResponsivityMask`; NGX's D3D12 parameters carry no format), and DLSR views the same
+  `R8_TYPELESS` texture correctly; DLRR lacks that mapping. Caller's rule: an R16 mask for DLRR on D3D12.
 - **DLRR on D3D12 below its creation size**: NGX's own barriers on its internal resources name a
   state they are not in, "[527] ... Before state (0x400: D3D12_RESOURCE_STATE_COPY_DEST) of resource
   (...:'nv.ngx.dlssd.resource') ... does not match with the state (0x40:
