@@ -200,9 +200,9 @@ public sealed class RayTracingPipelineTests
     /// must hide the triangle and the opaque one must show it exactly where the plain BLAS hits.
     /// </summary>
     /// <remarks>
-    /// On D3D12 the device runs without the D3D12 debug layer (NRI's validation stays on): NRI's
-    /// micromap prebuild query passes no input buffer and no per-OMM descs, which the Agility SDK
-    /// 1.619 debug layer refuses as error 1162. The barrier after <c>BuildMicromaps</c> names the
+    /// On D3D12 the device runs with the debug layer: NRI v191's micromap prebuild query passed null
+    /// input-buffer and per-OMM-desc addresses, which the layer refused as error 1162 at every
+    /// creation, and this test ran D3D12 without it until patch 0046. The barrier after <c>BuildMicromaps</c> names the
     /// micromap's own stage, {MICROMAP_WRITE, MICROMAP}: before patch 0030 NRI's D3D12 backend added
     /// SYNC_EMIT_RAYTRACING_ACCELERATION_STRUCTURE_POSTBUILD_INFO to that side, a pair the debug
     /// layer refuses as error 1331 next to ACCESS_RAYTRACING_ACCELERATION_STRUCTURE_WRITE, and the
@@ -213,7 +213,7 @@ public sealed class RayTracingPipelineTests
     public void An_opacity_micromap_decides_whether_the_ray_query_hits(Backend backend)
     {
         var messages = new List<NriMessage>();
-        using var device = CreateRayTracingDevice(backend, messages, b => b.EnableGraphicsApiValidation = backend.Api != GraphicsAPI.D3D12);
+        using var device = CreateRayTracingDevice(backend, messages);
         Assert.SkipWhen(device.Desc.tiers.rayTracing < 3, $"{backend}: tiers.rayTracing = {device.Desc.tiers.rayTracing}, no micromaps (needs 3)");
         var rt = device.RayTracing;
         using var scene = new RayScene(device, outputNum: 3);
