@@ -180,7 +180,7 @@ Caveats:
   its instance from `vkEnumeratePhysicalDevices` and uses that map at the first present. NRI finds
   physical devices only through `vkEnumeratePhysicalDeviceGroups`, so on NRI's device the loader
   logged `vkEnumeratePhysicalDevices: Invalid instance` and the process failed fast at the first
-  present (exit 0xC0000409). `NriDevice.Create` therefore calls `vkEnumeratePhysicalDevices` once
+  present (exit 0xC0000409), with or without validation (RTSS 7.3.5). `NriDevice.Create` therefore calls `vkEnumeratePhysicalDevices` once
   on NRI's instance after creation (`VkEnumeratePhysicalDevicesAfterCreation`, default true), and
   a presenting Vulkan process survives with the layer on. A device from `CreateFromVulkan` is on
   your instance: enumerate physical devices on it with `vkEnumeratePhysicalDevices` yourself. The

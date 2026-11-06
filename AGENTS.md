@@ -552,8 +552,15 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   unused: 3 of 3 survive. `NriDevice.Create` makes that call for VK (`EnumeratePhysicalDevicesVK`:
   `vkGetInstanceProcAddr` and the instance from the WrapperVK table, `stackalloc` up to 32, never
   throws, skipped on any null); opt-out `NriDeviceOptions.VkEnumeratePhysicalDevicesAfterCreation`;
-  not in `CreateFromVulkan` (the caller's instance). An instance-count cause is refuted. Not
-  patched: a third-party layer's problem.
+  not in `CreateFromVulkan` (the caller's instance). An instance-count cause is refuted.
+  Validation plays no part (RTSS 7.3.5, 2026-11-06, a scratch app on the binding): NRI validation
+  off and on, the Khronos layer off and on, hidden and shown window, 16 runs: without the call
+  every one dies with 0xC0000409 inside the first `QueuePresent`, with it each presents 120
+  frames; `DISABLE_RTSS_LAYER=1` survives without the call. So it hits release builds of any NRI
+  Vulkan application presenting while RTSS runs; applications that call
+  `vkEnumeratePhysicalDevices` themselves, as most engines do, never see it, and NRI calls only
+  `vkEnumeratePhysicalDeviceGroups` (`DeviceVK.hpp:791`). Not patched: a third-party layer's
+  problem.
 - **NRI.dll loads no D3D module by itself; the Vulkan loader loads `dxgi.dll`.**
   `AdapterEnumerationTests.A_Vulkan_only_enumeration_and_device_load_no_D3D_module_of_NRI`: NRI.dll
   loaded, nothing else: none of `d3d12.dll`, `dxgi.dll`, `D3D12Core.dll`; VK-only enumeration and a
