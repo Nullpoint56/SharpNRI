@@ -47,9 +47,8 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
-- **State.** Master pins NRI v191 (46c93d79) with fifteen patches; `next` pins NRI main 7ea93bb5
-  (2026-11-05) with sixteen: the same fifteen and 0040, for a defect main introduced after v191
-  (Patches).
+- **State.** Master pins NRI v191 (46c93d79) with sixteen patches; `next` pins NRI main b90cfb57
+  (2026-11-06) with five, 0007, 0013, 0015, 0037 and 0044: upstream took every other one (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
   `dotnet/Native` resolved by hand. NRI-side work (patches, re-cuts, upstream reports) starts on
@@ -201,6 +200,11 @@ Decided; not reopened as a side effect of other work.
   the defect, a workaround or a skip with a "to fix" note. Every defect is also recorded here
   (measured) and in `next`'s `docs/upstream.md`, filed or not. The patch is dropped (on `next`
   first) when upstream carries a fix.
+- **Third-party defects are worked around, not patched, with one exception.** A layer's or a
+  driver's bug is not NRI's: the RivaTuner layer is worked around in the binding and not offered
+  upstream (Device creation and callbacks). The exception is patch 0044 (owner, 2026-11-06), a
+  one-line value change that lets lavapipe on Windows run at all, harmless on every driver and
+  dropped once the pinned Mesa is fixed (Lavapipe). It is reported to the driver, not to NRI.
 - **The library knows nothing about any consumer.** No project, test, package or doc references a
   downstream project; downstream bindings reference `SharpNRI.Descs` / `SharpNRI.Testing`, never
   the reverse. No probe or test targets an application.
@@ -380,8 +384,8 @@ ref and patch count, the payload the tests loaded (by content) and the adapter e
 
 ## Patches
 
-The set for NRI v191 (46c93d79) on master; `next` (main 7ea93bb5) carries the same fifteen plus
-0040, for a defect main introduced after v191. Gaps in the numbering are patches dropped when
+The set for NRI v191 (46c93d79) on master. `next` (main b90cfb57) carries five: 0007, 0013, 0015,
+0037 and 0044; upstream took the rest on 2026-11-06 (`docs/upstream.md`). Gaps in the numbering are patches dropped when
 upstream took the fix (git log, `docs/upstream.md`).
 
 | Patch | What | Why |
@@ -401,6 +405,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0041 validation-shader-group-range | the validation pipeline is created with its `RayTracingPipelineDesc` (the generic constructor was used), keeps its `shaderGroupNum`, and `WriteShaderGroupIdentifiers` refuses a range past it with `INVALID_ARGUMENT`; wrapped pipelines (count unknown) stay unchecked | validation checked only the stride, and a range past the groups crashed both backends (Ray tracing) |
 | 0042 vulkan-mesh-shader-pipeline-statistics | `QueryPoolVK` adds the task and mesh counters, and sizes queries for 13, on `features.meshShaderPipelineStats` instead of `features.meshShader` | the counters need `meshShaderQueries`; without it every pipeline-statistics pool drew VUID 07069 and a wrong query size (Multisampling, copies and queries) |
 | 0043 validation-draw-parameters-emulation-d3d12-metal | the indirect-draw stride checks apply the emulated `Draw(Indexed)BaseDesc` layout only on D3D12 and Metal | validation applied it on every backend and refused the plain records Vulkan reads (Draws, render state and attachments) |
+| 0044 vulkan-disabled-logic-op-valid-value | a pipeline without a logic op passes `logicOp = VK_LOGIC_OP_COPY` (with `logicOpEnable = VK_FALSE`) instead of `VK_LOGIC_OP_MAX_ENUM` | a driver workaround, not an NRI defect: lavapipe on Windows converts the disabled value and its MSVC build jumps to a garbage address (Lavapipe; the exception under Rules) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -413,7 +418,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all fifteen do; at main 7ea93bb5 all sixteen.
+  all sixteen do; at main b90cfb57 the five.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
   fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
@@ -1012,6 +1017,24 @@ Measured by `DebugAidTests`.
   the two concurrent-image tests skip naming it.
 - `GALLIUM_OVERRIDE_CPU_CAPS=avx` or `sse4.1` kills lavapipe with an illegal instruction before any
   test runs.
+- **Lavapipe on Windows (Windows CI's Vulkan device) jumps to a garbage address for a disabled logic
+  op; patch 0044 works around it.** NRI creates a pipeline without a logic op with `logicOpEnable =
+  VK_FALSE` and `logicOp = VK_LOGIC_OP_MAX_ENUM` (legal: VUID-VkPipelineColorBlendStateCreateInfo-
+  logicOpEnable-00607 asks for a valid value only when enabled; the layer is silent). Lavapipe
+  converts it anyway (`lvp_execute.c:1045`, Mesa 26.2.6, `handle_graphics_pipeline`), and
+  `vk_logic_op_to_pipe` (`src/vulkan/runtime/vk_blend.c`) ends its switch in `UNREACHABLE`, which
+  MSVC builds turn into `__assume(0)`: no range check on the jump table, so `0x7FFFFFFF` jumps to a
+  garbage address ("Attempt to execute non-executable address", on lavapipe's queue thread). Found
+  2026-11-06 with mesa-dist-win 26.2.6 and 25.2.8 and its PDBs (the symbolized stack ends at that
+  line): 25 tests crashed the process (depth and stencil state, blending, multisampling and
+  resolves, indirect draws, mesh shaders, ImGui, occlusion), another one with 0xC0000409; Linux
+  builds of the same code take the undefined path without crashing. Proof: with `VK_LOGIC_OP_COPY`
+  in that one place the whole Vulkan suite runs on lavapipe for Windows. Patch 0044 passes
+  `VK_LOGIC_OP_COPY` whenever the logic op is off (a value every driver ignores there); it is a
+  driver workaround, the one exception to the patch rule (Rules), to be dropped when the pinned
+  Mesa converts the logic op only when enabled. Reported to Mesa by the owner.
+- **Lavapipe on Windows has no external handles** (`features.sharedResources` and `sharedFences` 0):
+  the Win32 import proofs skip naming the bits.
 
 ### WARP
 

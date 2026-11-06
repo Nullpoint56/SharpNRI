@@ -1,0 +1,33 @@
+VK: a pipeline without a logic op passes a valid "VkLogicOp", for drivers that read it anyway.
+
+With "LogicOp::NONE", PipelineVK sets "logicOpEnable = VK_FALSE" and "logicOp" from
+g_LogicOps[NONE], which is VK_LOGIC_OP_MAX_ENUM (0x7FFFFFFF). That is legal: "logicOp" must be a
+valid VkLogicOp only when "logicOpEnable" is VK_TRUE
+(VUID-VkPipelineColorBlendStateCreateInfo-logicOpEnable-00607), and the validation layer is silent.
+
+Mesa's lavapipe converts it regardless: lvp_execute.c:1045 (Mesa 26.2.6, handle_graphics_pipeline)
+calls vk_logic_op_to_pipe(ps->cb->logic_op) without looking at logic_op_enable, and that switch
+(src/vulkan/runtime/vk_blend.c) ends in UNREACHABLE, which an MSVC build turns into __assume(0): the
+jump table loses its range check and 0x7FFFFFFF jumps to a garbage address. Measured with
+mesa-dist-win 26.2.6 and 25.2.8 on Windows (the symbolized stack ends at that line): 25 tests crash
+the process with an access violation on lavapipe's queue thread, drawing with depth or stencil,
+blending, multisampling, indirect draws, mesh shaders. Linux builds of the same code do not crash.
+
+This is a workaround for a driver defect, not an NRI defect: "logicOp" is VK_LOGIC_OP_COPY when the
+logic op is off, a value every driver ignores in that state. With it the whole Vulkan suite runs on
+lavapipe for Windows, and NVIDIA and Linux lavapipe are unchanged. Drop it once the pinned Mesa
+converts the logic op only when it is enabled.
+
+diff --git a/Source/VK/PipelineVK.hpp b/Source/VK/PipelineVK.hpp
+index 9be9cb4c..a0af88c6 100644
+--- a/Source/VK/PipelineVK.hpp
++++ b/Source/VK/PipelineVK.hpp
+@@ -286,7 +286,7 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
+ 
+     VkPipelineColorBlendStateCreateInfo colorBlendState = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+     colorBlendState.logicOpEnable = om.logicOp != LogicOp::NONE ? VK_TRUE : VK_FALSE;
+-    colorBlendState.logicOp = GetLogicOp(om.logicOp);
++    colorBlendState.logicOp = om.logicOp != LogicOp::NONE ? GetLogicOp(om.logicOp) : VK_LOGIC_OP_COPY; // ignored with "logicOpEnable" off, but a valid value: lavapipe converts it anyway
+     colorBlendState.attachmentCount = om.colorNum;
+     colorBlendState.pAttachments = scratch;
+ 
