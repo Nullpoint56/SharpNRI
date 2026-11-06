@@ -280,11 +280,11 @@ public sealed class IndirectTests
     /// NRI's emulation, root constants NRI sets per draw when the layout has
     /// ENABLE_DRAW_PARAMETERS_EMULATION, and for indirect draws reads from the first two words of
     /// DrawBaseDesc / DrawIndexedBaseDesc records (the "modified draw command signatures" of
-    /// NRIDescs.h). The flag is documented for D3D12 and Metal and set here on D3D12 only; on
-    /// Vulkan the records are the plain DrawDesc / DrawIndexedDesc. (Set on Vulkan, the flag makes
-    /// NRI validation demand a DrawBaseDesc stride while the Vulkan backend still reads a DrawDesc
-    /// at each record's start; measured: stride 16 refused with "'stride' is too small, expected >=
-    /// 24", DrawBaseDesc records at stride 24 drawing nothing.) The colour encodes baseVertex (red)
+    /// NRIDescs.h). The flag is documented for D3D12 and Metal ("D3D12, METAL"), so portable code
+    /// sets it on every backend: Vulkan renders once with it and once without, the same picture,
+    /// from the plain DrawDesc / DrawIndexedDesc records the Vulkan backend reads and NRI.hlsl
+    /// writes for SPIR-V. (NRI validation applied the D3D12 record layout on Vulkan too, refusing
+    /// stride 16 with "'stride' is too small, expected >= 24"; patches/0043.) The colour encodes baseVertex (red)
     /// and baseInstance (green): quadrants 0 and 1 from direct draws with baseInstance 5 and 9 (3
     /// and 7 indexed), quadrants 2 and 3 from two indirect records with baseInstance 0 (a non-zero
     /// one in a Vulkan indirect draw needs drawIndirectFirstInstance, which NRI does not report), for
@@ -303,14 +303,21 @@ public sealed class IndirectTests
         Assert.Equal(24, Unsafe.SizeOf<DrawBaseDesc>());
         Assert.Equal(28, Unsafe.SizeOf<DrawIndexedBaseDesc>());
         var emulated = backend.Api == GraphicsAPI.D3D12;
+        // The flag is set on every backend; on Vulkan once more without it, the same picture.
+        foreach (var flag in emulated ? new[] { true } : new[] { true, false })
+            DrawParameters(device, messages, emulated, flag);
+    }
 
+    private static void DrawParameters(NriDevice device, List<NriMessage> messages, bool emulated, bool flag)
+    {
+        var start = messages.Count;
         using var triangles = Upload(device, QuadrantTriangles(Quadrants), BufferUsageBits.VERTEX);
         using var quads = Upload(device, QuadrantQuads(Quadrants), BufferUsageBits.VERTEX);
         using var indices = Upload(device, QuadIndices(0), BufferUsageBits.INDEX);
         using var layout = device.CreatePipelineLayout(new NriPipelineLayoutDesc
         {
             ShaderStages = StageBits.VERTEX_SHADER | StageBits.FRAGMENT_SHADER,
-            Flags = emulated ? PipelineLayoutBits.ENABLE_DRAW_PARAMETERS_EMULATION : PipelineLayoutBits.NONE,
+            Flags = flag ? PipelineLayoutBits.ENABLE_DRAW_PARAMETERS_EMULATION : PipelineLayoutBits.NONE,
         });
         using var pipeline = CreateColorPipeline(device, layout, "DrawParameters", new NriVertexInputDesc
         {
@@ -349,9 +356,10 @@ public sealed class IndirectTests
         })[0];
 
         static Rgba Parameters(int baseVertex, int baseInstance) => new((byte)baseVertex, (byte)baseInstance, 255);
-        nonIndexed.ExpectQuadrants([Parameters(0, 5), Parameters(6, 9), Parameters(12, 0), Parameters(18, 0)], $"Draw and DrawIndirect ({(emulated ? "DrawBaseDesc, emulated" : "DrawDesc, built-ins")})");
-        indexed.ExpectQuadrants([Parameters(0, 3), Parameters(4, 7), Parameters(8, 0), Parameters(12, 0)], $"DrawIndexed and DrawIndexedIndirect ({(emulated ? "DrawIndexedBaseDesc, emulated" : "DrawIndexedDesc, built-ins")})");
-        Assert.DoesNotContain(messages, m => m.IsError);
+        var flagText = flag ? "flag set" : "flag not set";
+        Assert.DoesNotContain(messages.Skip(start), m => m.IsError);
+        nonIndexed.ExpectQuadrants([Parameters(0, 5), Parameters(6, 9), Parameters(12, 0), Parameters(18, 0)], $"Draw and DrawIndirect ({(emulated ? "DrawBaseDesc, emulated" : "DrawDesc, built-ins")}, {flagText})");
+        indexed.ExpectQuadrants([Parameters(0, 3), Parameters(4, 7), Parameters(8, 0), Parameters(12, 0)], $"DrawIndexed and DrawIndexedIndirect ({(emulated ? "DrawIndexedBaseDesc, emulated" : "DrawIndexedDesc, built-ins")}, {flagText})");
 
         static DrawBaseDesc DrawBase(uint baseVertex) => new()
         {

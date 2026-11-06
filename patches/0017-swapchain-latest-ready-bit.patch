@@ -81,7 +81,7 @@ index 4eb73f4b..444c62f4 100644
          m_Desc.features.textureCompressionBC = features.features.textureCompressionBC;
          m_Desc.features.textureCompressionETC2 = features.features.textureCompressionETC2;
 diff --git a/Source/VK/SwapChainVK.hpp b/Source/VK/SwapChainVK.hpp
-index 0531842f..416c1702 100644
+index 0531842f..03e3addf 100644
 --- a/Source/VK/SwapChainVK.hpp
 +++ b/Source/VK/SwapChainVK.hpp
 @@ -230,8 +230,13 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
@@ -99,12 +99,13 @@ index 0531842f..416c1702 100644
              VK_PRESENT_MODE_FIFO_KHR, // guaranteed to be supported
          };
  
-@@ -452,6 +457,8 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
-         m_Flags &= ~SwapChainBits::ALLOW_LOW_LATENCY;
+@@ -453,6 +458,9 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
      if (!m_Device.GetDesc().features.waitableSwapChain)
          m_Flags &= ~SwapChainBits::WAITABLE;
+ 
 +    if (presentMode != VK_PRESENT_MODE_FIFO_LATEST_READY_EXT)
 +        m_Flags &= ~SwapChainBits::LATEST_READY;
- 
++
      return Result::SUCCESS;
  }
+ 

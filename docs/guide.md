@@ -1020,7 +1020,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | `ClearAttachments` in a stencil-only pass on D3D12 | clears (NRI main 909a139; patch 0027 on master); before the fix an access violation in NRI | Recording |
 | Depth-stencil view as `depth` only, `LoadOp.CLEAR` | clears the stencil too, with the `depth` clear value, as on Vulkan (NRI main c8fe3b2; patch 0028 on master); before the fix D3D12 left it | Recording |
 | `SetDepthBias` on a pipeline without a static bias | the bias is not dynamic: VUID-vkCmdDraw-None-08608 / D3D12 1366 | Recording |
-| Draw-parameters emulation on Vulkan | indirect records misread; set the flag on D3D12 only | Recording |
+| `ENABLE_DRAW_PARAMETERS_EMULATION` on Vulkan | inert: indirect records stay `DrawDesc` / `DrawIndexedDesc`, so set the flag on every backend (patch 0043; before it, validation demanded the D3D12 record stride on Vulkan) | Recording |
 | No barrier between a compute write and an indirect read | NVIDIA reads zeros without a message; only synchronization validation reports it | Recording |
 | A `TEXTURE` / `STORAGE_TEXTURE` / `TEXTURE_CUBE` view of a layer other than the first | addresses that layer on every backend (NRI #306, v191: D3D12 builds it as a one-layer array view); NRI v190 used the first layer on D3D12, silently | Descriptors |
 | A storage view over several mips in `ClearStorage` | Vulkan clears every mip, D3D12 only the first; one mip per storage view | Descriptors |
