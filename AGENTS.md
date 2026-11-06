@@ -1531,9 +1531,12 @@ minutes and a Windows minute about two. That shapes the runs:
   osx-arm64 library, and the `osx-arm64` job runs after the release is published and attaches
   `SharpNRI-native-base-osx-arm64-<tag>.zip` when a runner turns up (no macOS smoke test).
 - **Branch runs are started by hand** (owner, 2026-11-06): `ci.yml` has no pull-request trigger. On
-  a branch, Actions > ci > Run workflow (the branch selected); its checks attach to the branch's head
-  commit, which is what the ruleset's required checks read, so a pull request merges only after a
-  green run of its latest commit. Pushes to master run by themselves. When master has moved, the branch must be
+  a branch, Actions > ci > Run workflow (the branch selected). A pull request's checks leave out
+  `workflow_dispatch` runs (PR #44, 2026-11-06: the run was green and linked to the pull request,
+  the required checks kept "Waiting for status to be reported"), so the `report` job posts commit statuses `gate`, `win-x64` and `linux-x64` on the tested
+  commit (skipped by the gate counts as passed, any other non-success or a failed gate as failed),
+  which the required checks read: a pull request merges only after a green run of its latest
+  commit. Pushes to master run by themselves. When master has moved, the branch must be
   updated (merge or rebase master into it) and `ci` started again before it can merge. A fork's branch cannot be
   started that way: push its commits to a branch here first.
 - **`gate`** (`tools/ci/ci-gate.ps1`): a manual run tests everything but macOS (above); on a branch

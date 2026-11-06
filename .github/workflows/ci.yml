@@ -3,9 +3,11 @@ name: ci
 # Billed per job, each rounded up to whole minutes; a macOS minute costs about ten Linux minutes and
 # a Windows minute about two (measured in AGENTS.md: Actions budget). The shape follows from that:
 #   - Runs on master by itself (pushes); on any other branch only when started (owner, 2026-11-06):
-#     Actions > ci > Run workflow, choosing the branch. The run's checks attach to the branch's head
-#     commit, which is what a pull request's required checks (gate, win-x64, linux-x64) read, so a
-#     pull request still merges only after a green run of its latest commit.
+#     Actions > ci > Run workflow, choosing the branch. A pull request's checks leave out runs
+#     started that way (PR #44: green run, required checks still waiting), so such a run posts its
+#     results as commit statuses named gate, win-x64 and linux-x64 on the commit it tested (job
+#     report), which the required checks read: a pull request merges only after a green run of its
+#     latest commit.
 #   - gate (Linux, seconds; tools/ci/ci-gate.ps1) tells each platform job to run or to skip. A
 #     merge to master whose tree a branch run already passed runs nothing (branches must be up to
 #     date with master to merge, so the merged tree is the tested one); a branch run whose changes
@@ -483,3 +485,32 @@ jobs:
       - name: Test
         if: needs.gate.outputs.osx == 'full'
         run: dotnet test --solution SharpNRI.slnx -c Release --no-build --output Detailed
+
+  # A run started by hand is left out of a pull request's checks, so it posts the required checks'
+  # results as commit statuses on the commit it tested. A platform job skipped by the gate's decision
+  # passes, as a skipped check does; anything else that is not success fails, and when the gate
+  # itself did not succeed every status fails (its skipped jobs prove nothing).
+  report:
+    needs: [gate, win-x64, linux-x64]
+    if: always() && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - name: Post the results as commit statuses
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $needs = $env:NEEDS | ConvertFrom-Json
+          $gateOk = $needs.gate.result -eq 'success'
+          foreach ($name in 'gate', 'win-x64', 'linux-x64') {
+              $result = $needs.$name.result
+              $state = if ($gateOk -and ($result -eq 'success' -or ($result -eq 'skipped' -and $name -ne 'gate'))) { 'success' } else { 'failure' }
+              gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=$state -f context=$name -f description="ci run: $result" -f target_url=$env:RUN_URL --silent
+              if ($LASTEXITCODE -ne 0) { throw "posting the $name status failed" }
+              "$name -> $state ($result)"
+          }
