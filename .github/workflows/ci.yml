@@ -158,14 +158,26 @@ jobs:
         shell: pwsh
         run: ./tools/ci/fetch-vulkan-windows.ps1 -Dest _tools/vk-win
 
+      # The runner's processes are elevated, and an elevated process's Vulkan loader ignores
+      # VK_DRIVER_FILES and VK_ADD_LAYER_PATH (a loader security rule): with only those, the first run
+      # skipped every Vulkan case. So lavapipe and the layer are registered as an installer would,
+      # under HKLM\SOFTWARE\Khronos\Vulkan (Drivers, ExplicitLayers); the variables stay for a
+      # non-elevated process. The loader directory goes on PATH (NRI loads vulkan-1.dll by name).
       - name: Put Vulkan for Windows in place
         if: needs.gate.outputs.win == 'full'
         shell: pwsh
         run: |
           $vk = Join-Path $env:GITHUB_WORKSPACE '_tools\vk-win'
+          $icd = Join-Path $vk 'lvp\lvp_icd.x86_64.json'
+          $layer = Join-Path $vk 'layers\VkLayer_khronos_validation.json'
+          foreach ($entry in @(@{ Key = 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers'; Json = $icd }, @{ Key = 'HKLM:\SOFTWARE\Khronos\Vulkan\ExplicitLayers'; Json = $layer })) {
+            New-Item -Path $entry.Key -Force | Out-Null
+            New-ItemProperty -Path $entry.Key -Name $entry.Json -PropertyType DWord -Value 0 -Force | Out-Null
+            Get-Item $entry.Key | Select-Object -ExpandProperty Property | ForEach-Object { "$($entry.Key): $_" }
+          }
           Join-Path $vk 'bin' | Add-Content -Path $env:GITHUB_PATH
           "VK_ADD_LAYER_PATH=$(Join-Path $vk 'layers')" | Add-Content -Path $env:GITHUB_ENV
-          "VK_DRIVER_FILES=$(Join-Path $vk 'lvp\lvp_icd.x86_64.json')" | Add-Content -Path $env:GITHUB_ENV
+          "VK_DRIVER_FILES=$icd" | Add-Content -Path $env:GITHUB_ENV
 
       - uses: actions/setup-dotnet@v4
         if: needs.gate.outputs.win == 'full'
@@ -176,6 +188,17 @@ jobs:
       - name: Build managed
         if: needs.gate.outputs.win == 'full'
         run: dotnet build SharpNRI.slnx -c Release
+
+      # Which adapter each backend gets, or why it is unavailable (the suite skips a backend by that
+      # reason, which the test summary does not print).
+      - name: Test adapters
+        if: needs.gate.outputs.win == 'full'
+        shell: pwsh
+        env:
+          SHARPNRI_TEST_CHILD: test-adapters
+        run: |
+          & tests/SharpNRI.Tests/bin/Release/net11.0/SharpNRI.Tests.exe
+          $global:LASTEXITCODE = 0
 
       - name: Test
         if: needs.gate.outputs.win == 'full'
