@@ -28,6 +28,13 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/Nullpoint56/SharpNRI</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Nullpoint56/SharpNRI</PackageProjectUrl>
+    <!-- One package page text for all four packages, with absolute links (nuget.org shows it) -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)docs/nuget/README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 
 </Project>

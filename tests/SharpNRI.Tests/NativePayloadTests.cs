@@ -100,17 +100,20 @@ public sealed class NativePayloadTests
 
     sealed class BaseFactAttribute : FactAttribute
     {
-        public BaseFactAttribute() => Skip = SkipReason(Base, "runtimes", "");
+        public BaseFactAttribute([System.Runtime.CompilerServices.CallerFilePath] string? sourceFilePath = null, [System.Runtime.CompilerServices.CallerLineNumber] int sourceLineNumber = -1)
+            : base(sourceFilePath, sourceLineNumber) => Skip = SkipReason(Base, "runtimes", "");
     }
 
     sealed class UpscalersFactAttribute : FactAttribute
     {
-        public UpscalersFactAttribute() => Skip = SkipReason(Upscalers, "runtimes-upscalers", " -Variant Upscalers");
+        public UpscalersFactAttribute([System.Runtime.CompilerServices.CallerFilePath] string? sourceFilePath = null, [System.Runtime.CompilerServices.CallerLineNumber] int sourceLineNumber = -1)
+            : base(sourceFilePath, sourceLineNumber) => Skip = SkipReason(Upscalers, "runtimes-upscalers", " -Variant Upscalers");
     }
 
     sealed class AgilityFactAttribute : FactAttribute
     {
-        public AgilityFactAttribute() => Skip = SkipReason(Agility, "runtimes-agility", "");
+        public AgilityFactAttribute([System.Runtime.CompilerServices.CallerFilePath] string? sourceFilePath = null, [System.Runtime.CompilerServices.CallerLineNumber] int sourceLineNumber = -1)
+            : base(sourceFilePath, sourceLineNumber) => Skip = SkipReason(Agility, "runtimes-agility", "");
     }
 
     static void AssertExactly(string dir, string[] expected)

@@ -32,21 +32,18 @@ submitting, every extension, and the caveats next to the API they concern.
 
 ## Install
 
-The packages are attached to each [release](https://github.com/Nullpoint56/SharpNRI/releases);
-they are not on NuGet.org. Put the `.nupkg` files in a folder and add it as a package source:
+From [NuGet.org](https://www.nuget.org/packages/SharpNRI) (a prerelease while in beta):
 
-```xml
-<!-- nuget.config beside your project -->
-<configuration>
-  <packageSources>
-    <add key="sharpnri" value="path/to/nupkg" />
-  </packageSources>
-</configuration>
+```
+dotnet add package SharpNRI --prerelease
 ```
 
 ```xml
-<PackageReference Include="SharpNRI" Version="1.0.0-beta.1" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.2" />
 ```
+
+Each [release](https://github.com/Nullpoint56/SharpNRI/releases) also carries the same `.nupkg`
+files, for a local folder feed.
 
 | Package | What it is |
 |---|---|

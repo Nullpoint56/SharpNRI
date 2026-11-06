@@ -33,10 +33,11 @@ public sealed class NriSwapChainDesc
     public SwapChainFormat Format { get; init; }
 
     /// <summary>
-    /// <c>LATEST_READY</c> with <c>VSYNC</c> asks for FIFO_LATEST_READY on Vulkan (vblank-paced, the
-    /// newest ready image, no tearing) when <c>features.latestReadySwapChain</c> is set, and is
-    /// ignored otherwise (FIFO, or FIFO_RELAXED with <c>ALLOW_TEARING</c>). NRI never reports the
-    /// present mode it chose.
+    /// <c>LATEST_READY</c> with <c>VSYNC</c> asks for FIFO_LATEST_READY on Vulkan when
+    /// <c>features.latestReadySwapChain</c> is set: the display changes image only at vblank, without
+    /// tearing, and shows the newest ready image, dropping older ones, so rendering is not capped at
+    /// the refresh rate. Ignored otherwise (FIFO, or FIFO_RELAXED with <c>ALLOW_TEARING</c>). NRI never
+    /// reports the present mode it chose.
     /// </summary>
     public SwapChainBits Flags { get; init; }
 

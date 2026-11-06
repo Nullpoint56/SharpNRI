@@ -7,31 +7,29 @@
 
       key                  hash of every input of the native payload: git object ids, which are
                            the same on every OS whatever the checkout's line endings
-      win, linux, osx      full | warm | skip
+      win, linux, osx      full | skip
                              full  native payload (from the cache when the key hits), managed build, tests
-                             warm  native payload built and saved to the cache, nothing else
-                             skip  the job does not run
+                             skip  the job does not run (counts as passed for the required checks)
 
-    pull_request and workflow_dispatch: every job is full, except macOS (below).
+    ci.yml runs by itself only for pushes to master (and the weekly schedule); on any other branch it
+    runs when started by hand (workflow_dispatch), and its checks on the branch's head commit are
+    the ones a pull request's required checks read (owner, 2026-11-06).
 
-    A pull request that changes only what cannot change a result (the same list as ci.yml's push
-    paths-ignore: Markdown, docs/, the other workflows, tools/consume, the generator, the coverage
-    tool) skips every platform job. ci.yml starts on every pull request so that gate, win-x64 and
-    linux-x64 always report, and branch protection can require them: a skipped job counts as passed.
+    workflow_dispatch: every job is full, macOS only with the macos input. A run on a branch other
+    than master whose changes against master are all in the list below (what cannot change a result:
+    Markdown, docs/, the other workflows, tools/consume, the generator, the coverage tool; the same
+    list as ci.yml's push paths-ignore) skips every platform job, which counts as passed.
 
-    macOS is opt-in: hosted macOS arm64 runners are often unavailable for long stretches, and a
-    macOS minute costs about ten Linux minutes. osx is full for a pull request labelled "macos",
-    for the "macos" label being added (then win and linux skip: that head ran already), for a
-    manual run with the macos input, and for the weekly schedule (then win and linux skip: every
-    pull request runs them). Pushes to master skip it. The release builds macOS when it can.
+    schedule: macOS alone, on master (Windows and Linux run on every change).
 
-    push to master: when the pushed commit is the merge of a pull request whose head has the
-    same tree and passed ci as a pull_request run, that tree has been tested; running the suite
-    again finds nothing and costs minutes. Each platform is then warm when master has no payload
-    cache for the key, else skip. Pull requests restore caches made on master; a cache made in a
-    pull request is visible to that pull request only, so master is where a payload must be
-    cached for the next pull request to find it. Anything else on master (a direct push, a merge
-    of a branch that was behind master, an API error) is full.
+    push to master: when the pushed commit is the merge of a pull request whose head has the same
+    tree and passed ci in a run of that head (a workflow_dispatch run on the branch), that tree has
+    been tested and every platform skips. The ruleset requires a branch to be up to date with master
+    before it merges, so a merged tree is the tested one. Master then builds no payload for its cache
+    either (owner, 2026-11-06): a cache made on a branch is visible to that branch only, so the next
+    branch run after a payload change builds the payload in its own run, which is cheaper than a
+    separate warming job on master. Anything else on master (a direct push, an API error) is full,
+    which caches the payload there. macOS skips on master pushes.
 
     Run locally against the repository's history:
       pwsh tools/ci/ci-gate.ps1 -EventName push -Sha <merge commit> -Repository owner/name -Token <token>
@@ -41,11 +39,8 @@ param(
     [string]$Sha = $env:GITHUB_SHA,
     [string]$Repository = $env:GITHUB_REPOSITORY,
     [string]$Token = $env:GH_TOKEN,
-    [string]$Action = $env:GATE_ACTION,           # github.event.action
-    [string]$Label = $env:GATE_LABEL,             # github.event.label.name, for "labeled"
-    [string]$PullRequestLabels = $env:GATE_PR_LABELS, # JSON array of the pull request's label names
     [string]$MacOSInput = $env:GATE_MACOS,        # workflow_dispatch input "macos"
-    [string]$PullRequest = $env:GATE_PR           # github.event.pull_request.number
+    [string]$Ref = $env:GATE_REF                  # github.ref
 )
 
 $ErrorActionPreference = 'Stop'
@@ -79,25 +74,23 @@ function Get-Api([string]$Path) {
 }
 
 if ($EventName -eq 'push') {
-    $reason = "push to master: no pull request run covers this tree, every job runs."
+    $reason = "push to master: no branch run covers this tree, every job runs."
     try {
         $tree = (Get-Api "git/commits/$Sha").tree.sha
         $tested = $null
         foreach ($pr in @(Get-Api "commits/$Sha/pulls") | Where-Object { $_.merged_at }) {
             $head = $pr.head.sha
             if ((Get-Api "git/commits/$head").tree.sha -ne $tree) { continue }
-            $runs = Get-Api "actions/workflows/ci.yml/runs?head_sha=$head&event=pull_request&status=success&per_page=1"
-            if ($runs.total_count -gt 0) {
-                $tested = "pull request #$($pr.number): ci run $($runs.workflow_runs[0].id) passed on $($head.Substring(0, 7)), whose tree is this commit's"
+            $runs = Get-Api "actions/workflows/ci.yml/runs?head_sha=$head&status=success&per_page=20"
+            $run = @($runs.workflow_runs | Where-Object { $_.event -in 'workflow_dispatch', 'pull_request' }) | Select-Object -First 1
+            if ($run) {
+                $tested = "pull request #$($pr.number): ci run $($run.id) ($($run.event)) passed on $($head.Substring(0, 7)), whose tree is this commit's"
                 break
             }
         }
         if ($tested) {
-            foreach ($p in $platforms.Keys) {
-                $caches = Get-Api "actions/caches?ref=refs/heads/master&key=native-$($platforms[$p])-$key"
-                $modes[$p] = if ($caches.total_count -gt 0) { 'skip' } else { 'warm' }
-            }
-            $reason = "push to master, tested as $tested. Tests are not repeated; a platform without a payload cache on master builds one."
+            foreach ($p in $platforms.Keys) { $modes[$p] = 'skip' }
+            $reason = "push to master, tested as $tested. Nothing is repeated; the next branch run whose payload key master has not cached builds the payload in its own run."
         }
     }
     catch {
@@ -108,22 +101,7 @@ if ($EventName -eq 'push') {
 }
 
 # ------------------------------------------------------------------------------ macOS, opt-in
-$labels = @()
-if ($PullRequestLabels) { try { $labels = @($PullRequestLabels | ConvertFrom-Json) } catch { $labels = @() } }
 switch ($EventName) {
-    'pull_request' {
-        if ($Action -eq 'labeled') {
-            $modes.win = 'skip'; $modes.linux = 'skip'; $modes.osx = 'full'
-            $reason = "the macos label was added: macOS runs; Windows and Linux ran on this head already."
-        }
-        elseif ($labels -contains 'macos') {
-            $reason += " The pull request is labelled macos: macOS runs too."
-        }
-        else {
-            $modes.osx = 'skip'
-            $reason = "$EventName event: Windows and Linux run; macOS is opt-in (label the pull request macos)."
-        }
-    }
     'workflow_dispatch' {
         if ($MacOSInput -ne 'true') {
             $modes.osx = 'skip'
@@ -132,7 +110,7 @@ switch ($EventName) {
     }
     'schedule' {
         $modes.win = 'skip'; $modes.linux = 'skip'; $modes.osx = 'full'
-        $reason = "weekly schedule: macOS runs on master; Windows and Linux run on every pull request."
+        $reason = "weekly schedule: macOS runs on master; Windows and Linux run on every change."
     }
     'push' {
         $modes.osx = 'skip'
@@ -140,27 +118,23 @@ switch ($EventName) {
     }
 }
 
-# ------------------------------------------------------------------------------ docs-only pull requests
+# ------------------------------------------------------------------------------ docs-only branches
 # Paths that cannot change a result; ci.yml's push trigger ignores the same list.
 $noResult = '*.md', 'docs/*', '.github/workflows/release.yml', '.github/workflows/regen.yml',
             '.github/workflows/coverage.yml', 'tools/consume/*', 'tools/generate-native.ps1',
             'tools/coverage.ps1', 'tools/coverage/*'
-if ($EventName -eq 'pull_request' -and $Action -ne 'labeled' -and $PullRequest) {
+if ($EventName -eq 'workflow_dispatch' -and $Ref -and $Ref -ne 'refs/heads/master') {
     try {
-        $files = @()
-        for ($page = 1; $page -le 30; $page++) {
-            $batch = @(Get-Api "pulls/$PullRequest/files?per_page=100&page=$page")
-            $files += $batch | ForEach-Object { $_.filename }
-            if ($batch.Count -lt 100) { break }
-        }
+        $compare = Get-Api "compare/master...$Sha"
+        $files = @($compare.files | ForEach-Object { $_.filename })
         $result = @($files | Where-Object { $f = $_; -not ($noResult | Where-Object { $f -like $_ }) })
-        if ($files.Count -gt 0 -and $result.Count -eq 0) {
+        if ($files.Count -gt 0 -and $files.Count -lt 300 -and $result.Count -eq 0) {
             foreach ($p in $platforms.Keys) { $modes[$p] = 'skip' }
-            $reason = "pull request #${PullRequest} changes only docs and other paths that cannot change a result ($($files.Count) files): every platform job skips."
+            $reason = "$Ref changes only docs and other paths that cannot change a result against master ($($files.Count) files): every platform job skips."
         }
     }
     catch {
-        Write-Warning "could not list the pull request's files ($($_.Exception.Message)); the jobs run"
+        Write-Warning "could not compare the branch with master ($($_.Exception.Message)); the jobs run"
     }
 }
 

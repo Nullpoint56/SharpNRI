@@ -15,15 +15,7 @@ on:
       - "dotnet/Native/**"
       - "Directory.Build.props"
       - ".github/workflows/regen.yml"
-  pull_request:
-    branches: [master] # pull requests into "next" are verified locally (AGENTS.md: Branches)
-    paths:
-      - "nri"
-      - "patches/**"
-      - "tools/generate-native.ps1"
-      - "dotnet/Native/**"
-      - "Directory.Build.props"
-      - ".github/workflows/regen.yml"
+  # Other branches: started by hand only (Actions > regen > Run workflow), as ci.yml.
   workflow_dispatch:
 
 concurrency:

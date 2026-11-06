@@ -108,7 +108,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Assert.Equal((uint)Size, desc12.Height);
         Assert.Equal(VDXGI.Format.R8G8B8A8_Typeless, desc12.Format);
 
-        Assert.Equal(expected.Length, Size * Size * 4);
+        Assert.Equal(Size * Size * 4, expected.Length);
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 

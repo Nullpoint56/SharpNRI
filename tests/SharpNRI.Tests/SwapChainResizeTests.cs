@@ -36,7 +36,7 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
     private const string ChildName = "swapchain-resize";
 
     [Fact]
-    public void Resizing_the_window_under_a_Vulkan_swap_chain_returns_OUT_OF_DATE_as_a_value_without_an_error()
+    public async Task Resizing_the_window_under_a_Vulkan_swap_chain_returns_OUT_OF_DATE_as_a_value_without_an_error()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "the test window is a Win32 window; no other window system here");
         TestDevice.RequireAvailable(new Backend(GraphicsAPI.VK));
@@ -55,9 +55,10 @@ public sealed partial class SwapChainResizeTests(ITestOutputHelper output)
             child.Kill(entireProcessTree: true);
             Assert.Fail($"the child did not finish within {GpuWork.GpuTimeout}");
         }
-        var lines = stdout.Result.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var lines = (await stdout).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         foreach (var line in lines) output.WriteLine(line);
-        if (stderr.Result.Length != 0) output.WriteLine("stderr: " + stderr.Result);
+        var errors = await stderr;
+        if (errors.Length != 0) output.WriteLine("stderr: " + errors);
 
         var skip = lines.FirstOrDefault(l => l.StartsWith("SKIP ", StringComparison.Ordinal));
         Assert.SkipWhen(skip is not null && child.ExitCode == 0, skip?[5..] ?? "");

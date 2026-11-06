@@ -62,8 +62,10 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 - **Moving `next`'s NRI commit.** `git -C nri fetch origin`, `git -C nri checkout <commit>`, `git
   update-index --cacheinfo 160000,<commit>,nri` (the one sanctioned way to stage the pointer; never
   `git add nri`), apply the patches, regenerate, both legs, record the commit in `next`'s AGENTS.md.
-- **CI.** `ci.yml` and `regen.yml` run for pushes to master and pull requests into master only;
-  `next` is verified locally (Windows, WSL) before every push, as master is.
+- **CI.** `ci.yml`, `regen.yml` and `coverage.yml` run by themselves only for pushes to master; on
+  any other branch only when started by hand (Actions > Run workflow; owner, 2026-11-06), and a pull
+  request still needs a green `ci` run of its latest commit to merge (Actions budget). `next` is
+  verified locally (Windows, WSL) before every push, as master is.
 - **Switching a checkout.** `runtimes/` holds whichever `NRI.dll` was built last: `git -C nri
   checkout -- .`, `git -C nri clean -fdq`, `git submodule update`, `pwsh tools/build-native.ps1`,
   `dotnet build`. The pin test cannot catch a stale `NRI.dll`: main may keep an old `NRI_VERSION`
@@ -210,8 +212,8 @@ Decided; not reopened as a side effect of other work.
 - **No stale figures.** A published figure names the commit it was measured at and the hardware it
   ran on (Coverage). Tooling discovers the machine at run time; no adapter is configured in code.
 - **Don't flood CI runners.** Test locally first (Windows directly, Linux via WSL), push when green,
-  batch commits: every push to a pull request is a full run, and a macOS minute costs about ten
-  Linux minutes (Actions budget). No release dry runs.
+  batch commits: every started run is a full run, and a macOS minute costs about ten Linux minutes
+  (Actions budget). No release dry runs.
 - **Backends are Vulkan and D3D12 (+ NONE)**, the others passed OFF explicitly so contents never
   depend on the build machine. D3D11 is a compatibility backend (memory, barriers, queues, register
   spaces and pipeline cache emulated or no-ops; DXBC as a third bytecode; no RT, mesh shaders,
@@ -243,6 +245,10 @@ dotnet test --solution SharpNRI.slnx -c Release --no-build
 ```
 
 Needs Visual Studio with C++, CMake 3.30+, pwsh 7 and the .NET 11 SDK.
+
+**A local Windows run covers both GPU backends** (owner, 2026-11-06): Vulkan and D3D12 on the
+machine's GPU, with no `SHARPNRI_TEST_BACKEND` restriction, before every push. A run restricted to
+one backend or to software adapters is a diagnosis, never the verification of a change.
 
 | `build-native.ps1` flag | Effect |
 |---|---|
@@ -350,7 +356,7 @@ ref and patch count, the payload the tests loaded (by content) and the adapter e
   commit's tree entries for `dotnet`, `descs`, `testing`, `tests`, `patches` and `nri`. `-Check`
   builds nothing: it fails naming the paths changed since, when a badge names another commit, or
   when the measurement had uncommitted changes there. The workflow (git only) runs on pushes to
-  master and pull requests into master touching those paths or the report. Red is the signal and
+  master touching those paths or the report, and on a branch when started by hand. Red is the signal and
   blocks nothing (not a required check). The tool and build scripts are not inputs:
   after changing what is measured or how, run it again. Measure a committed tree.
 - **Bound surface** (`tools/coverage/BoundSurface`, System.Reflection.Metadata over the built
@@ -1009,7 +1015,9 @@ Measured by `DebugAidTests`.
 
 ### WARP
 
-- D3D12 software adapter on the Windows runner; no Vulkan ICD there, so Windows CI is D3D12 + NONE.
+- D3D12 software adapter on the Windows runner. The runner has no Vulkan ICD of its own; since
+  2026-11-06 the Windows leg installs the Khronos loader, the SDK layer and Mesa's lavapipe
+  (`tools/ci/fetch-vulkan-windows.ps1`), so Windows CI runs D3D12 on WARP, Vulkan on lavapipe and NONE.
 - RT works: one-triangle BLAS 65,536 B; build scratch 120 B, **update scratch 0 B**; identifier 32
   B, SBT alignment 64. `UploadData`, import wrappers, RT pipelines pass.
 
@@ -1365,8 +1373,8 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   does not write the native environment (Linux, macOS).
 - `SHARPNRI_TRACE=1` when a test host dies: the message stream is the only record.
 - Expected skip shape (counts move as tests are added): Windows hardware skips almost nothing (NIS
-  under Base; RenderDoc without `renderdoccmd.exe`); Windows CI (WARP) skips every VK case and
-  RenderDoc; Linux skips D3D12, Agility, NIS, shared fences, the import proofs and CUDA, the
+  under Base; RenderDoc without `renderdoccmd.exe`); Windows CI (WARP, lavapipe) skips RenderDoc and what
+  the software adapters lack; Linux skips D3D12, Agility, NIS, shared fences, the import proofs and CUDA, the
   environment-variable layer checks; macOS additionally skips shared handles, RT, mesh, video,
   descriptor heaps, shading rate, PE imports, the Windows swap-chain window, payload contracts for
   Upscalers/Agility, and the two paravirtual defects.
@@ -1421,7 +1429,8 @@ Hosted minutes are limited and billed per job, rounded up; a macOS minute costs 
 minutes and a Windows minute about two. That shapes the runs:
 
 - **Repository rules** (public since 2026-11-04): ruleset `master` (no deletion, no force-push,
-  pull requests only with 0 approvals, required checks `gate`, `win-x64`, `linux-x64`; repository
+  pull requests only with 0 approvals, required checks `gate`, `win-x64`, `linux-x64` on a branch
+  that is up to date with master (since 2026-11-06); repository
   admins may bypass when merging a pull request, for GitHub outages); ruleset `release tags`
   (`v*` cannot be deleted, moved or force-pushed; admins may bypass, to move a failed release's
   tag). Actions: the workflow token is read-only by default and cannot approve pull requests (the
@@ -1430,33 +1439,57 @@ minutes and a Windows minute about two. That shapes the runs:
 - **macOS is opt-in** (owner, 2026-11-04): hosted macOS arm64 runners were unavailable for hours at a
   time ("The job was not acquired by Runner of type hosted even after multiple attempts"; GitHub's
   annotation: "Due to capacity constraints, jobs targeting macOS arm64 runners may experience
-  longer queue times"). The gate runs `osx-arm64` for a pull request labelled `macos` (adding the
-  label starts a run of macOS alone, in its own concurrency group), a manual run with the `macos`
-  input, and the weekly schedule (Mondays 04:00 UTC, macOS alone, on master); never on master
-  pushes. Nothing in a release waits for macOS either (owner, 2026-11-04): the packages carry no
+  longer queue times"). The gate runs `osx-arm64` for a manual run with the `macos` input and the
+  weekly schedule (Mondays 04:00 UTC, macOS alone, on master); never on master pushes. Nothing in a release waits for macOS either (owner, 2026-11-04): the packages carry no
   osx-arm64 library, and the `osx-arm64` job runs after the release is published and attaches
   `SharpNRI-native-base-osx-arm64-<tag>.zip` when a runner turns up (no macOS smoke test).
-- **`gate`** (`tools/ci/ci-gate.ps1`): pull requests and manual runs test everything but macOS (above). A push to
-  master whose tree equals the head of a merged pull request that passed CI as a `pull_request` run
-  is not tested again; a platform then only builds and caches the payload when master has no cache
-  for its key (a pull request's own caches are visible to it alone). A direct push, a merge of a
-  branch behind master, or an API error runs everything. The run summary gives the decision.
+- **Branch runs are started by hand** (owner, 2026-11-06): `ci.yml` has no pull-request trigger. On
+  a branch, Actions > ci > Run workflow (the branch selected); its checks attach to the branch's head
+  commit, which is what the ruleset's required checks read, so a pull request merges only after a
+  green run of its latest commit. Pushes to master run by themselves. When master has moved, the branch must be
+  updated (merge or rebase master into it) and `ci` started again before it can merge. A fork's branch cannot be
+  started that way: push its commits to a branch here first.
+- **`gate`** (`tools/ci/ci-gate.ps1`): a manual run tests everything but macOS (above); on a branch
+  whose changes against master are all in the `paths-ignore` list it skips every platform job, which
+  the required checks count as passed. A push to master whose tree equals the head of a merged pull
+  request that passed a `ci` run of that head runs nothing: the up-to-date rule makes the merged tree
+  the tested one, and master builds no payload for its cache (owner, 2026-11-06). A branch's caches
+  are visible to it alone, so the first branch run after a payload change builds the payload in its
+  own run, cheaper than a separate warming job. A direct push or an API error runs everything. The run
+  summary gives the decision.
 - **Native payload cache**: key `native-<rid>-<20 hex>` over the git object ids of `nri`, `patches`,
   `tools/build-native.ps1`, `tools/cmake`, `Directory.Build.props`, `THIRD-PARTY-NOTICES.md` and
   `ci.yml`, the same on every OS and line ending. Saved right after a build, before the tests, so a
   red run keeps it. A restored payload gets `tools/ci/apply-patches.ps1`, because `NativeAbiTests`
   compile against the patched `nri/Include`.
 - **`paths-ignore`** (push to master): Markdown, `docs/`, the other workflows, `tools/consume/`, the
-  generator, the coverage tool. Pull requests always start `ci.yml`; the gate lists the pull
-  request's files and skips every platform job when all are in that list, so `gate`, `win-x64` and
-  `linux-x64` always report and branch protection can require them (a skipped job counts as
-  passed).
+  generator, the coverage tool. A docs-only branch still needs its run started, which then skips
+  every platform job, so `gate`, `win-x64` and `linux-x64` report and the required checks pass.
 - **Timeouts**: gate 5, Windows 25, Linux 20, macOS 15 minutes; release jobs 10 to 45 (a few times
   the slowest measured job, so a hung job cannot run for an hour).
-- **No release dry run**: a failed tag run publishes nothing; fix, then move the tag or "Re-run
-  failed jobs" (also when hosted jobs never started). A release can be published by hand from a
-  complete run of the identical tree (its `nupkg` and `zips-*` artifacts, kept 90 days, uploaded
-  and compared by SHA-256).
+- **Releases are started by hand, from master only** (owner, 2026-11-06): Actions > release > Run
+  workflow on master; no tag push or merge starts `release.yml`. The `version` job refuses another
+  branch, a version already tagged and missing notes; the `release` job creates the tag `v<Version>`
+  on the run's commit with the GitHub release. A run that fails earlier creates no tag and publishes
+  nothing: fix through a pull request and run again, or "Re-run failed jobs" (also when hosted jobs
+  never started). The `dry_run` input (any branch) only tries a change to the workflow; there is no
+  dry run before a release. A release can be published by hand from a complete run of the identical
+  tree (its `nupkg` and `zips-*` artifacts, kept 90 days, uploaded and compared by SHA-256).
+- **NuGet.org** (since 1.0.0-beta.2): `release.yml`'s `nuget` job pushes the release's `.nupkg`
+  artifact after the GitHub release, by Trusted Publishing: `NuGet/login` trades the job's OIDC
+  token for a one-hour key, which nuget.org grants because the owner's policy names this
+  repository, `release.yml` and the `nuget` environment. No key is stored. The repository variable
+  `NUGET_USER` is the nuget.org account; without it the job skips. The `nuget` environment requires
+  the owner's approval and admits `master` only. A version on NuGet.org is permanent (unlisting only
+  hides it), so a failure after the push means a new version. Releases only: no CI or merge build is
+  published there. Each package carries `docs/nuget/README.md` (absolute links), which the
+  `pack` job requires.
+- **apt without an up-front refresh**: packages install from the runner image's lists; only an
+  install that fails on a stale list runs `apt-get update` and retries (the unconditional refresh
+  alone took minutes on a slow mirror, 2026-11-06). Test packages (`libvulkan1`,
+  `mesa-vulkan-drivers`, `vulkan-tools`) install only when tests run, build packages (`clang`,
+  `ninja-build`, X11/Wayland headers) only when the payload is built. Ubuntu's
+  `vulkan-validationlayers` is not installed: the SDK layer replaces it.
 - **Ubuntu pinned to 24.04** in the Linux leg and the release's Linux build and consume jobs:
   `ubuntu-latest` moved to Ubuntu 26, whose newer glibc a payload built there would need and whose
   1.4 loader would stop exercising the old-loader path. Moving is a decision.
