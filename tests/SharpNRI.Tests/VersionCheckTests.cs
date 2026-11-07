@@ -40,6 +40,59 @@ public sealed class VersionCheckTests
         Assert.Contains(hint, text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// The handler answers only SharpNRI's own "NRI": it throws the explained DllNotFoundException
+    /// there and answers 0 (default probing's failure stands) for any other assembly or library.
+    /// </summary>
+    [Fact]
+    public void The_missing_library_handler_answers_only_SharpNRIs_NRI_import()
+    {
+        var sharpNri = typeof(NriDevice).Assembly;
+        var e = Assert.Throws<DllNotFoundException>(() => NativeLibraryHint.Resolve(sharpNri, "NRI"));
+        Assert.StartsWith("SharpNRI could not load the NRI native library", e.Message, StringComparison.Ordinal);
+        Assert.Equal(0, NativeLibraryHint.Resolve(typeof(VersionCheckTests).Assembly, "NRI"));
+        Assert.Equal(0, NativeLibraryHint.Resolve(sharpNri, "vulkan-1"));
+    }
+
+    /// <summary>A SharpNRI.Descs of another NRI version fails creation like a native library of one, naming both, and leaves nothing alive.</summary>
+    [Fact]
+    public void A_SharpNRI_Descs_of_another_NRI_version_fails_creation_and_leaves_nothing_alive()
+    {
+        var allocator = new NriCountingAllocator();
+        var other = NriVersionCheck.Built + 1;
+        NriVersionCheck.t_descsOverride = other;
+        try
+        {
+            var e = Assert.Throws<NriException>(() => NriDevice.Create(new NriDeviceOptions { GraphicsApi = GraphicsAPI.NONE, Allocator = allocator }).Dispose());
+            Assert.Equal(Result.INVALID_SDK, e.Result);
+            Assert.Equal("SharpNRI.Descs", e.Call);
+            Assert.Contains($"built for NRI v{NriVersionCheck.Built}", e.Message, StringComparison.Ordinal);
+            Assert.Contains($"for v{other}", e.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            NriVersionCheck.t_descsOverride = 0;
+        }
+        Assert.Equal(0, allocator.Live);
+    }
+
+    /// <summary>
+    /// A table nriGetInterface refuses by size (a library of another NRI version) is diagnosed as one:
+    /// a real refusal, provoked by asking for CoreInterface into HelperInterface's size.
+    /// </summary>
+    [Fact]
+    public unsafe void A_table_refused_by_size_is_diagnosed_as_a_library_of_another_NRI_version()
+    {
+        using var device = NriDevice.Create(new NriDeviceOptions { GraphicsApi = GraphicsAPI.NONE });
+        var refused = Assert.Throws<NriException>(() => InterfaceTable.Acquire<HelperInterface>((Device*)device.NriHandle, "CoreInterface"));
+        Assert.Equal(Result.INVALID_ARGUMENT, refused.Result);
+        var diagnosed = NriVersionCheck.TableMismatch(refused);
+        Assert.Equal(Result.INVALID_SDK, diagnosed.Result);
+        Assert.Equal("nriGetInterface(CoreInterface)", diagnosed.Call);
+        Assert.Contains($"does not match SharpNRI, built for NRI v{NriVersionCheck.Built}", diagnosed.Message, StringComparison.Ordinal);
+        Assert.Contains(refused.Message, diagnosed.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void The_binding_and_the_descs_state_their_NRI_version_as_constants() =>
         Assert.Equal(NriHeaders.Version, Nri.NriVersion);

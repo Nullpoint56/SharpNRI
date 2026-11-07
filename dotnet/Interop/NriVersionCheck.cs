@@ -25,15 +25,21 @@ internal static class NriVersionCheck
     /// <summary>Tests only: the version this thread's device creations expect instead of <see cref="Built"/>.</summary>
     [ThreadStatic] internal static int t_expectedOverride;
 
+    /// <summary>Tests only: the NRI version this thread sees for the loaded SharpNRI.Descs instead of <see cref="Descs"/>.</summary>
+    [ThreadStatic] internal static int t_descsOverride;
+
     private static int Expected => t_expectedOverride != 0 ? t_expectedOverride : Built;
+
+    private static int LoadedDescs => t_descsOverride != 0 ? t_descsOverride : Descs;
 
     /// <summary>The exception for a native library or descs assembly of another NRI version, or null.</summary>
     internal static NriException? Mismatch(ushort native)
     {
         var expected = Expected;
-        if (Descs != Built)
+        var descs = LoadedDescs;
+        if (descs != Built)
             return new NriException(Result.INVALID_SDK, "SharpNRI.Descs",
-                $"SharpNRI is built for NRI v{Built}, the loaded SharpNRI.Descs ({typeof(DeviceDesc).Assembly.GetName().Version}) for v{Descs}: reference the SharpNRI.Descs version SharpNRI depends on");
+                $"SharpNRI is built for NRI v{Built}, the loaded SharpNRI.Descs ({typeof(DeviceDesc).Assembly.GetName().Version}) for v{descs}: reference the SharpNRI.Descs version SharpNRI depends on");
         if (native != expected)
             return new NriException(Result.INVALID_SDK, "nriCreateDevice",
                 $"SharpNRI is built for NRI v{expected}, the loaded native library ({LoadedLibrary() ?? "path unknown"}) reports v{native}: a stale or foreign NRI library is on the load path");

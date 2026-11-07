@@ -19,7 +19,7 @@ internal static class NativeLibraryHint
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2255", Justification = "the handler must be in place before the first P/Invoke into NRI, whichever public call makes it")]
     internal static void Register() => AssemblyLoadContext.Default.ResolvingUnmanagedDll += Resolve;
 
-    private static nint Resolve(System.Reflection.Assembly assembly, string libraryName)
+    internal static nint Resolve(System.Reflection.Assembly assembly, string libraryName)
     {
         if (assembly != typeof(NativeLibraryHint).Assembly || libraryName != "NRI") return 0;
         throw new DllNotFoundException(Describe(RuntimeInformation.RuntimeIdentifier, AppContext.BaseDirectory));

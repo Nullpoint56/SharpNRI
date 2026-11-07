@@ -651,8 +651,12 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   `NriException` `INVALID_SDK` naming both versions and the loaded library's path. A stale `NRI.dll`
   of another tag on the load path otherwise misread every renumbered enum silently (v191 renumbered
   `StageBits` / `AccessBits`). Blind on `next` between tags: main keeps its `NRI_VERSION` while enums
-  move (Branches). `VersionCheckTests` overrides the expected version for the creating thread and
-  checks the refusal, the message and that the allocator ends at 0 live allocations.
+  move (Branches). `VersionCheckTests` overrides the expected native or descs version for the
+  creating thread and checks the refusal, the message and that the allocator ends at 0 live
+  allocations; the table diagnosis is checked on a real `nriGetInterface` size refusal. Not run by any
+  test: `Adopt` catching a constructor failure (it needs a library of another version on the load
+  path), and the missing-library handler firing for real (NRI is loaded in the test process; its
+  `Resolve` is called directly, and the throw reaching the caller was checked by hand, 2026-11-07).
 - **Null `AbortExecution` kills the process.** NRI's default handler calls `DebugBreak()` for every
   report with a positive result, i.e. every ERROR except `DEVICE_LOST`, `OUT_OF_DATE`,
   `INVALID_SDK`: without a debugger, exit `0x80000003` before the call returns (a vanished test
@@ -1429,7 +1433,8 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   refusals (UNSUPPORTED without a capability, below): `features.sharedFences` is true when a timeline
   *or* a binary semaphore exports (`DeviceVK.hpp:1700`), D3D12 reports it while a binary fence is
   always `UNSUPPORTED` (`FenceD3D12.hpp:11`), and Vulkan asks the driver per buffer usage and per
-  image format, usage, size, mips, layers and samples.
+  image format, usage, size, mips, layers and samples. Their `false` answer is measured for the D3D12
+  binary fence only: no adapter here (NVIDIA, WARP, lavapipe) refuses a buffer or texture export.
 - **`NriSharedHandle`** captures the device's `DestroySharedHandle` and calls it once on `Dispose`;
   it may outlive its device (`InteropTests.A_shared_handle_outlives_its_device_and_still_closes`).
   Released, it reads as the cleared struct (`Handle` 0, `Type` `NONE`, `Size` 0). `Detach()` gives
