@@ -35,14 +35,20 @@
   </ItemGroup>
 
   <!--
-    D3D12 on the Agility SDK exactly as docs/guide.md tells an application to take it: Microsoft's
-    package, its two runtime DLLs copied into AgilitySDK/ beside the application, where SharpNRI
-    looks by default. Program.cs fails when a D3D12 device does not report the Agility SDK.
+    D3D12 on the Agility SDK exactly as docs/guide.md tells an application to take it: the
+    SharpNRI.AgilitySDK package, which brings Microsoft.Direct3D.D3D12 at NRI's version and copies
+    its runtime into AgilitySDK/ beside the application, where SharpNRI looks by default; the debug
+    layer too (SharpNRIAgilityDebugLayer, default in Debug only), because NriTestDevice validates.
+    Program.cs fails when a D3D12 device does not report the Agility SDK.
+    -p:SharpNRIAgilityOverride=<version> adds an explicit Microsoft.Direct3D.D3D12 reference of
+    another version, which the package must refuse at build time (release.yml, consume).
   -->
+  <PropertyGroup>
+    <SharpNRIAgilityDebugLayer>true</SharpNRIAgilityDebugLayer>
+  </PropertyGroup>
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <PackageReference Include="Microsoft.Direct3D.D3D12" Version="1.620.1" GeneratePathProperty="true" ExcludeAssets="all" />
-    <None Include="$(PkgMicrosoft_Direct3D_D3D12)/build/native/bin/x64/D3D12Core.dll;$(PkgMicrosoft_Direct3D_D3D12)/build/native/bin/x64/d3d12SDKLayers.dll"
-          Link="AgilitySDK/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="SharpNRI.AgilitySDK" Version="$(SharpNRIPackageVersion)" />
+    <PackageReference Include="Microsoft.Direct3D.D3D12" Version="$(SharpNRIAgilityOverride)" Condition="'$(SharpNRIAgilityOverride)' != ''" NoWarn="NU1608;NU1605" />
   </ItemGroup>
 
   <Target Name="SharpNRIRequireVersion" BeforeTargets="_GenerateRestoreProjectSpec;Restore;CollectPackageReferences" Condition="'$(SharpNRIPackageVersion)' == ''">

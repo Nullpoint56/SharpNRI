@@ -30,10 +30,12 @@ headers do not say. NRI v191.
 | `SharpNRI.Descs` | `SharpNRI.Native` (generated, NRI's names) + managed desc forms | layouts without a device; pulled in by `SharpNRI` |
 | `SharpNRI.Testing` | `SharpNRI.Testing` | tests |
 | `SharpNRI.Native.Upscalers` | NRI with NIS, FSR, XeSS | upscaler extension |
+| `SharpNRI.AgilitySDK` | build targets only: the Agility SDK runtime from Microsoft's package | D3D12 on the Agility SDK (below) |
 
 ```xml
-<PackageReference Include="SharpNRI" Version="1.0.0-beta.2" ExcludeAssets="native" />  <!-- only with Upscalers -->
-<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.2" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.3" ExcludeAssets="native" />  <!-- only with Upscalers -->
+<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.3" />
+<PackageReference Include="SharpNRI.AgilitySDK" Version="1.0.0-beta.3" />             <!-- Windows, D3D12 -->
 ```
 
 - On NuGet.org since 1.0.0-beta.2 (prereleases while in beta: `dotnet add package SharpNRI
@@ -48,6 +50,17 @@ headers do not say. NRI v191.
   </configuration>
   ```
 
+- **Versions.** `SharpNRI`, `SharpNRI.Testing`, `SharpNRI.Native.Upscalers` and `SharpNRI.AgilitySDK`
+  carry the release version. `SharpNRI.Descs` has its own, with the NRI version as its major
+  (`191.0.0-beta.1` is NRI v191), and moves only when the descs change: a binding-only release keeps
+  it, so a library built on `SharpNRI.Descs` alone needs no new release. Pin one major
+  (`[191.0.0-beta.1, 192.0.0)`): NRI breaks between versions, and the enum constants are compiled into
+  your assembly. The packages depend on each other exactly (`SharpNRI` on one `SharpNRI.Descs`).
+- **Version guard.** Device creation compares the NRI version of the loaded native library
+  (`DeviceDesc.nriVersion`) and of the loaded `SharpNRI.Descs` with SharpNRI's own and throws
+  `NriException` with `INVALID_SDK`, naming both and the library's path, instead of misreading
+  renumbered enums (v191 renumbered `StageBits` and `AccessBits`): a stale `NRI.dll` left on the load
+  path fails loudly.
 - The release workflow's `consume` job restores them that way (`tools/consume`) and creates NONE
   plus a GPU device on windows and ubuntu before the release and the NuGet push.
 - Base and Upscalers both contain `NRI.dll` / `libNRI.so` at the same path: take exactly one; with
@@ -57,7 +70,8 @@ headers do not say. NRI v191.
 - osx-arm64: not in the packages. Each release gets `SharpNRI-native-base-osx-arm64-<tag>.zip`
   (`libNRI.dylib`, Base only; Vulkan and NONE) once a macOS runner has built it; put its files
   where the application loads native libraries from.
-- Windows needs the Visual C++ 2015-2022 runtime; not shipped.
+- Windows needs no Visual C++ runtime (from 1.0.0-beta.3): `NRI.dll` links the C and C++ runtime
+  statically and imports only `KERNEL32` and `USER32` at load time.
 - Debugging (from 1.0.0-beta.3): the packages carry PDBs with Source Link, so with Source Link support
   on in the debugger, stepping into SharpNRI shows its source at the package's commit. NRI's native symbols
   (win-x64 `NRI.pdb`) are on each GitHub release as `SharpNRI-symbols-*.zip`: put `NRI.pdb` beside
@@ -81,30 +95,32 @@ headers do not say. NRI v191.
 
 ### Agility SDK
 
-D3D12 runs on the inbox runtime unless an Agility SDK runtime is beside the application. No SharpNRI
-package carries one: Microsoft's licence lets an application, not a library, redistribute it. Take
-Microsoft's package and copy its two runtime DLLs into `AgilitySDK/`, the directory SharpNRI uses when
-`D3D12AgilitySdkPath` is null:
+D3D12 runs on the inbox runtime unless an Agility SDK runtime is beside the application. Microsoft's
+licence lets an application, not a library, redistribute it, so no SharpNRI package carries it.
+`SharpNRI.AgilitySDK` is build targets only: it depends on `Microsoft.Direct3D.D3D12` at exactly the
+version NRI was compiled against (1.620.1 for NRI v191), so your restore takes Microsoft's package,
+and it copies the runtime into `AgilitySDK/`, the directory SharpNRI uses when `D3D12AgilitySdkPath`
+is null:
 
 ```xml
-<ItemGroup>
-  <PackageReference Include="Microsoft.Direct3D.D3D12" Version="1.620.1" GeneratePathProperty="true" ExcludeAssets="all" />
-  <None Include="$(PkgMicrosoft_Direct3D_D3D12)/build/native/bin/x64/D3D12Core.dll;$(PkgMicrosoft_Direct3D_D3D12)/build/native/bin/x64/d3d12SDKLayers.dll"
-        Link="AgilitySDK/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-</ItemGroup>
+<PackageReference Include="SharpNRI.AgilitySDK" Version="1.0.0-beta.3" />
 ```
 
-- The version must carry the SDK version NRI was compiled against: 1.620 for NRI v191
-  (`NRI_AGILITY_SDK_VERSION_MAJOR` in NRI's `CMakeLists.txt`). A 1.619 runtime under NRI v191 fails
-  every D3D12 device creation with `INVALID_SDK` (measured).
-- `ExcludeAssets="all"`: the package's own build files target C++ projects; only its files are used.
-  `bin/arm64` holds the win-arm64 DLLs.
-- `d3d12SDKLayers.dll` is the debug layer; leave it out of a build that never enables
-  `EnableGraphicsApiValidation`.
+- Another `Microsoft.Direct3D.D3D12` version (an explicit reference that overrides the dependency)
+  fails the build with `SHARPNRI011`, naming both versions: NRI loads the runtime through the SDK
+  version it was compiled against (`NRI_AGILITY_SDK_VERSION_MAJOR` in NRI's `CMakeLists.txt`), and a
+  1.619 runtime under NRI v191 fails every D3D12 device creation with `INVALID_SDK` (measured).
+- `d3d12SDKLayers.dll` (the debug layer, for `EnableGraphicsApiValidation`) is copied in Debug
+  builds; `<SharpNRIAgilityDebugLayer>true</SharpNRIAgilityDebugLayer>` (or `false`) decides
+  otherwise. Windows RIDs and portable builds get the files; `win-arm64` takes `bin/arm64`. Publish
+  copies them too, outside a single-file bundle.
+- With the package referenced, a missing `AgilitySDK/D3D12Core.dll` at run time is an error
+  (`NriException`, `INVALID_SDK`, from the runtime switch `SharpNRI.RequireAgilitySdk` the package
+  sets) instead of a silent fall back to the inbox runtime; `D3D12AgilitySdkPath = ""` still asks for
+  the inbox runtime on purpose.
 - Shipping the runtime makes its Microsoft Software License Terms yours (`THIRD-PARTY-NOTICES.md`).
-- The release's `consume` job builds exactly this and fails unless NRI reports
-  `Using Agility SDK v1.620`.
-
+- The release's `consume` job builds with this package and fails unless NRI reports
+  `Using Agility SDK v1.620`, and checks that another version fails the build.
 ## Device creation
 
 ```csharp
@@ -613,6 +629,11 @@ The same thing through the descs: `BufferDesc.shared` / `TextureDesc.shared` set
   or semaphore that the device cannot export (NRI asks `vkGetPhysicalDeviceExternal*Properties` /
   `vkGetPhysicalDeviceImageFormatProperties2` first: an image's format, usage, size, mip and layer
   count and sample count all count).
+- **No feature bit predicts those refusals**, so probe with the Try forms: `TryCreateSharedBuffer`,
+  `TryCreateSharedTexture`, `TryCreateSharedFence` and `TryCreateSharedBinaryFence` answer false
+  (and create nothing) where NRI says `UNSUPPORTED`, and throw for anything else. `features.sharedFences`
+  is 1 when either semaphore type exports: on D3D12 it is 1 while a binary fence is always
+  `UNSUPPORTED`, and a Vulkan device can export one type and not the other.
 - A shared resource is committed and in `DEVICE` memory: `shared` with `CreateBuffer` /
   `CreateTexture` / `CreatePlaced*`, or a committed one in `HOST_UPLOAD` / `HOST_READBACK`, is
   `INVALID_ARGUMENT` from NRI validation (D3D12 cannot share an upload or readback heap; Vulkan's
@@ -638,7 +659,8 @@ The same thing through the descs: `BufferDesc.shared` / `TextureDesc.shared` set
 - A shared buffer, texture or fence still works as a normal one.
 - **Binary shared fence** (`CreateSharedBinaryFence()`, i.e. `FenceDesc { SwapChainSemaphore, shared }`):
   the signal-once/wait-once semaphore external compositors import as an opaque NT handle or fd.
-  Vulkan only; D3D12 has no binary fences and throws `NriUnsupportedException` (no error message).
+  Vulkan only; D3D12 has no binary fences and throws `NriUnsupportedException` (no error message),
+  though it reports `features.sharedFences`: `TryCreateSharedBinaryFence` answers false there.
   The handshake rule is the binary semaphore's: every signal is followed by exactly one wait
   before the next signal, counting both sides of the export (yours signals, theirs waits, theirs
   signals, yours waits). In `NriFenceSubmit` the value is ignored (pass 0); never call `Value` or
@@ -1006,6 +1028,9 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 |---|---|---|
 | D3D12 under `dotnet` without `D3D12AgilitySdkPath` / an `AgilitySDK` directory | inbox runtime, `options22` warning | Device creation |
 | Agility applied once | inbox runtime unreachable for the rest of the process | Device creation |
+| `Microsoft.Direct3D.D3D12` of another version than NRI's (1.620.1 for v191) | `INVALID_SDK` on every D3D12 device; with `SharpNRI.AgilitySDK` a build error, `SHARPNRI011` | Agility SDK |
+| A stale `NRI.dll` or `SharpNRI.Descs` of another NRI version | `INVALID_SDK` at device creation naming both versions | Packages and install |
+| `UNSUPPORTED` that no feature bit predicts | shared objects the driver cannot export (use the `TryCreateShared*` forms), a D3D12 binary shared fence, FSR / XeSS refused by the device or driver, NIS without `storageWriteWithoutFormat` beyond RGBA8 / RGBA16F / RGBA32F output, Annex-B parameter sets outside H.264 High / plain H.265, the AV1 encode-info input form per backend, `QueryVideoMemoryInfo` without `VK_EXT_memory_budget` | Shared buffers, textures and fences; Extensions |
 | Anything measured on NONE | NONE answers SUCCESS to everything and never validates | Device creation |
 | `GetQueue` bad index | `INVALID_ARGUMENT`, no message | Device creation |
 | Video without video queues requested | `Video` is `UNSUPPORTED` | Extensions: Video |

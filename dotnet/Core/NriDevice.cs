@@ -50,6 +50,7 @@ public sealed unsafe partial class NriDevice : NriObject
     public static NriDevice Create(NriDeviceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        var agilitySdkPath = ResolveAgilitySdkPath(options); // may refuse: before anything needs disposing
 
         var recorder = new ErrorRecorder(options.MessageHandler);
         var messages = new MessageBridge(recorder.Handle, options.BreakOnError);
@@ -60,7 +61,7 @@ public sealed unsafe partial class NriDevice : NriObject
         var pins = new List<GCHandle>();
         using var instanceExtensions = new Utf8.StringArray(options.VkInstanceExtensions);
         using var deviceExtensions = new Utf8.StringArray(options.VkDeviceExtensions);
-        using var agilityPath = new Utf8.Scoped(ResolveAgilitySdkPath(options));
+        using var agilityPath = new Utf8.Scoped(agilitySdkPath);
 
         try
         {
@@ -183,12 +184,24 @@ public sealed unsafe partial class NriDevice : NriObject
         }
     }
 
-    private static string? ResolveAgilitySdkPath(NriDeviceOptions options)
+    /// <summary>
+    /// The runtime switch the SharpNRI.AgilitySDK package sets: the application ships the Agility SDK,
+    /// so a missing <c>AgilitySDK</c> directory is an error, not a fall back to the inbox runtime.
+    /// </summary>
+    internal const string RequireAgilitySdkSwitch = "SharpNRI.RequireAgilitySdk";
+
+    private static string? ResolveAgilitySdkPath(NriDeviceOptions options) =>
+        ResolveAgilitySdkPath(options, DefaultAgilitySdkPath, AppContext.TryGetSwitch(RequireAgilitySdkSwitch, out var required) && required);
+
+    internal static string? ResolveAgilitySdkPath(NriDeviceOptions options, string? defaultPath, bool required)
     {
         if (options.GraphicsApi != GraphicsAPI.D3D12) return null;
         return options.D3D12AgilitySdkPath switch
         {
-            null => DefaultAgilitySdkPath,
+            null when defaultPath is null && required => throw new NriException(Result.INVALID_SDK, "nriCreateDevice",
+                $"the application references SharpNRI.AgilitySDK ({RequireAgilitySdkSwitch}), but {Path.Combine(AppContext.BaseDirectory, "AgilitySDK", "D3D12Core.dll")} is missing: " +
+                "the build copies it (check the build output for SHARPNRI01x), or pass D3D12AgilitySdkPath = \"\" for the inbox runtime"),
+            null => defaultPath,
             "" => null,
             var explicitPath => explicitPath.EndsWith(Path.DirectorySeparatorChar) || explicitPath.EndsWith('/') ? explicitPath : explicitPath + Path.DirectorySeparatorChar,
         };

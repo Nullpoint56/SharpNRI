@@ -25,16 +25,17 @@ var queue = device.GetQueue(QueueType.GRAPHICS);
 | Package | What it is |
 |---|---|
 | `SharpNRI` | the binding and the native NRI library (Windows x64, Linux x64) |
-| `SharpNRI.Descs` | every NRI enum and desc struct, with no native code |
+| `SharpNRI.Descs` | every NRI enum and desc struct, with no native code; versioned by NRI (`191.x` is NRI v191) |
 | `SharpNRI.Testing` | a validated headless device per backend, for your own GPU tests |
 | `SharpNRI.Native.Upscalers` | NRI built with NIS, FSR and XeSS, replacing the library in `SharpNRI`: reference it with `ExcludeAssets="native"` on `SharpNRI` |
+| `SharpNRI.AgilitySDK` | build targets that copy Microsoft's D3D12 Agility SDK runtime at NRI's version into `AgilitySDK\` and fail the build on another version; your restore takes Microsoft's package |
 
-No package ships a vendor upscaler runtime or Microsoft's Agility SDK.
+No package ships a vendor upscaler runtime or a Microsoft file.
 [The guide](https://github.com/Nullpoint56/SharpNRI/blob/master/docs/guide.md) covers how an
 application adds them, and everything else: device creation, resources, descriptors, recording and
 submitting, every extension, and the caveats.
 
-Windows x64 (D3D12, Vulkan; needs the Visual C++ 2015-2022 runtime), Linux x64 (Vulkan; needs the
+Windows x64 (D3D12, Vulkan; no Visual C++ runtime needed), Linux x64 (Vulkan; needs the
 Vulkan loader). .NET 11.
 
 [Repository](https://github.com/Nullpoint56/SharpNRI) ·

@@ -32,6 +32,7 @@ try {
         if ($LASTEXITCODE -ne 0) { $failed += "lint: analyzers" }
         dotnet format whitespace SharpNRI.slnx --exclude dotnet/Native --verify-no-changes
         if ($LASTEXITCODE -ne 0) { $failed += "lint: formatting (pwsh tools/check.ps1 -Lint -Fix applies it)" }
+        try { & (Join-Path $PSScriptRoot "ci/descs-version.ps1") } catch { $failed += "lint: SharpNRI.Descs version ($($_.Exception.Message))" }
     }
     if ($ZeroAlloc) {
         Write-Host "==> zero-alloc"

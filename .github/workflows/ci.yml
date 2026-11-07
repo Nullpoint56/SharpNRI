@@ -512,6 +512,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # descs-version.ps1 diffs against the commit the published SharpNRI.Descs came from
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -523,6 +525,11 @@ jobs:
 
       - name: Formatting
         run: dotnet format whitespace SharpNRI.slnx --exclude dotnet/Native --verify-no-changes --verbosity diagnostic
+
+      # The descs changed since the published SharpNRI.Descs version without a new version (AGENTS.md: Versions)
+      - name: SharpNRI.Descs version
+        shell: pwsh
+        run: ./tools/ci/descs-version.ps1
 
   # Zero allocation: every per-frame call of the binding, measured (AllocationTests,
   # ExtensionAllocationTests) and held to the whole public surface (AllocationCoverageTests). On

@@ -1,8 +1,9 @@
 name: release
 
 # How a release is made (owner, 2026-11-06: by hand, from master only):
-#   1. Bump <Version> in dotnet/SharpNRI.csproj and, to the same value, in descs/SharpNRI.Descs.csproj,
-#      testing/SharpNRI.Testing.csproj and native/SharpNRI.Native.Upscalers.csproj. Add
+#   1. Bump SharpNRIVersion in Directory.Build.props (SharpNRI, SharpNRI.Testing, SharpNRI.Native.Upscalers
+#      and SharpNRI.AgilitySDK take it), and SharpNRIDescsVersion only when the descs changed since the
+#      published one (tools/ci/descs-version.ps1 fails otherwise; an unchanged one is reused). Add
 #      docs/releases/v<Version>.md: ## Added, ## Fixed, ## Breaking changes, ## Verified (hardware, commit,
 #      coverage link), compact lists of what happened; tools/ci/release-body.ps1 adds Bound libraries
 #      and Packages. Merge to master; master's ci goes green.
@@ -51,25 +52,36 @@ jobs:
     outputs:
       version: ${{ steps.check.outputs.version }}
       tag: ${{ steps.check.outputs.tag }}
+      agility: ${{ steps.check.outputs.agility }}
+      descs_version: ${{ steps.descs.outputs.descs_version }}
+      descs_publish: ${{ steps.descs.outputs.descs_publish }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # descs-version.ps1 diffs against the commit the published SharpNRI.Descs came from
 
+      # Versions live in Directory.Build.props (AGENTS.md: Versions): SharpNRIVersion for the release
+      # packages, SharpNRIDescsVersion for SharpNRI.Descs. Each project must take its property.
       - name: Version, tag and branch
         id: check
         shell: pwsh
         env:
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          $projects = "dotnet/SharpNRI.csproj", "descs/SharpNRI.Descs.csproj", "testing/SharpNRI.Testing.csproj",
-                      "native/SharpNRI.Native.Upscalers.csproj"
-          $versions = foreach ($p in $projects) {
-            if ((Get-Content $p -Raw) -notmatch '<Version>([^<]+)</Version>') { throw "<Version> not found in $p" }
-            [pscustomobject]@{ Project = $p; Version = $Matches[1].Trim() }
+          $props = Get-Content Directory.Build.props -Raw
+          if ($props -notmatch '<SharpNRIVersion>([^<]+)</SharpNRIVersion>') { throw "SharpNRIVersion not found in Directory.Build.props" }
+          $version = $Matches[1].Trim()
+          if ($props -notmatch '<AgilitySdkVersion>([^<]+)</AgilitySdkVersion>') { throw "AgilitySdkVersion not found in Directory.Build.props" }
+          $agility = $Matches[1].Trim()
+          $projects = [ordered]@{
+            "dotnet/SharpNRI.csproj" = '$(SharpNRIVersion)'; "testing/SharpNRI.Testing.csproj" = '$(SharpNRIVersion)'
+            "native/SharpNRI.Native.Upscalers.csproj" = '$(SharpNRIVersion)'; "agility/SharpNRI.AgilitySDK.csproj" = '$(SharpNRIVersion)'
+            "descs/SharpNRI.Descs.csproj" = '$(SharpNRIDescsVersion)'
           }
-          $versions | Format-Table -AutoSize | Out-String | Write-Host
-          $version = $versions[0].Version
-          $odd = @($versions | Where-Object Version -ne $version)
-          if ($odd) { throw "package versions disagree: $(($odd | ForEach-Object { "$($_.Project)=$($_.Version)" }) -join ', ') vs dotnet/SharpNRI.csproj=$version" }
+          foreach ($p in $projects.Keys) {
+            if ((Get-Content $p -Raw) -notmatch '<Version>([^<]+)</Version>') { throw "<Version> not found in $p" }
+            if ($Matches[1].Trim() -ne $projects[$p]) { throw "$p has <Version>$($Matches[1])</Version>, expected $($projects[$p]) (Directory.Build.props)" }
+          }
           $tag = "v$version"
           $notes = "docs/releases/$tag.md"
           if (-not (Test-Path $notes)) { throw "release notes $notes missing: add them in the version-bump pull request" }
@@ -81,7 +93,14 @@ jobs:
           }
           "version=$version" >> $env:GITHUB_OUTPUT
           "tag=$tag" >> $env:GITHUB_OUTPUT
-          Write-Host "release $tag, packages $version$(if ($env:DRY_RUN -eq 'true') { ' (dry run)' })"
+          "agility=$agility" >> $env:GITHUB_OUTPUT
+          Write-Host "release $tag, packages $version, Agility SDK $agility$(if ($env:DRY_RUN -eq 'true') { ' (dry run)' })"
+
+      # New SharpNRI.Descs version: published by this release. Published one: unchanged since, and reused.
+      - name: SharpNRI.Descs version
+        id: descs
+        shell: pwsh
+        run: ./tools/ci/descs-version.ps1
 
   # Base + Upscalers. The Agility runtime build-native.ps1 also stages is for the repository's tests
   # only: no package or zip carries it (applications take Microsoft.Direct3D.D3D12).
@@ -362,20 +381,41 @@ jobs:
       - name: Pack
         run: dotnet pack SharpNRI.slnx -c Release -p:ContinuousIntegrationBuild=true -p:PackageOutputPath="$GITHUB_WORKSPACE/nupkg"
 
+      # A SharpNRI.Descs version already on NuGet.org (descs-version.ps1 checked it is unchanged) is
+      # the published package, byte for byte: consume tests it, the release attaches it, the push skips it.
+      - name: Reuse the published SharpNRI.Descs
+        if: needs.version.outputs.descs_publish != 'true'
+        shell: pwsh
+        run: |
+          $v = "${{ needs.version.outputs.descs_version }}".ToLowerInvariant()
+          Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/sharpnri.descs/$v/sharpnri.descs.$v.nupkg" -OutFile "nupkg/SharpNRI.Descs.${{ needs.version.outputs.descs_version }}.nupkg"
+          Write-Host "SharpNRI.Descs $v taken from NuGet.org"
+
       - name: Package contents
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $version = "${{ needs.version.outputs.version }}"
+          $descs = "${{ needs.version.outputs.descs_version }}"
+          $agility = "${{ needs.version.outputs.agility }}"
+          $reused = "${{ needs.version.outputs.descs_publish }}" -ne "true"
           $must = @{
             "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "lib/net11.0/SharpNRI.pdb", "README.md"
             "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "lib/net11.0/SharpNRI.Descs.xml", "lib/net11.0/SharpNRI.Descs.pdb", "README.md"
             "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "lib/net11.0/SharpNRI.Testing.xml", "lib/net11.0/SharpNRI.Testing.pdb", "README.md"
             "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/win-x64/upscaler-runtimes.json", "runtimes/linux-x64/upscaler-runtimes.json", "README.md"
+            "SharpNRI.AgilitySDK"       = "buildTransitive/SharpNRI.AgilitySDK.targets", "buildTransitive/SharpNRI.AgilitySDK.props", "README.md"
           }
-          $version = "${{ needs.version.outputs.version }}"
+          # Exact dependencies ([v], Directory.Build.targets): the packages are built against each other
+          $deps = @{
+            "SharpNRI"            = @{ "SharpNRI.Descs" = "[$descs]" }
+            "SharpNRI.Testing"    = @{ "SharpNRI" = "[$version]" }
+            "SharpNRI.AgilitySDK" = @{ "Microsoft.Direct3D.D3D12" = "[$agility]" }
+          }
           $failed = @()
           foreach ($id in $must.Keys | Sort-Object) {
-            $pkg = "nupkg/$id.$version.nupkg"
+            $v = if ($id -eq "SharpNRI.Descs") { $descs } else { $version }
+            $pkg = "nupkg/$id.$v.nupkg"
             if (-not (Test-Path $pkg)) { $failed += "$pkg not produced"; continue }
             $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $pkg))
             try {
@@ -383,15 +423,29 @@ jobs:
               Write-Host "`n==> $pkg ($([math]::Round((Get-Item $pkg).Length / 1KB)) KB)"
               $zip.Entries | Sort-Object FullName | ForEach-Object { Write-Host ("    {0,12}  {1}" -f $_.Length, $_.FullName) }
               foreach ($e in $must[$id]) { if ($entries -notcontains $e) { $failed += "$pkg lacks $e" } }
-              # Source Link: the package names the commit it was built from (PublishRepositoryUrl)
-              if ($id -ne "SharpNRI.Native.Upscalers") {
-                $nuspec = $zip.Entries | Where-Object { $_.FullName -like "*.nuspec" } | Select-Object -First 1
-                $reader = [System.IO.StreamReader]::new($nuspec.Open()); $text = $reader.ReadToEnd(); $reader.Dispose()
+              $nuspec = $zip.Entries | Where-Object { $_.FullName -like "*.nuspec" } | Select-Object -First 1
+              $reader = [System.IO.StreamReader]::new($nuspec.Open()); $text = $reader.ReadToEnd(); $reader.Dispose()
+              [xml]$xml = $text
+              # Source Link: the package names the commit it was built from (PublishRepositoryUrl); a
+              # reused SharpNRI.Descs names the commit it was published from
+              if ($id -ne "SharpNRI.Native.Upscalers" -and -not ($id -eq "SharpNRI.Descs" -and $reused)) {
                 if ($text -notmatch "<repository [^>]*commit=""${{ github.sha }}""") { $failed += "$pkg does not name commit ${{ github.sha }} in <repository>" }
+              }
+              foreach ($d in ($deps[$id] ?? @{}).GetEnumerator()) {
+                $found = @($xml.package.metadata.dependencies.group.dependency | Where-Object id -eq $d.Key)
+                if (-not $found) { $failed += "$pkg does not depend on $($d.Key)" }
+                foreach ($f in $found) { if ($f.version -ne $d.Value) { $failed += "$pkg depends on $($d.Key) $($f.version), expected $($d.Value)" } }
+              }
+              # The description names exactly the platforms whose library is inside (SharpNRIPackageDescription)
+              if ($id -eq "SharpNRI") {
+                $description = $xml.package.metadata.description
+                Write-Host "    description: $description"
+                if ($description -notmatch 'Native library inside for: Windows x64, Linux x64\.$') { $failed += "$pkg description does not name exactly Windows x64 and Linux x64: $description" }
               }
             } finally { $zip.Dispose() }
           }
-          $extra = @(Get-ChildItem nupkg -Filter *.nupkg | Where-Object { $_.Name -notin ($must.Keys | ForEach-Object { "$_.$version.nupkg" }) })
+          $expected = $must.Keys | ForEach-Object { "$_.$(if ($_ -eq 'SharpNRI.Descs') { $descs } else { $version }).nupkg" }
+          $extra = @(Get-ChildItem nupkg -Filter *.nupkg | Where-Object { $_.Name -notin $expected })
           foreach ($x in $extra) { Write-Warning "unexpected package $($x.Name)" }
           if ($failed) { throw "package check failed:`n  $($failed -join "`n  ")" }
 
@@ -460,6 +514,19 @@ jobs:
         shell: bash
         run: dotnet run --project tools/consume -c Release -r ${{ matrix.rid }} -p:SharpNRIPackageVersion="$SHARPNRI_VERSION"
 
+      # SharpNRI.AgilitySDK turns a Microsoft.Direct3D.D3D12 of another version into a build error
+      # (SHARPNRI011) instead of INVALID_SDK at run time. Last: it restores the consumer differently.
+      - name: Another Agility SDK version fails the build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $log = dotnet build tools/consume -c Release -p:SharpNRIPackageVersion="$env:SHARPNRI_VERSION" -p:SharpNRIAgilityOverride=1.619.6 -o "$env:RUNNER_TEMP/agility-mismatch" 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          $log -split "`n" | Select-String 'SHARPNRI01|error' | Select-Object -First 5 | ForEach-Object { Write-Host $_.Line }
+          if ($code -eq 0) { throw "the build with Microsoft.Direct3D.D3D12 1.619.6 succeeded" }
+          if ($log -notmatch 'SHARPNRI011') { throw "the build failed, but not with SHARPNRI011" }
+          $global:LASTEXITCODE = 0
+
   release:
     needs: [version, pack, consume]
     if: ${{ !inputs.dry_run && github.ref == 'refs/heads/master' }}
@@ -486,7 +553,7 @@ jobs:
       # Bound libraries (from the manifest), docs/releases/<tag>.md, Packages
       - name: Release body
         shell: pwsh
-        run: ./tools/ci/release-body.ps1 -Tag $env:RELEASE_TAG -Manifest upscalers/win-x64/upscaler-runtimes.json -Out body.md
+        run: ./tools/ci/release-body.ps1 -Tag $env:RELEASE_TAG -Manifest upscalers/win-x64/upscaler-runtimes.json -DescsVersion "${{ needs.version.outputs.descs_version }}" -AgilitySdk "${{ needs.version.outputs.agility }}" -Out body.md
 
       - uses: actions/download-artifact@v4
         with:

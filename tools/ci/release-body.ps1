@@ -1,20 +1,26 @@
 <#
 .SYNOPSIS
-    Assembles a GitHub release body: Bound libraries, the notes, Packages.
+    Assembles a GitHub release body: Bound libraries, the notes, Downloads.
 
 .DESCRIPTION
-    Bound libraries comes from the Upscalers payload's manifest (tools/ci/upscaler-runtimes.ps1), the
-    middle from docs/releases/<tag>.md (Added, Fixed, Breaking changes, Verified: compact lists, what
-    happened, no why or how), and Downloads names the NuGet.org packages of the version and the
-    zip-only macOS library. release.yml runs it; run it locally to preview or to rewrite a published
-    body (gh release edit <tag> --notes-file <out>).
+    Bound libraries comes from the Upscalers payload's manifest (tools/ci/upscaler-runtimes.ps1), plus
+    the Agility SDK when given; the middle from docs/releases/<tag>.md (Added, Fixed, Breaking changes,
+    Verified: compact lists, what happened, no why or how), and Downloads names the NuGet.org packages
+    of the release and the zip-only macOS library. release.yml runs it; run it locally to preview or
+    to rewrite a published body (gh release edit <tag> --notes-file <out>).
 
-        pwsh tools/ci/release-body.ps1 -Tag v1.0.0-beta.2 -Manifest runtimes-upscalers/win-x64/upscaler-runtimes.json -Out body.md
+        pwsh tools/ci/release-body.ps1 -Tag v1.0.0-beta.3 -Manifest runtimes-upscalers/win-x64/upscaler-runtimes.json -DescsVersion 191.0.0-beta.1 -AgilitySdk 1.620.1 -Out body.md
+
+    SharpNRI.Descs has its own version since 1.0.0-beta.3 (AGENTS.md: Versions); without
+    -DescsVersion it is the tag's, as for the earlier releases. -AgilitySdk also lists the
+    SharpNRI.AgilitySDK package (since 1.0.0-beta.3).
 #>
 param(
     [Parameter(Mandatory)] [string]$Tag,
     [Parameter(Mandatory)] [string]$Manifest,
     [Parameter(Mandatory)] [string]$Out,
+    [string]$DescsVersion,
+    [string]$AgilitySdk,
     [switch]$NotOnNuGet,      # a release from before NuGet.org publishing (v1.0.0-beta.1)
     [switch]$NoNativeSymbols  # a release from before the symbols zips (v1.0.0-beta.1, v1.0.0-beta.2)
 )
@@ -27,12 +33,15 @@ $notes = @(Get-Content $notesPath)
 if ($notes[0] -notmatch '^## ') { throw "$notesPath must start with a section (## Added, ## Fixed, ...); Bound libraries is generated" }
 
 $version = $Tag.TrimStart('v')
-$ids = "SharpNRI", "SharpNRI.Descs", "SharpNRI.Testing", "SharpNRI.Native.Upscalers"
-$packages = if ($NotOnNuGet) { "- NuGet packages: attached below only" }
-            else { "- NuGet.org: " + (($ids | ForEach-Object { "[$_](https://www.nuget.org/packages/$_/$version)" }) -join ", ") }
+if (-not $DescsVersion) { $DescsVersion = $version }
+$packages = [ordered]@{ "SharpNRI" = $version; "SharpNRI.Descs" = $DescsVersion; "SharpNRI.Testing" = $version; "SharpNRI.Native.Upscalers" = $version }
+if ($AgilitySdk) { $packages["SharpNRI.AgilitySDK"] = $version }
+$nuget = if ($NotOnNuGet) { "- NuGet packages: attached below only" }
+         else { "- NuGet.org: " + (($packages.GetEnumerator() | ForEach-Object { "[$($_.Key) $($_.Value)](https://www.nuget.org/packages/$($_.Key)/$($_.Value))" }) -join ", ") }
 
-$downloads = @("", "## Downloads", $packages, "- osx-arm64: native library as a zip below, not in the packages")
+$downloads = @("", "## Downloads", $nuget, "- osx-arm64: native library as a zip below, not in the packages")
 if (-not $NoNativeSymbols) { $downloads += "- Symbols: NRI's PDB per win-x64 payload as a zip below (``SharpNRI-symbols-*``); managed PDBs in the packages" }
-$body = @(& (Join-Path $PSScriptRoot "upscaler-runtimes.ps1") -Manifest $Manifest) + $notes + $downloads
+$bound = @(& (Join-Path $PSScriptRoot "upscaler-runtimes.ps1") -Manifest $Manifest -AgilitySdk $AgilitySdk)
+$body = $bound + $notes + $downloads
 $body | Set-Content $Out -Encoding utf8NoBOM
 Get-Content $Out
