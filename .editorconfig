@@ -1,0 +1,140 @@
+# Code style and analyzer policy for every C# file in the repository, hand-written and generated.
+#
+# Built with the .NET analyzers at AnalysisLevel latest-recommended and EnforceCodeStyleInBuild
+# (Directory.Build.props); the CI lint job builds with warnings as errors. Preferences that only
+# restate one of two equally good spellings stay silent (the repository's own spelling is written
+# down here so the IDE suggests it); what is enforced is formatting, dead code, explicit
+# accessibility, naming, and the CA correctness, reliability and performance rules. AGENTS.md:
+# Build and test, Lint.
+
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{cs,csx}]
+indent_style = space
+indent_size = 4
+
+# ---------------------------------------------------------------- the repository's spelling
+
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_style_var_for_built_in_types = true:silent
+csharp_style_var_when_type_is_apparent = true:silent
+csharp_style_var_elsewhere = true:silent
+csharp_prefer_braces = when_multiline:silent
+csharp_style_expression_bodied_methods = when_on_single_line:silent
+csharp_style_expression_bodied_constructors = when_on_single_line:silent
+csharp_style_expression_bodied_operators = when_on_single_line:silent
+csharp_style_expression_bodied_properties = true:silent
+csharp_style_expression_bodied_accessors = true:silent
+csharp_style_expression_bodied_local_functions = when_on_single_line:silent
+csharp_using_directive_placement = outside_namespace:warning
+dotnet_sort_system_directives_first = true
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+dotnet_style_predefined_type_for_locals_parameters_members = true:warning
+dotnet_style_predefined_type_for_member_access = true:warning
+dotnet_style_readonly_field = true:warning
+csharp_new_line_before_members_in_object_initializers = false
+csharp_new_line_before_members_in_anonymous_types = false
+csharp_preferred_modifier_order = public,private,protected,internal,file,static,extern,new,virtual,abstract,sealed,override,readonly,unsafe,required,volatile,async:warning
+
+# Equally good spellings, not enforced: object and collection initializers next to explicit field
+# writes (marshalling code writes native structs field by field), auto-properties next to fields a
+# constructor sets, conditional expressions next to if statements, redundant parentheses that group
+# for the reader, explicit tuple names
+dotnet_diagnostic.IDE0008.severity = none
+dotnet_diagnostic.IDE0011.severity = none
+dotnet_diagnostic.IDE0017.severity = silent
+dotnet_diagnostic.IDE0021.severity = silent
+dotnet_diagnostic.IDE0022.severity = silent
+dotnet_diagnostic.IDE0023.severity = silent
+dotnet_diagnostic.IDE0024.severity = silent
+dotnet_diagnostic.IDE0028.severity = silent
+dotnet_diagnostic.IDE0032.severity = silent
+dotnet_diagnostic.IDE0042.severity = silent
+dotnet_diagnostic.IDE0045.severity = silent
+dotnet_diagnostic.IDE0046.severity = silent
+dotnet_diagnostic.IDE0047.severity = silent
+dotnet_diagnostic.IDE0061.severity = silent
+dotnet_diagnostic.IDE0071.severity = silent
+dotnet_diagnostic.IDE0078.severity = silent
+dotnet_diagnostic.IDE0290.severity = silent
+dotnet_diagnostic.IDE0300.severity = silent
+dotnet_diagnostic.IDE0305.severity = silent
+dotnet_diagnostic.IDE0330.severity = silent
+dotnet_diagnostic.IDE0350.severity = silent
+
+# ---------------------------------------------------------------- enforced
+
+dotnet_diagnostic.IDE0005.severity = warning   # unnecessary using
+dotnet_diagnostic.IDE0055.severity = warning   # formatting
+dotnet_diagnostic.IDE0161.severity = warning   # file-scoped namespace
+dotnet_diagnostic.IDE0040.severity = warning   # accessibility modifiers
+dotnet_diagnostic.IDE0036.severity = warning   # modifier order
+dotnet_diagnostic.IDE0044.severity = warning   # readonly field
+dotnet_diagnostic.IDE0051.severity = warning   # unused private member
+dotnet_diagnostic.IDE0052.severity = warning   # private member written, never read
+dotnet_diagnostic.IDE0059.severity = warning   # value assigned, never used
+dotnet_diagnostic.IDE0060.severity = warning   # unused parameter
+dotnet_diagnostic.IDE0062.severity = warning   # local function can be static
+dotnet_diagnostic.IDE0065.severity = warning   # using placement
+dotnet_diagnostic.IDE1006.severity = warning   # naming
+
+# Naming: _camelCase private instance fields. Private statics keep the repository's s_ (static) and
+# t_ ([ThreadStatic]) prefixes, and constants and static readonly tables PascalCase; a naming rule
+# cannot tell [ThreadStatic] apart, so those are left to review.
+dotnet_naming_rule.private_statics.symbols = private_statics
+dotnet_naming_rule.private_statics.style = any_name
+dotnet_naming_rule.private_statics.severity = none
+dotnet_naming_symbols.private_statics.applicable_kinds = field
+dotnet_naming_symbols.private_statics.applicable_accessibilities = private
+dotnet_naming_symbols.private_statics.required_modifiers = static
+dotnet_naming_rule.private_consts.symbols = private_consts
+dotnet_naming_rule.private_consts.style = any_name
+dotnet_naming_rule.private_consts.severity = none
+dotnet_naming_symbols.private_consts.applicable_kinds = field
+dotnet_naming_symbols.private_consts.applicable_accessibilities = private
+dotnet_naming_symbols.private_consts.required_modifiers = const
+dotnet_naming_style.any_name.capitalization = camel_case
+dotnet_naming_rule.private_fields.symbols = private_fields
+dotnet_naming_rule.private_fields.style = underscore_camel
+dotnet_naming_rule.private_fields.severity = warning
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+dotnet_naming_style.underscore_camel.required_prefix = _
+
+# CA rules the binding's shape answers on purpose
+# - CA1711: NRI's own type names end in Queue (Queue, NriQueue)
+# - CA1816: no finalizers anywhere by design (AGENTS.md: Decisions), and NriObject cannot be derived
+#   from outside the assembly (its Destroy is private protected), so SuppressFinalize would do nothing
+# - CA1822 on the public surface: extension and object methods keep NRI's table shape (an instance
+#   call on the interface that owns it) even where the binding needs no instance data
+dotnet_diagnostic.CA1711.severity = none
+dotnet_diagnostic.CA1816.severity = none
+dotnet_code_quality.CA1822.api_surface = private, internal
+
+# ---------------------------------------------------------------- generated: dotnet/Native
+#
+# ClangSharp's output, regenerated by tools/generate-native.ps1 and never edited by hand. It keeps
+# NRI's names (BGRA_UNUSED, nriCreateDevice) and its public P/Invokes are the documented last
+# escape hatch (AGENTS.md: Layers), so the naming and visibility rules do not apply; every other
+# rule does, and a finding there is fixed in the generator.
+[dotnet/Native/**.cs]
+dotnet_diagnostic.CA1707.severity = none
+dotnet_diagnostic.CA1401.severity = none
+dotnet_diagnostic.IDE1006.severity = none
+dotnet_diagnostic.IDE0055.severity = none
+
+# ---------------------------------------------------------------- tests
+#
+# Test names are sentences with underscores
+[tests/**.cs]
+dotnet_diagnostic.CA1707.severity = none

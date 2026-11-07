@@ -1,4 +1,4 @@
-﻿// The Video extension. Acquisition must follow features.video on every backend (UNSUPPORTED is a
+// The Video extension. Acquisition must follow features.video on every backend (UNSUPPORTED is a
 // false from TryAcquire, never an exception). The bitstream serializers are host-only code shared by
 // every backend (Source/Shared/SharedVideo.h), so where the extension exists they are exercised for
 // real, through the managed parameter-set forms, on the GPU backends. NONE takes part only in the
@@ -279,7 +279,7 @@ public sealed class VideoExtensionTests
         // prepend (7 SPS, 8 PPS). Measured on D3D12: 00 00 00 01 65, the IDR slice first.
         var start = bytes.AsSpan().IndexOf(new byte[] { 0, 0, 1 });
         Assert.True(start >= 0 && start + 3 < bytes.Length, $"no Annex-B start code in {bytes.Length} bytes");
-        Assert.Contains(bytes[start + 3] & 0x1F, new[] { 5, 7, 8 });
+        Assert.Contains(bytes[start + 3] & 0x1F, collection);
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
@@ -881,7 +881,8 @@ public sealed class VideoExtensionTests
                 _ = device.GetQueue(QueueType.GRAPHICS);
                 _source = Own(device.CreateCommittedTexture(MemoryLocation.DEVICE, VideoTexture(TextureUsageBits.VIDEO_ENCODE, VideoCodec.AV1)));
                 _reconstructed = Own(device.CreateCommittedTexture(MemoryLocation.DEVICE, VideoTexture(TextureUsageBits.VIDEO_ENCODE | TextureUsageBits.VIDEO_REFERENCE_ONLY, VideoCodec.AV1)
-                    with { layerNum = (ushort)Math.Max(1u, caps.dpbTextureArrayRequired != 0 ? caps.dpbTextureArrayMinLayerNum : 1) }));
+                    with
+                { layerNum = (ushort)Math.Max(1u, caps.dpbTextureArrayRequired != 0 ? caps.dpbTextureArrayMinLayerNum : 1) }));
                 _bitstreamSize = GpuWork.Align(1 << 20, Math.Max(1u, caps.bitstreamSizeAlignment));
                 // Vulkan: host-visible memory. NVIDIA's driver (617.14) fails an AV1 encode into a bitstream in a
                 // memory type without HOST_VISIBLE (query status ERROR, no byte written) though the buffer's
@@ -1110,6 +1111,8 @@ public sealed class VideoExtensionTests
 
     private static VideoH265ProfileTierLevelDesc H265Main => new() { flags = VideoH265ProfileTierLevelBits.PROGRESSIVE_SOURCE, generalProfileIdc = 1, generalLevelIdc = 93 };
 
+    private static readonly int[] collection = new[] { 5, 7, 8 };
+
     private static VideoH265VideoParameterSetDesc H265Vps()
     {
         var vps = new VideoH265VideoParameterSetDesc { profileTierLevel = H265Main };
@@ -1150,7 +1153,7 @@ public sealed class VideoExtensionTests
     };
 
     /// <summary>AV1 Main, 8-bit 4:2:0, 256x256, order hints on.</summary>
-    private static VideoAV1SequenceDesc Av1Sequence() => new()
+    internal static VideoAV1SequenceDesc Av1Sequence() => new()
     {
         flags = VideoAV1SequenceBits.ENABLE_ORDER_HINT,
         bitDepth = 8,
@@ -1163,7 +1166,7 @@ public sealed class VideoExtensionTests
         orderHintBitsMinus1 = 7,
     };
 
-    private static VideoH264SequenceParameterSetDesc Sps() => new()
+    internal static VideoH264SequenceParameterSetDesc Sps() => new()
     {
         profileIdc = 100, // High
         levelIdc = 30,

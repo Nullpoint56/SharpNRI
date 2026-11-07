@@ -21,16 +21,16 @@ namespace SharpNRI.Tests;
 
 public sealed class NativePayloadTests
 {
-    static readonly string RepoRoot = typeof(NativePayloadTests).Assembly
+    private static readonly string RepoRoot = typeof(NativePayloadTests).Assembly
         .GetCustomAttributes<AssemblyMetadataAttribute>()
         .Single(a => a.Key == "RepoRoot").Value!;
 
-    static string Rid => (OperatingSystem.IsWindows() ? "win-" : OperatingSystem.IsLinux() ? "linux-" : OperatingSystem.IsMacOS() ? "osx-" : "unsupported-")
+    private static string Rid => (OperatingSystem.IsWindows() ? "win-" : OperatingSystem.IsLinux() ? "linux-" : OperatingSystem.IsMacOS() ? "osx-" : "unsupported-")
         + (RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64");
 
-    static string Dir(string stagingRoot) => Path.GetFullPath(Path.Combine(RepoRoot, stagingRoot, Rid, "native"));
+    private static string Dir(string stagingRoot) => Path.GetFullPath(Path.Combine(RepoRoot, stagingRoot, Rid, "native"));
 
-    static readonly string[] CommonLicenses =
+    private static readonly string[] CommonLicenses =
     [
         "licenses/THIRD-PARTY-NOTICES.md",
         "licenses/NRI/LICENSE.txt",
@@ -41,7 +41,7 @@ public sealed class NativePayloadTests
         "licenses/VulkanMemoryAllocator/LICENSE.txt",
     ];
 
-    static readonly string[] WindowsBase =
+    private static readonly string[] WindowsBase =
     [
         "NRI.dll",
         "amd_ags_x64.dll",
@@ -53,20 +53,20 @@ public sealed class NativePayloadTests
         "licenses/AMD-AGS/LICENSE.txt",
     ];
 
-    static readonly string[] NisLicenses =
+    private static readonly string[] NisLicenses =
     [
         "licenses/NVIDIA-Image-Scaling/LICENSE.txt",
         "licenses/ShaderMake/LICENSE.txt",
     ];
 
-    static readonly Dictionary<string, string[]> Base = new()
+    private static readonly Dictionary<string, string[]> Base = new()
     {
         ["win-x64"] = WindowsBase,
         ["linux-x64"] = ["libNRI.so", .. CommonLicenses],
         ["osx-arm64"] = ["libNRI.dylib", .. CommonLicenses],
     };
 
-    static readonly Dictionary<string, string[]> Upscalers = new()
+    private static readonly Dictionary<string, string[]> Upscalers = new()
     {
         ["win-x64"] =
         [
@@ -80,7 +80,7 @@ public sealed class NativePayloadTests
         ["linux-x64"] = ["libNRI.so", .. CommonLicenses, .. NisLicenses],
     };
 
-    static readonly Dictionary<string, string[]> Agility = new()
+    private static readonly Dictionary<string, string[]> Agility = new()
     {
         ["win-x64"] =
         [
@@ -91,32 +91,32 @@ public sealed class NativePayloadTests
     };
 
     // Vendor upscaler runtimes: the application's to ship, under the vendors' terms. In no package.
-    static readonly string[] VendorRuntimePrefixes = ["nvngx", "libnvidia-ngx", "amd_fidelityfx", "libxess", "libxell"];
+    private static readonly string[] VendorRuntimePrefixes = ["nvngx", "libnvidia-ngx", "amd_fidelityfx", "libxess", "libxell"];
 
-    static string? SkipReason(Dictionary<string, string[]> contract, string stagingRoot, string command) =>
+    private static string? SkipReason(Dictionary<string, string[]> contract, string stagingRoot, string command) =>
         !contract.ContainsKey(Rid) ? $"No {stagingRoot} payload contract for {Rid}."
         : !Directory.Exists(Dir(stagingRoot)) ? $"{Dir(stagingRoot)} is absent. Run: pwsh tools/build-native.ps1 -Rid {Rid}{command}"
         : null;
 
-    sealed class BaseFactAttribute : FactAttribute
+    private sealed class BaseFactAttribute : FactAttribute
     {
         public BaseFactAttribute([System.Runtime.CompilerServices.CallerFilePath] string? sourceFilePath = null, [System.Runtime.CompilerServices.CallerLineNumber] int sourceLineNumber = -1)
             : base(sourceFilePath, sourceLineNumber) => Skip = SkipReason(Base, "runtimes", "");
     }
 
-    sealed class UpscalersFactAttribute : FactAttribute
+    private sealed class UpscalersFactAttribute : FactAttribute
     {
         public UpscalersFactAttribute([System.Runtime.CompilerServices.CallerFilePath] string? sourceFilePath = null, [System.Runtime.CompilerServices.CallerLineNumber] int sourceLineNumber = -1)
             : base(sourceFilePath, sourceLineNumber) => Skip = SkipReason(Upscalers, "runtimes-upscalers", " -Variant Upscalers");
     }
 
-    sealed class AgilityFactAttribute : FactAttribute
+    private sealed class AgilityFactAttribute : FactAttribute
     {
         public AgilityFactAttribute([System.Runtime.CompilerServices.CallerFilePath] string? sourceFilePath = null, [System.Runtime.CompilerServices.CallerLineNumber] int sourceLineNumber = -1)
             : base(sourceFilePath, sourceLineNumber) => Skip = SkipReason(Agility, "runtimes-agility", "");
     }
 
-    static void AssertExactly(string dir, string[] expected)
+    private static void AssertExactly(string dir, string[] expected)
     {
         var missing = expected
             .Where(f => !File.Exists(Path.Combine(dir, f)) || new FileInfo(Path.Combine(dir, f)).Length == 0)
@@ -145,7 +145,7 @@ public sealed class NativePayloadTests
     // to load on a machine without it. d3d12.dll and dxgi.dll are delay-loaded in both variants
     // (tools/cmake/delayload.cmake), so a Vulkan-only process never loads them
     // (AdapterEnumerationTests); libxess.dll is delay-loaded in Upscalers.
-    static readonly string[] LoadTimeImports =
+    private static readonly string[] LoadTimeImports =
     [
         "KERNEL32.dll",
         "USER32.dll",
@@ -162,7 +162,7 @@ public sealed class NativePayloadTests
         "api-ms-win-crt-runtime-l1-1-0.dll",
     ];
 
-    static readonly string[] BaseDelayLoaded = ["d3d12.dll", "dxgi.dll"];
+    private static readonly string[] BaseDelayLoaded = ["d3d12.dll", "dxgi.dll"];
 
     [BaseFact]
     public void Base_NRI_imports_exactly_the_contract_and_delay_loads_D3D()
@@ -184,7 +184,7 @@ public sealed class NativePayloadTests
         Assert.DoesNotContain(imports, IsVendorRuntime);
     }
 
-    static void AssertSameNames(string[] expected, List<string> actual, string what)
+    private static void AssertSameNames(string[] expected, List<string> actual, string what)
     {
         var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).ToList();
         var extra = actual.Except(expected, StringComparer.OrdinalIgnoreCase).ToList();
@@ -192,18 +192,18 @@ public sealed class NativePayloadTests
             $"NRI.dll {what}: missing {string.Join(", ", missing)}; not in the contract {string.Join(", ", extra)} (all: {string.Join(", ", actual)})");
     }
 
-    static bool IsVendorRuntime(string dll) => VendorRuntimePrefixes.Any(p => dll.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+    private static bool IsVendorRuntime(string dll) => VendorRuntimePrefixes.Any(p => dll.StartsWith(p, StringComparison.OrdinalIgnoreCase));
 
     // Import directory: 20-byte descriptors, name RVA at +12. Delay-import directory: 32-byte
     // descriptors, name RVA at +4. Both end with an all-zero descriptor.
-    static (List<string> Imports, List<string> Delayed) ReadImports(string path)
+    private static (List<string> Imports, List<string> Delayed) ReadImports(string path)
     {
         using var pe = new PEReader(File.OpenRead(path));
         var headers = pe.PEHeaders.PEHeader!;
         return (Names(pe, headers.ImportTableDirectory, 20, 12), Names(pe, headers.DelayImportTableDirectory, 32, 4));
     }
 
-    static List<string> Names(PEReader pe, DirectoryEntry directory, int stride, int nameOffset)
+    private static List<string> Names(PEReader pe, DirectoryEntry directory, int stride, int nameOffset)
     {
         var names = new List<string>();
         if (directory.RelativeVirtualAddress == 0) return names;

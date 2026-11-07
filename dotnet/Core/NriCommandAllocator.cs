@@ -30,7 +30,7 @@ public sealed unsafe class NriCommandAllocator : NriObject
     public NriCommandBuffer CreateCommandBuffer()
     {
         CommandBuffer* handle = null;
-        Device.Check(Device.Core.CreateCommandBuffer(Raw, &handle), "CreateCommandBuffer");
+        NriException.Check(Device.Core.CreateCommandBuffer(Raw, &handle), "CreateCommandBuffer");
         return new NriCommandBuffer(this, handle);
     }
 

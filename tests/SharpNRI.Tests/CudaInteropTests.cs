@@ -148,20 +148,20 @@ public sealed class CudaInteropTests
                 }
                 finally
                 {
-                    Cuda.cuStreamSynchronize(0);
-                    Cuda.cuMemFree_v2(devicePointer);
+                    _ = Cuda.cuStreamSynchronize(0); // cleanup: the test has its answer or its exception
+                    _ = Cuda.cuMemFree_v2(devicePointer);
                 }
             }
             finally
             {
-                Cuda.cuDestroyExternalSemaphore(externalSemaphore);
-                Cuda.cuDestroyExternalMemory(externalMemory);
+                _ = Cuda.cuDestroyExternalSemaphore(externalSemaphore);
+                _ = Cuda.cuDestroyExternalMemory(externalMemory);
             }
             device.WaitIdle();
         }
         finally
         {
-            Cuda.cuCtxDestroy_v2(context);
+            _ = Cuda.cuCtxDestroy_v2(context);
         }
         Assert.DoesNotContain(messages, m => m.IsError);
     }
@@ -284,20 +284,20 @@ public sealed class CudaInteropTests
                 }
                 finally
                 {
-                    Cuda.cuStreamSynchronize(0);
-                    Cuda.cuMipmappedArrayDestroy(mipmappedArray);
+                    _ = Cuda.cuStreamSynchronize(0); // cleanup: the test has its answer or its exception
+                    _ = Cuda.cuMipmappedArrayDestroy(mipmappedArray);
                 }
             }
             finally
             {
-                Cuda.cuDestroyExternalSemaphore(externalSemaphore);
-                Cuda.cuDestroyExternalMemory(externalMemory);
+                _ = Cuda.cuDestroyExternalSemaphore(externalSemaphore);
+                _ = Cuda.cuDestroyExternalMemory(externalMemory);
             }
             device.WaitIdle();
         }
         finally
         {
-            Cuda.cuCtxDestroy_v2(context);
+            _ = Cuda.cuCtxDestroy_v2(context);
         }
         Assert.DoesNotContain(messages, m => m.IsError);
     }
@@ -410,7 +410,7 @@ public sealed class CudaInteropTests
         {
             if (result == 0) return;
             byte* text = null;
-            cuGetErrorName(result, &text);
+            _ = cuGetErrorName(result, &text); // text stays null for an unknown code
             throw new InvalidOperationException($"{call}: CUDA error {result} ({(text is null ? "?" : Marshal.PtrToStringUTF8((nint)text))})");
         }
 

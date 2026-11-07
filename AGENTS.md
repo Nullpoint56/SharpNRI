@@ -292,6 +292,30 @@ git add -A -- dotnet/Native; git diff --cached --quiet -- dotnet/Native   # the 
 
 Regenerate after any patch that touches a header; `NativeAbiTests` then re-measures.
 
+### Lint
+
+```powershell
+dotnet build SharpNRI.slnx -c Release -warnaserror -p:SharpNRIRequireNative=false
+dotnet format whitespace SharpNRI.slnx --exclude dotnet/Native --verify-no-changes
+```
+
+- The SDK's own analyzers, no package: the CA rules at `AnalysisLevel` `latest-recommended` and the
+  code-style rules (`EnforceCodeStyleInBuild`), both in `Directory.Build.props`, configured in
+  `.editorconfig`; every build reports them, the CI `lint` job fails on any. The packages ship XML
+  docs (`GenerateDocumentationFile`, which IDE0005 needs); a missing comment is not a finding (CS1591),
+  a malformed one is.
+- Enforced: formatting, unused usings, members, parameters and assignments, accessibility modifiers,
+  modifier order, readonly fields, `_camelCase` instance fields, file-scoped namespaces, and the CA
+  correctness, reliability and performance rules. The repository's spellings stay allowed (`var`,
+  braceless one-line `if`, expression bodies, field-by-field native struct writes); stacked loops
+  are indented as the formatter wants.
+- Exempt where the shape is deliberate, each with its reason in `.editorconfig`: NRI's names in
+  `dotnet/Native` (CA1707) and its public P/Invokes (CA1401, the documented last escape hatch), test
+  names (CA1707), NRI's `Queue` names (CA1711), finalizer suppression (CA1816; no finalizers by
+  design), CA1822 on the public surface (NRI's table shape).
+- Generated code is linted like the rest; a finding there is fixed in `tools/generate-native.ps1`,
+  never by hand (Generator and ABI).
+
 ### Test shaders
 
 `pwsh tools/compile-test-shaders.ps1 [-Dxc <path>]` compiles each
@@ -499,8 +523,13 @@ v191; they stay for the test that holds the fix and to recognise a regression.
 - **ClangSharp 21.1.8.4, C++ mode**: 373 files, 7,661 lines, 152 errors as generated, one cause:
   `NriBits` operator overloads (`~ & | &= |=`, five per enum, 38 enums) become static helpers that
   do not compile; removed. `NriBit(n)` = `(1u << n)` does not convert inside byte/ushort enums: `U`
-  suffix dropped for those only. `[Flags]` added to every `NriBits` enum, read from the headers. All
-  in `tools/generate-native.ps1` only.
+  suffix dropped for those only. `[Flags]` added to every `NriBits` enum, read from the headers.
+  NRI's pointer constant `HAS_BUFFER` came out as a mutable public static (any caller could reassign
+  it for the process, CA2211): made `static readonly`. ClangSharp's redundant `using System;` (two
+  helper attributes; both projects use implicit usings) and its unused `using static` of
+  `GraphicsAPI` in `NriApi.cs` (the one candidate, `ALL` in a default value, resolves to `NriApi`'s
+  own constant) are dropped, so the layer is clean under the lint rules (Lint). All in
+  `tools/generate-native.ps1` only.
 - NRI's headers have no C++ default member initializers (`NriDefault` unused), so generator-dropped
   defaults cannot happen. C `bool` is `byte` with `[NativeTypeName("bool")]`.
 - **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang) at v191: 275 structs, 1,880 offsets,
@@ -620,7 +649,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
 - **Exception texts.** An exception carries the error text reported on the calling thread since the
   binding last checked a result there: the failing call's own, or none. `MessageBridge` stores each
   ERROR's text in a `[ThreadStatic]`; every check (`NriException.Check`, also behind
-  `NriDevice.Check` and `NriBuffer.Map`) and the device creations take it on failure and clear it on
+  `NriBuffer.Map`) and the device creations take it on failure and clear it on
   success. NRI and the layers report synchronously on the calling thread. No lock; success stays at
   0 managed bytes. A device-wide text was wrong (a silent FAILURE of `GetVideoAV1EncodeDecodeInfo`
   carried an earlier `EncodeVideo` message). `InteropTests`: a refused `CreateBuffer` carries
@@ -652,6 +681,22 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   what an unexpected success would create (`Assert.Throws<NriException>(() =>
   texture.CreateView(...).Dispose())`).
 - Host allocator live count returns to 0 after device disposal (NONE 2/2, VK 60/60, D3D12 50/50).
+- **Zero allocation per frame is mandatory, default-deny** (owner, 2026-11-07). Every public method
+  and computed property of every public type in the `SharpNRI` assembly counts as per-frame and must
+  be called inside a measured loop (`Frame` or `RecordStream` in `AllocationTests` /
+  `ExtensionAllocationTests`), unless it creates or destroys an object or is named in
+  `AllocationCoverageTests.NotPerFrame` with its reason: once per object or at setup (memory
+  requirements and binding, capability queries, exports, names, adapter enumeration), or an allocating
+  form by design with a measured zero-allocation twin (the array overload of
+  `AllocateDescriptorSets`, `Nri.GetFormatName`). `AllocationCoverageTests` reads the loops' IL and
+  fails naming each unmeasured overload; a stale exclusion fails too. The measurement is transitive:
+  `GC.GetAllocatedBytesForCurrentThread` counts everything a public call reaches. Not counted: the
+  binding's own `NativeMemory` use (reviewed instead) and branches the frames' arguments do not take.
+  At 9544e90 + this work: 191 calls measured, 0 managed bytes, 0 host allocations on NONE (Map on
+  every GPU backend). Found by it: `NriAccelerationStructure.Buffer` / `NriMicromap.Buffer` made a
+  new wrapper per read (33,600 bytes over 300 frames for two reads per frame), now cached per object;
+  command-buffer, queue and thread annotations `malloc`ed their UTF-8 name per call, now encoded on
+  the stack up to 255 bytes (`Utf8.StackBytes`). CI job `zero-alloc` (Actions budget).
 - **Zero-allocation frames** (`AllocationTests`, NONE): 300 whole frames (allocator and pool reset,
   sets into a reused span plus one single, `Update` / `UpdateRange` / `CopyRange`, recording with
   `SetPipeline` and both `SetRootConstants` overloads, submit with wait and signal fences and
@@ -1564,7 +1609,10 @@ have no intermittent failures. Both were test defects, not driver bugs.
    layer crashed). Fixed by `VulkanApi.cs`; the minidump and "Crash stacks" CI steps stay.
 
 - `.github/workflows/ci.yml`: `gate` (Linux, seconds), then `win-x64` (WARP + NONE), `linux-x64`
-  (lavapipe, stock 1.3 loader, 1.4.363 layer, `ubuntu-24.04`), `osx-arm64` (MoltenVK; opt-in, below). `regen.yml`
+  (lavapipe, stock 1.3 loader, 1.4.363 layer, `ubuntu-24.04`), `osx-arm64` (MoltenVK; opt-in, below),
+  `lint` (Linux, no native payload: analyzers as errors and the formatter; Lint) and `zero-alloc`
+  (Linux, after `linux-x64`, whose cached payload it restores: the allocation classes on NONE and
+  lavapipe; Lifetime). `regen.yml`
   is the ClangSharp drift check, run only when `nri`, `patches/`, the generator, `dotnet/Native/` or
   the pin change (prints the first 120 diff lines on drift). `coverage.yml` runs `tools/coverage.ps1
   -Check` (Coverage).

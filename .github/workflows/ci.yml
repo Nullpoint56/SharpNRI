@@ -5,7 +5,7 @@ name: ci
 #   - Runs on master by itself (pushes); on any other branch only when started (owner, 2026-11-06):
 #     Actions > ci > Run workflow, choosing the branch. A pull request's checks leave out runs
 #     started that way (PR #44: green run, required checks still waiting), so such a run posts its
-#     results as commit statuses named gate, win-x64 and linux-x64 on the commit it tested (job
+#     results as commit statuses named gate, win-x64, linux-x64, lint and zero-alloc on the commit it tested (job
 #     report), which the required checks read: a pull request merges only after a green run of its
 #     latest commit.
 #   - gate (Linux, seconds; tools/ci/ci-gate.ps1) tells each platform job to run or to skip. A
@@ -84,7 +84,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          foreach ($name in 'gate', 'win-x64', 'linux-x64') {
+          foreach ($name in 'gate', 'win-x64', 'linux-x64', 'lint', 'zero-alloc') {
               gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=pending -f context=$name -f description="ci run in progress" -f target_url=$env:RUN_URL --silent
               if ($LASTEXITCODE -ne 0) { throw "posting the pending $name status failed" }
           }
@@ -501,12 +501,86 @@ jobs:
         if: needs.gate.outputs.osx == 'full'
         run: dotnet test --solution SharpNRI.slnx -c Release --no-build --output Detailed
 
+  # Lint: the SDK's analyzers and code-style rules (.editorconfig, Directory.Build.props) over every
+  # C# file, generated dotnet/Native included, as errors; and the formatter's verdict on everything
+  # hand-written. No native payload: the build only compiles (SharpNRIRequireNative=false).
+  lint:
+    needs: gate
+    if: needs.gate.outputs.linux != 'skip'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Analyzers, warnings as errors
+        run: dotnet build SharpNRI.slnx -c Release -warnaserror -p:SharpNRIRequireNative=false
+
+      - name: Formatting
+        run: dotnet format whitespace SharpNRI.slnx --exclude dotnet/Native --verify-no-changes --verbosity diagnostic
+
+  # Zero allocation: every per-frame call of the binding, measured (AllocationTests,
+  # ExtensionAllocationTests) and held to the whole public surface (AllocationCoverageTests). On
+  # NONE and lavapipe, after linux-x64, whose native payload it restores from the cache (saved
+  # before linux-x64's tests, so it is there whatever they found).
+  zero-alloc:
+    needs: [gate, linux-x64]
+    if: always() && needs.gate.result == 'success' && needs.gate.outputs.linux != 'skip'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install test packages
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 libvulkan1 mesa-vulkan-drivers ||
+            { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libvulkan1 mesa-vulkan-drivers; }
+
+      - name: Restore native payload
+        id: payload
+        uses: actions/cache/restore@v4
+        with:
+          path: runtimes
+          key: native-linux-x64-${{ needs.gate.outputs.key }}
+          fail-on-cache-miss: true   # linux-x64 builds and saves it; a miss means its native build failed
+
+      - name: Cache Khronos validation layer
+        id: vvl
+        uses: actions/cache@v4
+        with:
+          path: _tools/vvl
+          key: vvl-linux-x64-${{ env.VULKAN_SDK_VERSION }}
+
+      - name: Fetch Khronos validation layer
+        if: steps.vvl.outputs.cache-hit != 'true'
+        run: bash tools/ci/fetch-vulkan-layer.sh _tools/vvl
+
+      - name: Put the layer in front of the system one
+        run: echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/_tools/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Build managed
+        run: dotnet build tests/SharpNRI.Tests -c Release
+
+      - name: Zero-allocation frames
+        run: |
+          tests/SharpNRI.Tests/bin/Release/net11.0/SharpNRI.Tests -noColor -showLiveOutput \
+            -class SharpNRI.Tests.AllocationTests -class SharpNRI.Tests.ExtensionAllocationTests -class SharpNRI.Tests.AllocationCoverageTests
+
   # A run started by hand is left out of a pull request's checks, so it posts the required checks'
   # results as commit statuses on the commit it tested. A platform job skipped by the gate's decision
   # passes, as a skipped check does; anything else that is not success fails, and when the gate
   # itself did not succeed every status fails (its skipped jobs prove nothing).
   report:
-    needs: [gate, win-x64, linux-x64]
+    needs: [gate, win-x64, linux-x64, lint, zero-alloc]
     if: always() && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -522,7 +596,7 @@ jobs:
         run: |
           $needs = $env:NEEDS | ConvertFrom-Json
           $gateOk = $needs.gate.result -eq 'success'
-          foreach ($name in 'gate', 'win-x64', 'linux-x64') {
+          foreach ($name in 'gate', 'win-x64', 'linux-x64', 'lint', 'zero-alloc') {
               $result = $needs.$name.result
               $state = if ($gateOk -and ($result -eq 'success' -or ($result -eq 'skipped' -and $name -ne 'gate'))) { 'success' } else { 'failure' }
               gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=$state -f context=$name -f description="ci run: $result" -f target_url=$env:RUN_URL --silent

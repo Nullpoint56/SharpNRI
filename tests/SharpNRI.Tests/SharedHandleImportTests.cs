@@ -492,17 +492,6 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         return $"{desc.Format} ({desc.Flags}, layout {desc.Layout})";
     }
 
-    private static List<string> D3D11Errors(V11Debug.ID3D11InfoQueue queue)
-    {
-        var errors = new List<string>();
-        for (ulong i = 0; i < queue.NumStoredMessages; i++)
-        {
-            var m = queue.GetMessage(i);
-            if (m.Severity is V11Debug.MessageSeverity.Error or V11Debug.MessageSeverity.Corruption) errors.Add($"{m.Severity} {m.Id}: {m.Description}");
-        }
-        return errors;
-    }
-
     private static List<string> D3D12Errors(V12Debug.ID3D12InfoQueue queue)
     {
         var errors = new List<string>();

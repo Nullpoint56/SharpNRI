@@ -253,7 +253,7 @@ public sealed unsafe class NriVideoExtension
     public VideoCapabilities GetVideoCapabilities(in VideoSessionDesc videoSessionDesc)
     {
         VideoCapabilities caps;
-        fixed (VideoSessionDesc* p = &videoSessionDesc) Device.Check(_table.GetVideoCapabilities(Device.Raw, p, &caps), "GetVideoCapabilities");
+        fixed (VideoSessionDesc* p = &videoSessionDesc) NriException.Check(_table.GetVideoCapabilities(Device.Raw, p, &caps), "GetVideoCapabilities");
         return caps;
     }
 
@@ -261,7 +261,7 @@ public sealed unsafe class NriVideoExtension
     public VideoAV1Capabilities GetVideoAV1Capabilities(in VideoSessionDesc videoSessionDesc)
     {
         VideoAV1Capabilities caps;
-        fixed (VideoSessionDesc* p = &videoSessionDesc) Device.Check(_table.GetVideoAV1Capabilities(Device.Raw, p, &caps), "GetVideoAV1Capabilities");
+        fixed (VideoSessionDesc* p = &videoSessionDesc) NriException.Check(_table.GetVideoAV1Capabilities(Device.Raw, p, &caps), "GetVideoAV1Capabilities");
         return caps;
     }
 
@@ -272,7 +272,7 @@ public sealed unsafe class NriVideoExtension
     public NriVideoSession CreateVideoSession(in VideoSessionDesc videoSessionDesc)
     {
         VideoSession* handle = null;
-        fixed (VideoSessionDesc* p = &videoSessionDesc) Device.Check(_table.CreateVideoSession(Device.Raw, p, &handle), "CreateVideoSession");
+        fixed (VideoSessionDesc* p = &videoSessionDesc) NriException.Check(_table.CreateVideoSession(Device.Raw, p, &handle), "CreateVideoSession");
         return new NriVideoSession(this, handle, videoSessionDesc);
     }
 
@@ -288,7 +288,7 @@ public sealed unsafe class NriVideoExtension
         {
             var desc = videoSessionParametersDesc.ToNative(arena);
             VideoSessionParameters* handle = null;
-            Device.Check(_table.CreateVideoSessionParameters(Device.Raw, &desc, &handle), "CreateVideoSessionParameters");
+            NriException.Check(_table.CreateVideoSessionParameters(Device.Raw, &desc, &handle), "CreateVideoSessionParameters");
             return new NriVideoSessionParameters(this, handle, videoSessionParametersDesc.Session);
         }
         finally
@@ -310,7 +310,7 @@ public sealed unsafe class NriVideoExtension
             layer = videoPictureDesc.Layer,
         };
         VideoPicture* handle = null;
-        Device.Check(_table.CreateVideoPicture(Device.Raw, &desc, &handle), "CreateVideoPicture");
+        NriException.Check(_table.CreateVideoPicture(Device.Raw, &desc, &handle), "CreateVideoPicture");
         return new NriVideoPicture(this, handle, videoPictureDesc.Texture, videoPictureDesc.Usage);
     }
 
@@ -328,7 +328,7 @@ public sealed unsafe class NriVideoExtension
     public VideoPictureState GetVideoPictureState(NriVideoPicture videoPicture, VideoPictureRole role)
     {
         VideoPictureState state;
-        Device.Check(_table.GetVideoPictureState(videoPicture.Raw, role, &state), "GetVideoPictureState");
+        NriException.Check(_table.GetVideoPictureState(videoPicture.Raw, role, &state), "GetVideoPictureState");
         return state;
     }
 
@@ -349,7 +349,7 @@ public sealed unsafe class NriVideoExtension
             {
                 desc.dst = p;
                 desc.dstSize = (ulong)dst.Length;
-                Device.Check(_table.WriteVideoAnnexBParameterSets(&desc), "WriteVideoAnnexBParameterSets");
+                NriException.Check(_table.WriteVideoAnnexBParameterSets(&desc), "WriteVideoAnnexBParameterSets");
             }
             return desc.writtenSize;
         }
@@ -368,7 +368,7 @@ public sealed unsafe class NriVideoExtension
         fixed (byte* p = dst)
         {
             var desc = new VideoAnnexBEndOfStreamDesc { codec = codec, dst = p, dstSize = (ulong)dst.Length };
-            Device.Check(_table.WriteVideoAnnexBEndOfStream(&desc), "WriteVideoAnnexBEndOfStream");
+            NriException.Check(_table.WriteVideoAnnexBEndOfStream(&desc), "WriteVideoAnnexBEndOfStream");
             return desc.writtenSize;
         }
     }
@@ -382,7 +382,7 @@ public sealed unsafe class NriVideoExtension
         fixed (byte* p = dst)
         {
             var desc = new VideoAV1ObuHeadersDesc { sequence = sequence, dst = p, dstSize = (ulong)dst.Length };
-            Device.Check(_table.WriteVideoAV1ObuHeaders(&desc), "WriteVideoAV1ObuHeaders");
+            NriException.Check(_table.WriteVideoAV1ObuHeaders(&desc), "WriteVideoAV1ObuHeaders");
             return desc.writtenSize;
         }
     }
@@ -448,7 +448,7 @@ public sealed unsafe class NriVideoExtension
     public VideoEncodeFeedback GetVideoEncodeFeedback(NriVideoSession videoSession, NriBuffer resolvedMetadataReadback, ulong resolvedMetadataOffset)
     {
         VideoEncodeFeedback feedback;
-        Device.Check(_table.GetVideoEncodeFeedback(videoSession.Raw, resolvedMetadataReadback.Raw, resolvedMetadataOffset, &feedback), "GetVideoEncodeFeedback");
+        NriException.Check(_table.GetVideoEncodeFeedback(videoSession.Raw, resolvedMetadataReadback.Raw, resolvedMetadataOffset, &feedback), "GetVideoEncodeFeedback");
         return feedback;
     }
 
@@ -467,7 +467,7 @@ public sealed unsafe class NriVideoExtension
             var native = desc.ToNative(arena);
             fixed (VideoAV1EncodeDecodeInfo* p = &info)
             {
-                Device.Check(_table.GetVideoAV1EncodeDecodeInfo(videoSession.Raw, resolvedMetadataReadback.Raw, resolvedMetadataOffset, &native, p), "GetVideoAV1EncodeDecodeInfo");
+                NriException.Check(_table.GetVideoAV1EncodeDecodeInfo(videoSession.Raw, resolvedMetadataReadback.Raw, resolvedMetadataOffset, &native, p), "GetVideoAV1EncodeDecodeInfo");
             }
         }
         finally
@@ -744,7 +744,7 @@ internal static unsafe class NriVideoMarshal
         return n;
     }
 
-    internal static VideoReference ToNative(this NriVideoReference s, ScratchArena arena)
+    internal static VideoReference ToNative(this NriVideoReference s)
     {
         var n = new VideoReference();
         n.picture = s.Picture.Raw;
@@ -752,7 +752,7 @@ internal static unsafe class NriVideoMarshal
         return n;
     }
 
-    internal static VideoBitstreamRange ToNative(this NriVideoBitstreamRange s, ScratchArena arena)
+    internal static VideoBitstreamRange ToNative(this NriVideoBitstreamRange s)
     {
         var n = new VideoBitstreamRange();
         n.buffer = s.Buffer.Raw;
@@ -769,7 +769,7 @@ internal static unsafe class NriVideoMarshal
         // bitstream: marshalled by DecodeVideo, inside the fixed that pins the host data (not copied)
         n.dstPicture = s.DstPicture.Raw;
         n.setupPicture = s.SetupPicture is null ? null : s.SetupPicture.Raw;
-        { var src = s.References.Span; var dst = arena.Alloc<VideoReference>(src.Length); for (var i = 0; i < src.Length; i++) dst[i] = src[i].ToNative(arena); n.references = dst; n.referenceNum = checked((uint)src.Length); }
+        { var src = s.References.Span; var dst = arena.Alloc<VideoReference>(src.Length); for (var i = 0; i < src.Length; i++) dst[i] = src[i].ToNative(); n.references = dst; n.referenceNum = checked((uint)src.Length); }
         n.dstSlot = s.DstSlot;
         { var src = s.Arguments.Span; var dst = arena.Alloc<VideoDecodeArgument>(src.Length); for (var i = 0; i < src.Length; i++) dst[i] = src[i].ToNative(arena); n.arguments = dst; n.argumentNum = checked((uint)src.Length); }
         n.h264PictureDesc = s.H264PictureDesc is { } h264PictureDescV ? arena.Push(h264PictureDescV.ToNative(arena)) : null;
@@ -784,7 +784,7 @@ internal static unsafe class NriVideoMarshal
         n.session = s.Session.Raw;
         n.parameters = s.Parameters.Raw;
         n.srcPicture = s.SrcPicture.Raw;
-        n.dstBitstream = s.DstBitstream.ToNative(arena);
+        n.dstBitstream = s.DstBitstream.ToNative();
         n.bitstreamMetadataSize = s.BitstreamMetadataSize;
         n.pictureDesc = s.PictureDesc is { } pictureDescV ? arena.Push(pictureDescV) : null;
         n.rateControlDesc = s.RateControlDesc is { } rateControlDescV ? arena.Push(rateControlDescV) : null;
@@ -794,7 +794,7 @@ internal static unsafe class NriVideoMarshal
         n.metadataOffset = s.MetadataOffset;
         n.resolvedMetadata = s.ResolvedMetadata is null ? null : s.ResolvedMetadata.Raw;
         n.resolvedMetadataOffset = s.ResolvedMetadataOffset;
-        { var src = s.References.Span; var dst = arena.Alloc<VideoReference>(src.Length); for (var i = 0; i < src.Length; i++) dst[i] = src[i].ToNative(arena); n.references = dst; n.referenceNum = checked((uint)src.Length); }
+        { var src = s.References.Span; var dst = arena.Alloc<VideoReference>(src.Length); for (var i = 0; i < src.Length; i++) dst[i] = src[i].ToNative(); n.references = dst; n.referenceNum = checked((uint)src.Length); }
         n.reconstructedSlot = s.ReconstructedSlot;
         n.h264PictureDesc = s.H264PictureDesc is { } h264PictureDescV ? arena.Push(h264PictureDescV.ToNative(arena)) : null;
         n.av1PictureDesc = s.Av1PictureDesc is { } av1PictureDescV ? arena.Push(av1PictureDescV.ToNative(arena)) : null;

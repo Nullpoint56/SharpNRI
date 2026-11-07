@@ -148,6 +148,7 @@ public readonly record struct NriDispatchRays(
 public sealed unsafe class NriAccelerationStructure : NriObject
 {
     private NriMemory.Holders? _memory; // of the memory bound into or placed in through the binding, which refuses disposal while set
+    private NriBuffer? _buffer; // the backing buffer's wrapper, made on first use, so a barrier per frame allocates nothing
 
     internal NriAccelerationStructure(NriRayTracingExtension extension, AccelerationStructure* handle, AccelerationStructureType type) : base(handle, "NriAccelerationStructure")
     {
@@ -169,7 +170,7 @@ public sealed unsafe class NriAccelerationStructure : NriObject
     public ulong UpdateScratchBufferSize => Extension.Table.GetAccelerationStructureUpdateScratchBufferSize(Raw);
 
     /// <summary>The buffer backing the structure, for barriers. Owned by the structure; do not dispose.</summary>
-    public NriBuffer Buffer => new(Device, Extension.Table.GetAccelerationStructureBuffer(Raw), owned: false);
+    public NriBuffer Buffer => NonOwned(ref _buffer, Device, Extension.Table.GetAccelerationStructureBuffer(Raw));
 
     public MemoryDesc GetMemoryDesc(MemoryLocation location)
     {
@@ -182,7 +183,7 @@ public sealed unsafe class NriAccelerationStructure : NriObject
     public NriDescriptor CreateDescriptor()
     {
         Descriptor* descriptor = null;
-        Device.Check(Extension.Table.CreateAccelerationStructureDescriptor(Raw, &descriptor), "CreateAccelerationStructureDescriptor");
+        NriException.Check(Extension.Table.CreateAccelerationStructureDescriptor(Raw, &descriptor), "CreateAccelerationStructureDescriptor");
         return new NriDescriptor(Device, descriptor, NriDescriptorKind.TextureView);
     }
 
@@ -192,11 +193,22 @@ public sealed unsafe class NriAccelerationStructure : NriObject
     /// <summary>Bound into or placed in <paramref name="memory"/>, which then outlives this structure.</summary>
     internal void BoundTo(NriMemory memory) => NriMemory.Track(ref _memory, memory);
 
+    /// <summary>The cached non-owning wrapper of <paramref name="buffer"/>, made again only if NRI hands out another buffer.</summary>
+    internal static NriBuffer NonOwned(ref NriBuffer? cache, NriDevice device, Buffer* buffer)
+    {
+        var cached = Volatile.Read(ref cache);
+        if (cached is not null && cached.Raw == buffer) return cached;
+        var wrapped = new NriBuffer(device, buffer, owned: false);
+        Volatile.Write(ref cache, wrapped);
+        return wrapped;
+    }
+
     private protected override void Destroy(void* handle) => Extension.Table.DestroyAccelerationStructure((AccelerationStructure*)handle);
 
     private protected override void OnDestroyed()
     {
         NriMemory.Release(ref _memory);
+        _buffer?.Dispose(); // the buffer is gone with the object; its wrapper says so
         base.OnDestroyed();
     }
 }
@@ -205,6 +217,7 @@ public sealed unsafe class NriAccelerationStructure : NriObject
 public sealed unsafe class NriMicromap : NriObject
 {
     private NriMemory.Holders? _memory; // of the memory bound into or placed in through the binding, which refuses disposal while set
+    private NriBuffer? _buffer; // the backing buffer's wrapper, made on first use, so a barrier per frame allocates nothing
 
     internal NriMicromap(NriRayTracingExtension extension, Micromap* handle) : base(handle, "NriMicromap")
     {
@@ -220,7 +233,7 @@ public sealed unsafe class NriMicromap : NriObject
     public ulong BuildScratchBufferSize => Extension.Table.GetMicromapBuildScratchBufferSize(Raw);
 
     /// <summary>The buffer backing the micromap, for barriers. Owned by the micromap; do not dispose.</summary>
-    public NriBuffer Buffer => new(Device, Extension.Table.GetMicromapBuffer(Raw), owned: false);
+    public NriBuffer Buffer => NriAccelerationStructure.NonOwned(ref _buffer, Device, Extension.Table.GetMicromapBuffer(Raw));
 
     public MemoryDesc GetMemoryDesc(MemoryLocation location)
     {
@@ -239,6 +252,7 @@ public sealed unsafe class NriMicromap : NriObject
     private protected override void OnDestroyed()
     {
         NriMemory.Release(ref _memory);
+        _buffer?.Dispose(); // the buffer is gone with the object; its wrapper says so
         base.OnDestroyed();
     }
 }
@@ -292,7 +306,7 @@ public sealed unsafe class NriRayTracingExtension
             };
 
             Pipeline* handle = null;
-            Device.Check(Table.CreateRayTracingPipeline(Device.Raw, &native, &handle), "CreateRayTracingPipeline");
+            NriException.Check(Table.CreateRayTracingPipeline(Device.Raw, &native, &handle), "CreateRayTracingPipeline");
             return new NriPipeline(Device, handle, BindPoint.RAY_TRACING);
         }
     }
@@ -309,18 +323,18 @@ public sealed unsafe class NriRayTracingExtension
             throw new ArgumentException($"dst holds {dst.Length} bytes; {shaderGroupNum} groups at stride {dstStride} need {needed}", nameof(dst));
         fixed (byte* p = dst)
         {
-            Device.Check(Table.WriteShaderGroupIdentifiers(pipeline.Raw, baseShaderGroupIndex, shaderGroupNum, dstStride, p), "WriteShaderGroupIdentifiers");
+            NriException.Check(Table.WriteShaderGroupIdentifiers(pipeline.Raw, baseShaderGroupIndex, shaderGroupNum, dstStride, p), "WriteShaderGroupIdentifiers");
         }
     }
 
     // ---------------------------------------------------------------- acceleration structures
 
-    /// <summary>Unbound; bind with <see cref="BindAccelerationStructureMemory"/>.</summary>
+    /// <summary>Unbound; bind with <see cref="BindAccelerationStructureMemory(NriAccelerationStructure, NriMemory, ulong)"/>.</summary>
     public NriAccelerationStructure CreateAccelerationStructure(NriAccelerationStructureDesc desc)
     {
         using var native = new AccelerationStructureDescNative(desc);
         AccelerationStructure* handle = null;
-        Device.Check(Table.CreateAccelerationStructure(Device.Raw, native.Pointer, &handle), "CreateAccelerationStructure");
+        NriException.Check(Table.CreateAccelerationStructure(Device.Raw, native.Pointer, &handle), "CreateAccelerationStructure");
         return new NriAccelerationStructure(this, handle, desc.Type);
     }
 
@@ -328,7 +342,7 @@ public sealed unsafe class NriRayTracingExtension
     {
         using var native = new AccelerationStructureDescNative(desc);
         AccelerationStructure* handle = null;
-        Device.Check(Table.CreateCommittedAccelerationStructure(Device.Raw, location, priority, native.Pointer, &handle), "CreateCommittedAccelerationStructure");
+        NriException.Check(Table.CreateCommittedAccelerationStructure(Device.Raw, location, priority, native.Pointer, &handle), "CreateCommittedAccelerationStructure");
         return new NriAccelerationStructure(this, handle, desc.Type);
     }
 
@@ -337,7 +351,7 @@ public sealed unsafe class NriRayTracingExtension
     {
         using var native = new AccelerationStructureDescNative(desc);
         AccelerationStructure* handle = null;
-        Device.Check(Table.CreatePlacedAccelerationStructure(Device.Raw, memory.Raw, offset, native.Pointer, &handle), "CreatePlacedAccelerationStructure");
+        NriException.Check(Table.CreatePlacedAccelerationStructure(Device.Raw, memory.Raw, offset, native.Pointer, &handle), "CreatePlacedAccelerationStructure");
         var structure = new NriAccelerationStructure(this, handle, desc.Type);
         structure.BoundTo(memory);
         return structure;
@@ -358,7 +372,7 @@ public sealed unsafe class NriRayTracingExtension
         var native = stackalloc BindAccelerationStructureMemoryDesc[bindings.Length];
         for (var i = 0; i < bindings.Length; i++)
             native[i] = new BindAccelerationStructureMemoryDesc { accelerationStructure = bindings[i].Structure.Raw, memory = bindings[i].Memory.Raw, offset = bindings[i].Offset };
-        Device.Check(Table.BindAccelerationStructureMemory(native, (uint)bindings.Length), "BindAccelerationStructureMemory");
+        NriException.Check(Table.BindAccelerationStructureMemory(native, (uint)bindings.Length), "BindAccelerationStructureMemory");
         foreach (var (structure, memory, _) in bindings) structure.BoundTo(memory);
     }
 
@@ -373,7 +387,7 @@ public sealed unsafe class NriRayTracingExtension
         {
             var native = ToNative(desc, usages);
             Micromap* handle = null;
-            Device.Check(Table.CreateMicromap(Device.Raw, &native, &handle), "CreateMicromap");
+            NriException.Check(Table.CreateMicromap(Device.Raw, &native, &handle), "CreateMicromap");
             return new NriMicromap(this, handle);
         }
     }
@@ -384,7 +398,7 @@ public sealed unsafe class NriRayTracingExtension
         {
             var native = ToNative(desc, usages);
             Micromap* handle = null;
-            Device.Check(Table.CreateCommittedMicromap(Device.Raw, location, priority, &native, &handle), "CreateCommittedMicromap");
+            NriException.Check(Table.CreateCommittedMicromap(Device.Raw, location, priority, &native, &handle), "CreateCommittedMicromap");
             return new NriMicromap(this, handle);
         }
     }
@@ -396,7 +410,7 @@ public sealed unsafe class NriRayTracingExtension
         {
             var native = ToNative(desc, usages);
             Micromap* handle = null;
-            Device.Check(Table.CreatePlacedMicromap(Device.Raw, memory.Raw, offset, &native, &handle), "CreatePlacedMicromap");
+            NriException.Check(Table.CreatePlacedMicromap(Device.Raw, memory.Raw, offset, &native, &handle), "CreatePlacedMicromap");
             var micromap = new NriMicromap(this, handle);
             micromap.BoundTo(memory);
             return micromap;
@@ -420,7 +434,7 @@ public sealed unsafe class NriRayTracingExtension
         var native = stackalloc BindMicromapMemoryDesc[bindings.Length];
         for (var i = 0; i < bindings.Length; i++)
             native[i] = new BindMicromapMemoryDesc { micromap = bindings[i].Micromap.Raw, memory = bindings[i].Memory.Raw, offset = bindings[i].Offset };
-        Device.Check(Table.BindMicromapMemory(native, (uint)bindings.Length), "BindMicromapMemory");
+        NriException.Check(Table.BindMicromapMemory(native, (uint)bindings.Length), "BindMicromapMemory");
         foreach (var (micromap, memory, _) in bindings) micromap.BoundTo(memory);
     }
 

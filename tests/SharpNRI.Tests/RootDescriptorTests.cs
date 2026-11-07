@@ -8,6 +8,7 @@
 // Register assignment as in DescriptorTests: all-zero VKBindingOffsets, so on Vulkan the binding of
 // a root descriptor is its register index in the set of the root register space.
 
+using System.Globalization;
 using System.Runtime.InteropServices;
 using SharpNRI.Native;
 using Xunit;
@@ -66,7 +67,7 @@ public sealed class RootDescriptorTests
         return words;
     }
 
-    private static string Hex(IEnumerable<uint> words) => string.Join(" ", words.Select(w => w.ToString("X8")));
+    private static string Hex(IEnumerable<uint> words) => string.Join(" ", words.Select(w => w.ToString("X8", CultureInfo.InvariantCulture)));
 
     /// <summary>The output buffer the compute shaders write and the readback it is copied to.</summary>
     private sealed class Output : IDisposable
@@ -406,13 +407,13 @@ public sealed class RootDescriptorTests
         var pixels = readback.Map().ToArray();
         readback.Unmap();
         for (var y = 0; y < size; y++)
-        for (var x = 0; x < size; x++)
-        {
-            var i = (int)(y * rowPitch) + x * 4;
-            var pixel = (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]);
-            var expected = x < size / 2 ? ((byte)255, (byte)0, (byte)0, (byte)255) : ((byte)0, (byte)0, (byte)255, (byte)255);
-            Assert.True(pixel == expected, $"pixel ({x},{y}) is {pixel}, expected {expected} ({(x < size / 2 ? "red" : "blue")} root constant buffer)");
-        }
+            for (var x = 0; x < size; x++)
+            {
+                var i = (int)(y * rowPitch) + x * 4;
+                var pixel = (pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]);
+                var expected = x < size / 2 ? ((byte)255, (byte)0, (byte)0, (byte)255) : ((byte)0, (byte)0, (byte)255, (byte)255);
+                Assert.True(pixel == expected, $"pixel ({x},{y}) is {pixel}, expected {expected} ({(x < size / 2 ? "red" : "blue")} root constant buffer)");
+            }
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 

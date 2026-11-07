@@ -82,7 +82,7 @@ public static unsafe class Nri
     /// <summary>Opens a named range on the calling thread (NVTX). Close it with <see cref="EndAnnotation"/>.</summary>
     public static void BeginAnnotation(string name, uint bgra = NriApi.BGRA_UNUSED)
     {
-        using var utf8 = new Utf8.Scoped(name);
+        using var utf8 = new Utf8.Scoped(name, stackalloc byte[Utf8.StackBytes]);
         NriApi.nriBeginAnnotation(utf8, bgra);
     }
 
@@ -92,7 +92,7 @@ public static unsafe class Nri
     /// <summary>A named instant event on the calling thread.</summary>
     public static void Annotation(string name, uint bgra = NriApi.BGRA_UNUSED)
     {
-        using var utf8 = new Utf8.Scoped(name);
+        using var utf8 = new Utf8.Scoped(name, stackalloc byte[Utf8.StackBytes]);
         NriApi.nriAnnotation(utf8, bgra);
     }
 

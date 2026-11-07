@@ -35,15 +35,15 @@ public sealed class UploadDataTests
         var subresources = new NriTextureSubresourceUpload[Layers * Mips];
         var expected = new byte[Layers * Mips][];
         for (var layer = 0; layer < Layers; layer++)
-        for (var mip = 0; mip < Mips; mip++)
-        {
-            var index = layer * Mips + mip;
-            uint w = (uint)(Width >> mip), h = (uint)(Height >> mip);
-            var data = new byte[w * h * 4];
-            for (var i = 0; i < data.Length; i++) data[i] = (byte)(index * 64 + i * 3);
-            expected[index] = data;
-            subresources[index] = new NriTextureSubresourceUpload(data, SliceNum: 1, RowPitch: w * 4, SlicePitch: w * h * 4);
-        }
+            for (var mip = 0; mip < Mips; mip++)
+            {
+                var index = layer * Mips + mip;
+                uint w = (uint)(Width >> mip), h = (uint)(Height >> mip);
+                var data = new byte[w * h * 4];
+                for (var i = 0; i < data.Length; i++) data[i] = (byte)(index * 64 + i * 3);
+                expected[index] = data;
+                subresources[index] = new NriTextureSubresourceUpload(data, SliceNum: 1, RowPitch: w * 4, SlicePitch: w * h * 4);
+            }
 
         // The binding refuses data NRI would read past the end of.
         Assert.Throws<ArgumentException>(() => queue.UploadData([], [new NriBufferUpload(buffer, new byte[999], CopySource)]));

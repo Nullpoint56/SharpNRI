@@ -588,92 +588,92 @@ public sealed class UpscalerDispatchTests
             // disposed, and the next D3D12CreateDevice in the process then fails (AGENTS.md: Lifetime)
             try
             {
-            _upscaler = Own(_ext.CreateUpscaler(new NriUpscalerDesc { UpscaleResolution = output, Type = type, Mode = mode, Flags = flags, OutputFormat = Format.RGBA16_SFLOAT, CommandBuffer = creation }));
-            Props = _ext.GetUpscalerProps(_upscaler);
-            var render = Render;
+                _upscaler = Own(_ext.CreateUpscaler(new NriUpscalerDesc { UpscaleResolution = output, Type = type, Mode = mode, Flags = flags, OutputFormat = Format.RGBA16_SFLOAT, CommandBuffer = creation }));
+                Props = _ext.GetUpscalerProps(_upscaler);
+                var render = Render;
 
-            (_input, var inputView) = Texture(render, Format.RGBA16_SFLOAT, storage: false);
-            (_output, var outputView) = Texture(output, Format.RGBA16_SFLOAT, storage: true);
-            (_mv, var mvView) = Texture(render, Format.RG16_SFLOAT, storage: false);
-            _inputPitch = Pitch(render, 8);
-            _mvPitch = Pitch(render, 4);
-            _outputPitch = Pitch(output, 8);
-            _inputUpload = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = _inputPitch.Slice }));
-            _mvUpload = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = _mvPitch.Slice }));
-            _readback = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = _outputPitch.Slice }));
+                (_input, var inputView) = Texture(render, Format.RGBA16_SFLOAT, storage: false);
+                (_output, var outputView) = Texture(output, Format.RGBA16_SFLOAT, storage: true);
+                (_mv, var mvView) = Texture(render, Format.RG16_SFLOAT, storage: false);
+                _inputPitch = Pitch(render, 8);
+                _mvPitch = Pitch(render, 4);
+                _outputPitch = Pitch(output, 8);
+                _inputUpload = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = _inputPitch.Slice }));
+                _mvUpload = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = _mvPitch.Slice }));
+                _readback = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_READBACK, new BufferDesc { size = _outputPitch.Slice }));
 
-            var statics = new List<(NriTexture Texture, Dim2_t Size, int Bytes, Action<Span<byte>> Fill)>();
-            NriUpscalerResource Static(Dim2_t size, Format format, int bytes, Action<Span<byte>> fill)
-            {
-                var (texture, view) = Texture(size, format, storage: false);
-                statics.Add((texture, size, bytes, fill));
-                return new NriUpscalerResource(texture, view);
-            }
-            static Action<Span<byte>> Halves(params float[] value) => span =>
-            {
-                var halves = MemoryMarshal.Cast<byte, Half>(span);
-                for (var i = 0; i < halves.Length; i++) halves[i] = (Half)value[i % value.Length];
-            };
-            static Action<Span<byte>> Floats(float value) => span => MemoryMarshal.Cast<byte, float>(span).Fill(value);
-
-            var depth = Static(render, Format.R32_SFLOAT, 4, Floats(0.5f));
-            var exposure = (flags & UpscalerBits.USE_EXPOSURE) != 0 ? Static(new Dim2_t { w = 1, h = 1 }, Format.R32_SFLOAT, 4, Floats(1)) : default;
-            var reactive = (flags & UpscalerBits.USE_REACTIVE) != 0 ? Static(render, reactiveFormat, reactiveFormat == Format.R8_UNORM ? 1 : 2, span => span.Clear()) : default;
-            var mvResource = new NriUpscalerResource(_mv, mvView);
-
-            var guides = new NriDispatchUpscaleGuides();
-            var settings = new NriDispatchUpscaleSettings();
-            if (type == UpscalerType.DLRR)
-            {
-                guides = new NriDispatchUpscaleGuides
+                var statics = new List<(NriTexture Texture, Dim2_t Size, int Bytes, Action<Span<byte>> Fill)>();
+                NriUpscalerResource Static(Dim2_t size, Format format, int bytes, Action<Span<byte>> fill)
                 {
-                    Denoiser = new NriDenoiserGuides
-                    {
-                        Mv = mvResource, Depth = depth, Exposure = exposure, Reactive = reactive,
-                        NormalRoughness = Static(render, Format.RGBA16_SFLOAT, 8, Halves(0, 0, 1, 0.5f)),
-                        DiffuseAlbedo = Static(render, Format.RGBA16_SFLOAT, 8, Halves(0.5f, 0.5f, 0.5f, 1)),
-                        SpecularAlbedo = Static(render, Format.RGBA16_SFLOAT, 8, Halves(0.04f, 0.04f, 0.04f, 1)),
-                        SpecularMvOrHitT = Static(render, Format.R16_SFLOAT, 2, Halves(1)),
-                    },
-                };
-                var dlrr = new DLRRSettings();
-                for (var i = 0; i < 16; i += 5) { dlrr.worldToViewMatrix[i] = 1; dlrr.viewToClipMatrix[i] = 1; } // identity; orthographic: {A; B} = {0; 1}
-                settings = new NriDispatchUpscaleSettings { Dlrr = dlrr };
-            }
-            else if (type != UpscalerType.NIS)
-            {
-                guides = new NriDispatchUpscaleGuides { Upscaler = new NriUpscalerGuides { Mv = mvResource, Depth = depth, Exposure = exposure, Reactive = reactive } };
-                if (type == UpscalerType.FSR)
-                    settings = new NriDispatchUpscaleSettings { Fsr = new FSRSettings { zNear = 0.1f, zFar = 1000, verticalFov = MathF.PI / 3, frameTime = 16.6f, viewSpaceToMetersFactor = 1 } };
-            }
-            _dispatch = new NriDispatchUpscaleDesc
-            {
-                Input = new NriUpscalerResource(_input, inputView),
-                Output = new NriUpscalerResource(_output, outputView),
-                Guides = guides,
-                Settings = settings,
-                MvScale = new Float2_t { x = 1, y = 1 },
-            };
-
-            // The guides that never change, uploaded once
-            var uploads = statics.Select(s =>
-            {
-                var pitch = Pitch(s.Size, s.Bytes);
-                var buffer = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = pitch.Slice }));
-                var mapped = buffer.Map();
-                for (var y = 0; y < s.Size.h; y++) s.Fill(mapped.Slice((int)(y * pitch.Row), s.Size.w * s.Bytes));
-                buffer.Unmap();
-                return (s.Texture, s.Size, Buffer: buffer, Pitch: pitch);
-            }).ToList();
-            GpuWork.Run(device, cb =>
-            {
-                foreach (var u in uploads)
-                {
-                    To(cb, u.Texture, GpuWork.TextureCopyDestination);
-                    cb.UploadBufferToTexture(u.Texture, Region(u.Size), u.Buffer, new TextureDataLayoutDesc { rowPitch = u.Pitch.Row, slicePitch = u.Pitch.Slice });
-                    To(cb, u.Texture, ShaderResource);
+                    var (texture, view) = Texture(size, format, storage: false);
+                    statics.Add((texture, size, bytes, fill));
+                    return new NriUpscalerResource(texture, view);
                 }
-            });
+                static Action<Span<byte>> Halves(params float[] value) => span =>
+                {
+                    var halves = MemoryMarshal.Cast<byte, Half>(span);
+                    for (var i = 0; i < halves.Length; i++) halves[i] = (Half)value[i % value.Length];
+                };
+                static Action<Span<byte>> Floats(float value) => span => MemoryMarshal.Cast<byte, float>(span).Fill(value);
+
+                var depth = Static(render, Format.R32_SFLOAT, 4, Floats(0.5f));
+                var exposure = (flags & UpscalerBits.USE_EXPOSURE) != 0 ? Static(new Dim2_t { w = 1, h = 1 }, Format.R32_SFLOAT, 4, Floats(1)) : default;
+                var reactive = (flags & UpscalerBits.USE_REACTIVE) != 0 ? Static(render, reactiveFormat, reactiveFormat == Format.R8_UNORM ? 1 : 2, span => span.Clear()) : default;
+                var mvResource = new NriUpscalerResource(_mv, mvView);
+
+                var guides = new NriDispatchUpscaleGuides();
+                var settings = new NriDispatchUpscaleSettings();
+                if (type == UpscalerType.DLRR)
+                {
+                    guides = new NriDispatchUpscaleGuides
+                    {
+                        Denoiser = new NriDenoiserGuides
+                        {
+                            Mv = mvResource, Depth = depth, Exposure = exposure, Reactive = reactive,
+                            NormalRoughness = Static(render, Format.RGBA16_SFLOAT, 8, Halves(0, 0, 1, 0.5f)),
+                            DiffuseAlbedo = Static(render, Format.RGBA16_SFLOAT, 8, Halves(0.5f, 0.5f, 0.5f, 1)),
+                            SpecularAlbedo = Static(render, Format.RGBA16_SFLOAT, 8, Halves(0.04f, 0.04f, 0.04f, 1)),
+                            SpecularMvOrHitT = Static(render, Format.R16_SFLOAT, 2, Halves(1)),
+                        },
+                    };
+                    var dlrr = new DLRRSettings();
+                    for (var i = 0; i < 16; i += 5) { dlrr.worldToViewMatrix[i] = 1; dlrr.viewToClipMatrix[i] = 1; } // identity; orthographic: {A; B} = {0; 1}
+                    settings = new NriDispatchUpscaleSettings { Dlrr = dlrr };
+                }
+                else if (type != UpscalerType.NIS)
+                {
+                    guides = new NriDispatchUpscaleGuides { Upscaler = new NriUpscalerGuides { Mv = mvResource, Depth = depth, Exposure = exposure, Reactive = reactive } };
+                    if (type == UpscalerType.FSR)
+                        settings = new NriDispatchUpscaleSettings { Fsr = new FSRSettings { zNear = 0.1f, zFar = 1000, verticalFov = MathF.PI / 3, frameTime = 16.6f, viewSpaceToMetersFactor = 1 } };
+                }
+                _dispatch = new NriDispatchUpscaleDesc
+                {
+                    Input = new NriUpscalerResource(_input, inputView),
+                    Output = new NriUpscalerResource(_output, outputView),
+                    Guides = guides,
+                    Settings = settings,
+                    MvScale = new Float2_t { x = 1, y = 1 },
+                };
+
+                // The guides that never change, uploaded once
+                var uploads = statics.Select(s =>
+                {
+                    var pitch = Pitch(s.Size, s.Bytes);
+                    var buffer = Own(device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = pitch.Slice }));
+                    var mapped = buffer.Map();
+                    for (var y = 0; y < s.Size.h; y++) s.Fill(mapped.Slice((int)(y * pitch.Row), s.Size.w * s.Bytes));
+                    buffer.Unmap();
+                    return (s.Texture, s.Size, Buffer: buffer, Pitch: pitch);
+                }).ToList();
+                GpuWork.Run(device, cb =>
+                {
+                    foreach (var u in uploads)
+                    {
+                        To(cb, u.Texture, GpuWork.TextureCopyDestination);
+                        cb.UploadBufferToTexture(u.Texture, Region(u.Size), u.Buffer, new TextureDataLayoutDesc { rowPitch = u.Pitch.Row, slicePitch = u.Pitch.Slice });
+                        To(cb, u.Texture, ShaderResource);
+                    }
+                });
             }
             catch
             {

@@ -102,6 +102,8 @@ public readonly unsafe record struct NriAttachment(
 }
 
 /// <summary><c>VertexBufferDesc</c> naming the wrapper.</summary>
+/// <param name="Buffer">The vertex buffer.</param>
+/// <param name="Offset">Where the first vertex starts, in bytes.</param>
 /// <param name="Stride">
 /// The vertex stride. It is what the draw uses on D3D12 and on Vulkan devices with
 /// <c>features.extendedDynamicState</c> (every Vulkan 1.3+ device), where the pipeline's
@@ -145,9 +147,9 @@ public sealed unsafe class NriCommandBuffer : NriObject
 
     /// <summary>Starts recording. The pool, if given, is set for the whole buffer.</summary>
     public void Begin(NriDescriptorPool? descriptorPool = null) =>
-        Device.Check(Core.BeginCommandBuffer(Raw, descriptorPool is null ? null : descriptorPool.Raw), "BeginCommandBuffer");
+        NriException.Check(Core.BeginCommandBuffer(Raw, descriptorPool is null ? null : descriptorPool.Raw), "BeginCommandBuffer");
 
-    public void End() => Device.Check(Core.EndCommandBuffer(Raw), "EndCommandBuffer");
+    public void End() => NriException.Check(Core.EndCommandBuffer(Raw), "EndCommandBuffer");
 
     // ---------------------------------------------------------------- binding
 
@@ -419,7 +421,7 @@ public sealed unsafe class NriCommandBuffer : NriObject
 
     public void BeginAnnotation(string name, uint bgra = NriApi.BGRA_UNUSED)
     {
-        using var utf8 = new Utf8.Scoped(name);
+        using var utf8 = new Utf8.Scoped(name, stackalloc byte[Utf8.StackBytes]);
         Core.CmdBeginAnnotation(Raw, utf8, bgra);
     }
 
@@ -427,7 +429,7 @@ public sealed unsafe class NriCommandBuffer : NriObject
 
     public void Annotation(string name, uint bgra = NriApi.BGRA_UNUSED)
     {
-        using var utf8 = new Utf8.Scoped(name);
+        using var utf8 = new Utf8.Scoped(name, stackalloc byte[Utf8.StackBytes]);
         Core.CmdAnnotation(Raw, utf8, bgra);
     }
 

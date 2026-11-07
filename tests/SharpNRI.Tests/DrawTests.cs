@@ -159,7 +159,7 @@ public sealed class DrawTests
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(backend.Api, messages);
         using var layout = CreateLayout(device);
-        NriVertexInputDesc Input(ushort streamIndex) => new()
+        static NriVertexInputDesc Input(ushort streamIndex) => new()
         {
             Attributes =
             [
@@ -453,13 +453,13 @@ public sealed class DrawTests
             var mismatches = new List<string>();
             var count = 0;
             for (var y = 0; y < Canvas.Size; y++)
-            for (var x = 0; x < Canvas.Size; x++)
-            {
-                if (expected(x, y) is not { } e) continue;
-                var p = this[x, y];
-                if (Math.Abs(p.R - e.R) <= tolerance && Math.Abs(p.G - e.G) <= tolerance && Math.Abs(p.B - e.B) <= tolerance && Math.Abs(p.A - e.A) <= tolerance) continue;
-                if (count++ < 4) mismatches.Add($"({x},{y}) is {p}, expected {e}");
-            }
+                for (var x = 0; x < Canvas.Size; x++)
+                {
+                    if (expected(x, y) is not { } e) continue;
+                    var p = this[x, y];
+                    if (Math.Abs(p.R - e.R) <= tolerance && Math.Abs(p.G - e.G) <= tolerance && Math.Abs(p.B - e.B) <= tolerance && Math.Abs(p.A - e.A) <= tolerance) continue;
+                    if (count++ < 4) mismatches.Add($"({x},{y}) is {p}, expected {e}");
+                }
             Assert.True(count == 0, $"{what}: {count} pixels differ: {string.Join("; ", mismatches)}\n{Map()}");
         }
 

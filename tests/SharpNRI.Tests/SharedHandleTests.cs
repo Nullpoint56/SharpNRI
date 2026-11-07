@@ -214,8 +214,8 @@ public sealed class SharedHandleTests
         {
             var data = new TheoryData<Backend, bool>();
             foreach (var api in SharpNRI.Testing.NriTestDevice.GpuBackends)
-            foreach (var threeFamilies in new[] { false, true })
-                data.Add(new Backend(api), threeFamilies);
+                foreach (var threeFamilies in new[] { false, true })
+                    data.Add(new Backend(api), threeFamilies);
             return data;
         }
     }

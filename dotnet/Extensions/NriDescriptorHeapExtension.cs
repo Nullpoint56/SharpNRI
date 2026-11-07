@@ -82,7 +82,7 @@ public sealed unsafe class NriDescriptorHeapExtension
     public NriDescriptorHeap CreateDescriptorHeap(in DescriptorHeapDesc descriptorHeapDesc)
     {
         DescriptorHeap* handle = null;
-        fixed (DescriptorHeapDesc* p = &descriptorHeapDesc) Device.Check(_table.CreateDescriptorHeap(Device.Raw, p, &handle), "CreateDescriptorHeap");
+        fixed (DescriptorHeapDesc* p = &descriptorHeapDesc) NriException.Check(_table.CreateDescriptorHeap(Device.Raw, p, &handle), "CreateDescriptorHeap");
         return new NriDescriptorHeap(this, handle, descriptorHeapDesc);
     }
 
@@ -100,7 +100,7 @@ public sealed unsafe class NriDescriptorHeapExtension
     {
         var native = stackalloc WriteResourceDescriptorsDesc[writeDescs.Length];
         for (var i = 0; i < writeDescs.Length; i++) native[i] = writeDescs[i].ToNative();
-        Device.Check(_table.WriteResourceDescriptors(descriptorHeap.Raw, native, (uint)writeDescs.Length), "WriteResourceDescriptors");
+        NriException.Check(_table.WriteResourceDescriptors(descriptorHeap.Raw, native, (uint)writeDescs.Length), "WriteResourceDescriptors");
     }
 
     /// <summary>Host-side writes of samplers into the heap. No heap allocation.</summary>
@@ -108,7 +108,7 @@ public sealed unsafe class NriDescriptorHeapExtension
     {
         var native = stackalloc WriteSamplerDescriptorsDesc[writeDescs.Length];
         for (var i = 0; i < writeDescs.Length; i++) native[i] = writeDescs[i].ToNative();
-        Device.Check(_table.WriteSamplerDescriptors(descriptorHeap.Raw, native, (uint)writeDescs.Length), "WriteSamplerDescriptors");
+        NriException.Check(_table.WriteSamplerDescriptors(descriptorHeap.Raw, native, (uint)writeDescs.Length), "WriteSamplerDescriptors");
     }
 
     /// <summary><c>CmdSetDescriptorHeap</c>: binds the heap for shaders that index it directly.</summary>

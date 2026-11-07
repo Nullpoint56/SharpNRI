@@ -127,13 +127,48 @@ foreach ($f in $produced) {
     }
     if ($n -match 'public enum (\w+)( : \w+)?\r?\n' -and $bits -contains $Matches[1]) {
         $n = $n -replace '(?m)^public enum ', "[Flags]`r`npublic enum "
-        if ($n -notmatch 'using System;') { $n = "using System;`r`n" + $n }
+        # [Flags] is System.FlagsAttribute: both projects compile with implicit usings, so no using is added
         $flagged++
     }
     if ($n -ne $c) { Set-Content $f.FullName $n -NoNewline }
 }
 Write-Host "    narrowed literals in $narrowed enums, flagged $flagged NriBits enums (header declares $($bits.Count))"
 if ($flagged -ne $bits.Count) { throw "expected to flag $($bits.Count) NriBits enums, flagged $flagged" }
+
+# 4. NRI's pointer constants (HAS_BUFFER) as static readonly: ClangSharp emits them as mutable public
+#    fields, which any caller could reassign for the whole process (CA2211).
+$t = Get-Content $api -Raw
+$pointerPattern = '(?m)^    public static (\w+\*) ([A-Z_]+) = '
+$pointers = ([regex]::Matches($t, $pointerPattern)).Count
+if ($pointers -lt 1) { throw "expected NRI's pointer constants (HAS_BUFFER) in NriApi.cs, found none" }
+$t = [regex]::Replace($t, $pointerPattern, '    public static readonly $1 $2 = ')
+Set-Content $api $t -NoNewline
+Write-Host "    made $pointers pointer constants readonly"
+
+# 5. "using System;" is redundant everywhere: both projects compile with implicit usings (IDE0005).
+$unused = 0
+foreach ($f in $produced) {
+    $c = Get-Content $f.FullName -Raw
+    $n = $c -replace '(?m)^using System;\r?\n', ''
+    if ($n -ne $c) { Set-Content $f.FullName $n -NoNewline; $unused++ }
+}
+Write-Host "    removed a redundant 'using System;' from $unused files"
+
+# 6. ClangSharp's "using static" of an enum NriApi.cs never names a member of (GraphicsAPI: the one
+#    candidate, ALL in a default value, is NriApi's own constant, which wins the lookup) (IDE0005).
+$t = Get-Content $api -Raw
+$body = $t -replace '(?m)^using .*\r?\n', ''
+$declared = [regex]::Matches($t, '(?m)^    public const \w+ (\w+) =') | ForEach-Object { $_.Groups[1].Value }
+foreach ($m in [regex]::Matches($t, '(?m)^using static SharpNRI\.Native\.(\w+);\r?\n')) {
+    $enumFile = Join-Path $Output "$($m.Groups[1].Value).cs"
+    if (-not (Test-Path $enumFile)) { continue }
+    $members = [regex]::Matches((Get-Content $enumFile -Raw), '(?m)^    (\w+)( =|,)') | ForEach-Object { $_.Groups[1].Value }
+    if (-not ($members | Where-Object { $declared -notcontains $_ -and $body -match "\b$_\b" })) {
+        $t = $t.Replace($m.Value, '')
+        Write-Host "    removed the unused 'using static SharpNRI.Native.$($m.Groups[1].Value);'"
+    }
+}
+Set-Content $api $t -NoNewline
 
 # ---------------------------------------------------------------- line endings
 # ClangSharp writes the host platform's newline. The committed layer is LF so that the CI drift

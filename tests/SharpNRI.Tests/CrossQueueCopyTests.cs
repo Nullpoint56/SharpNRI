@@ -31,8 +31,8 @@ public sealed class CrossQueueCopyTests
         {
             var data = new TheoryData<Backend, SharingMode>();
             foreach (var api in new[] { GraphicsAPI.VK, GraphicsAPI.D3D12 })
-            foreach (var mode in new[] { SharingMode.CONCURRENT, SharingMode.EXCLUSIVE })
-                data.Add(new Backend(api), mode);
+                foreach (var mode in new[] { SharingMode.CONCURRENT, SharingMode.EXCLUSIVE })
+                    data.Add(new Backend(api), mode);
             return data;
         }
     }
@@ -170,7 +170,7 @@ public sealed class CrossQueueCopyTests
         }
         Assert.SkipWhen(device.Desc.adapterDesc.queueNum[(int)QueueType.COPY] == 0, $"{backend}: adapterDesc.queueNum[COPY] is 0, no COPY queue");
 
-        NriTextureBarrier HandOff(NriTexture t, NriQueue copy, NriQueue graphics) => new(t, TextureCopyDestination, TextureCopyDestination, SrcQueue: copy, DstQueue: graphics);
+        static NriTextureBarrier HandOff(NriTexture t, NriQueue copy, NriQueue graphics) => new(t, TextureCopyDestination, TextureCopyDestination, SrcQueue: copy, DstQueue: graphics);
         var (provoked, equal) = UploadOnCopyReadOnGraphics(device, messages, sharingMode, HandOff, HandOff, TextureCopyDestination);
         Record($"{backend}, {sharingMode}: {provoked.Count} message(s), {provoked.Count(m => m.IsError)} error(s) from recording to readback; " +
             $"{messages.Count(m => m.IsError)} error(s) in all; readback {(equal ? "equals" : "differs from")} the upload");
@@ -220,7 +220,7 @@ public sealed class CrossQueueCopyTests
             $"the Khronos best-practices checks did not activate ({BestPracticesSetting} is read from the process environment at instance creation; no '{marker}' warning for a committed 64 KiB buffer)");
         RequireTwoFamilies(device);
 
-        NriTextureBarrier HandOff(NriTexture t, NriQueue copy, NriQueue graphics) => new(t, TextureCopyDestination, TextureCopyDestination, SrcQueue: copy, DstQueue: graphics);
+        static NriTextureBarrier HandOff(NriTexture t, NriQueue copy, NriQueue graphics) => new(t, TextureCopyDestination, TextureCopyDestination, SrcQueue: copy, DstQueue: graphics);
         var (provoked, equal) = UploadOnCopyReadOnGraphics(device, messages, SharingMode.CONCURRENT, HandOff, HandOff, TextureCopyDestination, TextureUsageBits.SHADER_RESOURCE);
         var qfot = provoked.Where(m => m.Text.Contains("unneeded-QFOT", StringComparison.Ordinal)).ToList();
         Record($"VK, CONCURRENT, SHADER_RESOURCE only, best practices on: {qfot.Count} 'unneeded-QFOT' message(s), {provoked.Count(m => m.IsError)} error(s); " +
