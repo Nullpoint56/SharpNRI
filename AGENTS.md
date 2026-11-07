@@ -692,7 +692,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   fails naming each unmeasured overload; a stale exclusion fails too. The measurement is transitive:
   `GC.GetAllocatedBytesForCurrentThread` counts everything a public call reaches. Not counted: the
   binding's own `NativeMemory` use (reviewed instead) and branches the frames' arguments do not take.
-  At 9544e90 + this work: 191 calls measured, 0 managed bytes, 0 host allocations on NONE (Map on
+  At 821b95f: 195 calls measured, 0 managed bytes, 0 host allocations on NONE (Map on
   every GPU backend). Found by it: `NriAccelerationStructure.Buffer` / `NriMicromap.Buffer` made a
   new wrapper per read (33,600 bytes over 300 frames for two reads per frame), now cached per object;
   command-buffer, queue and thread annotations `malloc`ed their UTF-8 name per call, now encoded on
