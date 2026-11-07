@@ -20,6 +20,27 @@ public sealed class StreamerExtensionTests
         hostDataCapacity = 64 * 1024,
     };
 
+    /// <summary>
+    /// A streamer without a constant buffer: <c>constantBufferMemoryLocation</c> and
+    /// <c>constantBufferSize</c> are both <c>NriOptional</c> in NRIStreamer.h, and NRI creates the
+    /// constant buffer only for a non-zero size, so their defaults must be accepted. NRI validation
+    /// on v191 refused them ("'constantBufferMemoryLocation' must be an UPLOAD heap") whatever the
+    /// size; patch 0048 checks the location only with a constant buffer. No constant buffer is
+    /// handed out then.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void A_streamer_without_a_constant_buffer_takes_the_default_constant_buffer_location(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+
+        using (var streamer = device.Streamer.CreateStreamer(Desc() with { constantBufferMemoryLocation = default, constantBufferSize = 0 }))
+            Assert.Null(device.Streamer.GetStreamerConstantBuffer(streamer));
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
+
     [Theory]
     [MemberData(nameof(TestDevice.AllBackends), MemberType = typeof(TestDevice))]
     public void The_extension_is_available_and_a_streamer_lives_and_dies(Backend backend)

@@ -105,10 +105,9 @@ public sealed class RayTracingMemoryTests
     /// BLAS without a micromap does.
     /// </summary>
     /// <remarks>
-    /// D3D12 runs without the D3D12 debug layer (NRI's validation stays on), as
-    /// <c>RayTracingPipelineTests.An_opacity_micromap_decides_whether_the_ray_query_hits</c> does:
-    /// NRI's micromap prebuild query passes no input buffer and no per-OMM descs, which the debug
-    /// layer refuses with error 1162 (AGENTS.md: Ray tracing). The barriers after the builds and
+    /// D3D12 runs with the debug layer: NRI v191's micromap prebuild query passed null input-buffer
+    /// and per-OMM-desc addresses, which the layer refused with error 1162 at every creation, and
+    /// these tests ran D3D12 without it until patch 0046 (AGENTS.md: Ray tracing). The barriers after the builds and
     /// copies name ALL stages; see <see cref="RayScene.MicromapWritten"/>.
     /// </remarks>
     [Theory]
@@ -207,8 +206,7 @@ public sealed class RayTracingMemoryTests
     /// <summary>
     /// As <see cref="Memory_refuses_disposal_while_acceleration_structures_are_bound"/> for
     /// micromaps: one created unbound and bound at offset 0 (<c>BindMicromapMemory</c>), a second
-    /// placed after it (<c>CreatePlacedMicromap</c>). D3D12 runs without the debug layer, NRI's
-    /// validation on, as the other micromap tests do.
+    /// placed after it (<c>CreatePlacedMicromap</c>), with the D3D12 debug layer on (patch 0046).
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -216,7 +214,7 @@ public sealed class RayTracingMemoryTests
     {
         TestDevice.RequireAvailable(backend);
         var messages = new List<NriMessage>();
-        using var device = TestDevice.Create(backend.Api, messages, b => b.EnableGraphicsApiValidation = backend.Api != GraphicsAPI.D3D12);
+        using var device = TestDevice.Create(backend.Api, messages);
         Assert.SkipWhen(device.Desc.tiers.rayTracing < 3, $"{backend}: tiers.rayTracing = {device.Desc.tiers.rayTracing}, no micromaps (needs 3)");
         var rt = device.RayTracing;
         var desc = RayScene.MicromapDesc();
@@ -274,10 +272,10 @@ public sealed class RayTracingMemoryTests
         Assert.False(memory.IsDisposed);
     }
 
-    /// <summary>A device with micromaps (tiers.rayTracing 3), the D3D12 debug layer off (see the remarks above).</summary>
+    /// <summary>A device with micromaps (tiers.rayTracing 3).</summary>
     private static NriDevice CreateMicromapDevice(Backend backend, List<NriMessage> messages)
     {
-        var device = RayScene.CreateDevice(backend, messages, b => b.EnableGraphicsApiValidation = backend.Api != GraphicsAPI.D3D12);
+        var device = RayScene.CreateDevice(backend, messages);
         if (device.Desc.tiers.rayTracing < 3)
         {
             var tier = device.Desc.tiers.rayTracing;

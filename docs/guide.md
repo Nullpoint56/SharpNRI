@@ -558,9 +558,11 @@ if (device.TryRayTracing is { } rt)
 - **Micromaps, Vulkan**: work (transparent micro-triangle hides, opaque shows). Index-less OMM
   (index type NONE, address 0) draws VUID-...-pInfos-10904 from VVL 1.4.341, apparently a false
   positive; an index buffer is clean.
-- **Micromaps, D3D12: broken in v190.** NRI's prebuild query passes no input buffer or per-OMM
-  descs (debug layer error 1162, SEH with break-on-error); without the debug layer, the BLAS build
-  that links the micromap fails `Close` with `E_INVALIDARG`.
+- **Micromaps, D3D12.** NRI v191's prebuild query passes null input-buffer and per-OMM-desc
+  addresses, which the debug layer refuses at every micromap creation (error 1162); the shipped
+  `NRI.dll` carries patch 0046, which passes dummy non-zero ones as the DXR spec describes, so
+  micromaps create cleanly with the debug layer on. (On v190 the BLAS build that links the
+  micromap also failed `Close` with `E_INVALIDARG`; fixed since.)
 - Import by native object: `WrapperVK.CreateAccelerationStructureVK(desc, type)` /
   `WrapperD3D12.CreateAccelerationStructureD3D12(desc, type)`; caller names the type; needs
   `RayTracing`. The import reports the same GPU handle, native object, buffer and scratch sizes.
@@ -664,7 +666,8 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 - `CreateUpscaler` checks `GetRuntimeFiles` first and throws `NriUnsupportedException` naming the
   missing file. Without the guard: FSR returns `FAILURE` with no message; XeSS raises an SEH
   exception (0xC06D007E, delay-load) that leaves NRI's process-wide XeSS lock held, so the next XeSS
-  creation hangs forever.
+  creation hangs forever. (The packaged `NRI.dll` delay-loads `libxess.dll` so that it loads without
+  the XeSS runtime; NRI's own build links it at load time.)
 - NRI loads vendor DLLs by bare name, which searches the executable's directory. Under
   `dotnet app.dll` that is `dotnet.exe`'s directory: FSR fails, XeSS kills the process.
   `CreateUpscaler` therefore preloads each file by full path from `AppContext.BaseDirectory`, which
@@ -707,9 +710,19 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   4096x4096, 16 references.
 - **H.264 encode, D3D12**: minimum 256x256; a 64x64 `GetVideoCapabilities` query draws debug error
   1312 (SEH with break-on-error). One IDR frame at QP 26 is 277 B starting `00 00 00 01 65`.
-- **H.264 encode, Vulkan: hangs.** Minimum 160x64; resolve on a GRAPHICS queue; the encode feedback
-  query never becomes available, and `ResolveVideoEncodeFeedback` (`vkCmdCopyQueryPoolResults` with
-  WAIT) never completes. Do not use Vulkan encode in v190.
+- **H.264 encode, Vulkan**: minimum 160x64; resolve the feedback with `ResolveVideoEncodeFeedback`
+  on the queue `resolvedMetadataQueueType` names (GRAPHICS on NVIDIA), then read it with
+  `GetVideoEncodeFeedback`. One IDR at QP 26 is 277 B, as on D3D12. (v190 hung in the resolve;
+  v191 reads the results on the host.) The bitstream's first barrier on another queue after the
+  encode names no stages: `VIDEO_ENCODE` is not a stage of a GRAPHICS queue.
+- **AV1 encode, Vulkan**: session parameters take a sequence without a colour description with the
+  shipped `NRI.dll` (patch 0047; v191 passed reserved colour values and NVIDIA refused them).
+  **On NVIDIA put the AV1 bitstream in host-visible memory** (`MemoryLocation.HOST_READBACK`
+  through NRI; every host-visible memory type in a raw-Vulkan reproduction): driver 617.14 fails an AV1 encode into a `DEVICE` bitstream (no byte written,
+  feedback never complete, no validation message), though that placement is valid; H.264 is
+  unaffected. Vulkan describes an AV1 frame (`GetVideoAV1EncodeDecodeInfo`) only from the encoded
+  payload passed as the header; D3D12 only without it. A picture's screen-content and
+  integer-MV flags must agree with the sequence's `seqForce*` values on Vulkan.
 - `WriteVideoAnnexBParameterSets` for H.265 returns `UNSUPPORTED` for short- and long-term reference
   sets, VUI, scaling lists and tiles. The header does not say.
 - `GetVideoAV1EncodeDecodeInfo` returns pointers into the result struct itself: keep the struct
@@ -726,8 +739,9 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 
 ### Streamer
 
-- `StreamerDesc.constantBufferMemoryLocation` is documented optional, but validation rejects its
-  default: set it (e.g. `MemoryLocation.HOST_UPLOAD`).
+- `StreamerDesc.constantBufferMemoryLocation` and `constantBufferSize` are optional: leave both at
+  their defaults for a streamer without a constant buffer (patch 0048; v191's validation refused
+  the default location even then).
 - **`StreamerDesc.queuedFrameNum` counts the frame being filled.** It is the number of per-frame
   regions in the dynamic buffer: data streamed in frame N is overwritten by frame
   N + `queuedFrameNum`, so the GPU must be done with frame N before that frame streams anything.
@@ -998,7 +1012,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | One DXIL library for a D3D12 RT pipeline | `CreateRayTracingPipeline` faults | RayTracing |
 | Single `Proceed()` in a ray query | software traversal may disagree | RayTracing |
 | GPU work longer than 5 s behind `fence.Wait` | `TimeoutException` (NRI's `NRI_TIMEOUT_FENCE`); poll `fence.Value` | RayTracing |
-| D3D12 micromaps | debug error 1162 (the prebuild). A `{MICROMAP_WRITE, MICROMAP}` before side closes (NRI main 1dc13b2; patch 0030 on master); before the fix NRI added postbuild-info sync and `Close` failed | RayTracing |
+| D3D12 micromaps | debug error 1162 at creation on v191 (the prebuild; patch 0046 fixes it). A `{MICROMAP_WRITE, MICROMAP}` before side closes (NRI main 1dc13b2; patch 0030 on master); before the fix NRI added postbuild-info sync and `Close` failed | RayTracing |
 | Index-less OMM on Vulkan | VUID-...-pInfos-10904 (likely false positive) | RayTracing |
 | `features.sharedFences` 0 | lavapipe (no external semaphore fd), MoltenVK (no fd handles; `sharedResources` 0 too), any Vulkan device that exports no semaphore type | SharedHandles |
 | D3D11 opening a D3D12 shared texture | `E_INVALIDARG` (TYPELESS) | SharedHandles |
@@ -1008,7 +1022,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Vulkan Reflex + D3D12 in one process | `D3D12CreateDevice` 0x887A0007 | LowLatency |
 | RTSS running, a wrapped device whose instance never ran `vkEnumeratePhysicalDevices` (or an `NRI.dll` without patch 0045) | process dies at first Vulkan present | Device creation |
 | Reflex report in the first frames | all zeros | LowLatency |
-| H.264 encode on Vulkan | feedback resolve hangs | Video |
+| AV1 encode on Vulkan (NVIDIA), bitstream in `DEVICE` memory | driver fails the encode, nothing written | Video |
 | H.264 encode 64x64 on D3D12 | debug error 1312; minimum is 256x256 | Video |
 | `StreamerDesc` default memory location | validation error | Streamer |
 | Wrapped device from D3D12 without queue families | no queues | Wrappers |

@@ -48,7 +48,7 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
-- **State.** Master pins NRI v191 (46c93d79) with seventeen patches; `next` pins NRI main b90cfb57
+- **State.** Master pins NRI v191 (46c93d79) with twenty patches; `next` pins NRI main b90cfb57
   (2026-11-06) with five, 0007, 0013, 0015, 0037 and 0044: upstream took every other one (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
@@ -381,8 +381,8 @@ ref and patch count, the payload the tests loaded (by content) and the adapter e
   `SharpNRI`, `SharpNRI.Descs`, `SharpNRI.Testing` (`tools/coverage/coverage.settings.xml`),
   `dotnet/Native` dropped by path; child processes collected. Referenced only under
   `SharpNRICoverage`: Microsoft .NET Library licence, and no osx-arm64 or linux-arm64 collector.
-- "Call site run by the tests" joins the two. The two not run need the Upscalers payload or a video
-  encode feedback resolve no backend here asks for.
+- "Call site run by the tests" joins the two. The ones not run need the Upscalers payload
+  (`tools/upscalers.ps1`); the video encode feedback resolve runs since the Vulkan H.264 encode does.
 
 ---
 
@@ -411,6 +411,9 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0043 validation-draw-parameters-emulation-d3d12-metal | the indirect-draw stride checks apply the emulated `Draw(Indexed)BaseDesc` layout only on D3D12 and Metal | validation applied it on every backend and refused the plain records Vulkan reads (Draws, render state and attachments) |
 | 0044 vulkan-disabled-logic-op-valid-value | a pipeline without a logic op passes `logicOp = VK_LOGIC_OP_COPY` (with `logicOpEnable = VK_FALSE`) instead of `VK_LOGIC_OP_MAX_ENUM` | a driver workaround, not an NRI defect: lavapipe on Windows converts the disabled value and its MSVC build jumps to a garbage address (Lavapipe; the exception under Rules) |
 | 0045 vulkan-enumerate-physical-devices | `DeviceVK::Create` and `UpdateAdaptersVK` list physical devices with `vkEnumeratePhysicalDevices` instead of `vkEnumeratePhysicalDeviceGroups`; the subset-allocation warning goes | a leftover of the mGPU support dropped in v1.124 (7bb624d): NRI used only each group's first device, and group-only enumeration killed every presenting process under RivaTuner's layer (Device creation and callbacks) |
+| 0046 d3d12-micromap-prebuild-dummy-addresses | `GetMicromapPrebuildInfo` passes 256 for `InputBuffer` and `PerOmmDescs` (stride `sizeof(MicromapTriangle)`) | the prebuild query left them null; the DXR spec allows inspecting null-ness and names dummy non-zero values for this, and the debug layer refused every micromap creation ([1162]; Ray tracing) |
+| 0047 vulkan-av1-color-config-unspecified | without `COLOR_DESCRIPTION_PRESENT`, `FillVideoAV1ColorConfig` passes "unspecified" (2) for primaries, transfer and matrix | it copied the desc's values, reserved 0s included, and NVIDIA refused the session parameters (`VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR`; Extensions) |
+| 0048 validation-streamer-optional-constant-buffer-location | `CreateStreamer` validation checks `constantBufferMemoryLocation` only with a non-zero `constantBufferSize` | both are `NriOptional` and no constant buffer is created without a size, yet the defaults were refused (Extensions) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -423,7 +426,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all seventeen do; at main b90cfb57 the five, and 0045 applies there too.
+  all twenty do; at main b90cfb57 the five, and 0045-0048 apply there too.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
   fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
@@ -607,7 +610,10 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   and returns null, like Vulkan's contract and NRI's Windows default; NRI's POSIX `AlignedRealloc`
   returns a new block for size 0 (never seen in practice).
 - **Queue priorities.** D3D12 makes a queue HIGH only above 0.5 (`NRIDeviceCreation.h` says "high >
-  0"); Vulkan clamps at 0, so low equals normal, and 2 draws
+  0"): `QueueD3D12.hpp:5`, `priority > 0.5f ? HIGH : NORMAL`, with the maintainer's own "TODO:
+  values in between? check D3D12_FEATURE_COMMAND_QUEUE_PRIORITY support?" (v191 and main b90cfb57,
+  re-read 2026-11-07). The header and the code disagree and which is meant is the maintainer's
+  call, so it is an issue to file, not a patch. Vulkan clamps at 0, so low equals normal, and 2 draws
   VUID-VkDeviceQueueCreateInfo-pQueuePriorities-00383. A list of the wrong length throws
   `ArgumentException` before NRI is called.
 - **Exception texts.** An exception carries the error text reported on the calling thread since the
@@ -1141,9 +1147,17 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
 - **Micromaps, VK**: a transparent micro-triangle hides the non-opaque triangle, opaque shows it.
   Index-less OMM draws VUID-...-pInfos-10904 from VVL 1.4.341, likely a false positive; with an
   index buffer it is clean.
-- **Micromaps, D3D12.** NRI's prebuild query passes no input buffer or per-OMM descs: debug error
-  1162 (a message with the binding's break default, `SEHException` with the break on), so the
-  pipeline test runs D3D12 without the debug layer. Fixed upstream (N6, #299, 1dc13b2): a
+- **Micromaps, D3D12: the prebuild query's null addresses (patch 0046).**
+  `DeviceD3D12::GetMicromapPrebuildInfo` sizes a micromap from its usage histogram and left
+  `InputBuffer` and `PerOmmDescs` null, while every build passes real ones. The DXR spec lets the
+  prebuild query inspect whether an address is null ("even though the pointers are not
+  dereferenced") and says "dummy non-zero values can be used just for the purposes for the prebuild
+  call"; the Agility 1.620 debug layer refused the nulls at every micromap creation ("[1162] ...
+  pOmmHistogram indicate 2 OMMs in total, so InputBuffer and PerOmmDescs can't be null"), and the
+  micromap tests had run D3D12 without the debug layer to avoid it (a workaround, until
+  2026-11-07). The patch passes 256 for both with the build's stride; the micromap tests now run
+  D3D12 with the debug layer: red without the patch (4 failures, [1162]), green with it (v191; main
+  b90cfb57 has the same code). Fixed upstream (N6, #299, 1dc13b2): a
   `{MICROMAP_WRITE, MICROMAP}` before side got the postbuild-info sync beside the acceleration
   structure write access ("[1331] ... incompatible ... in buffer barrier") and the BLAS build's
   `Close` failed. `RayScene.MicromapWritten` names the `MICROMAP` stage.
@@ -1179,9 +1193,13 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
 - **`GetRuntimeFiles` must name what the pinned NRI loads**; check it whenever the pin moves. v190
   loaded `amd_fidelityfx_vk.dll` for FSR on Vulkan; naming that file on v191 made the guard refuse
   FSR with the right files installed (`UpscalerExtensionTests`).
-- **XeSS hang**: NRI takes the process-wide `g_xess.lock` before `xessD3D12CreateContext`; the SEH
-  unwind does not release it (no C++ scope guards for SEH under `/EHsc`); a second XeSS
-  `CreateUpscaler` from another thread did not return in 10 s. Hence
+- **XeSS hang, from our delay-load (not NRI's)**: NRI takes the process-wide `g_xess.lock` before
+  `xessD3D12CreateContext`; with `libxess.dll` missing, the delay-load stub's SEH exception
+  (0xC06D007E) unwinds without releasing it (no C++ scope guards for SEH under `/EHsc`); a second
+  XeSS `CreateUpscaler` from another thread did not return in 10 s. NRI itself links `libxess.dll`
+  at load time, so in NRI's own build a missing runtime fails `NRI.dll`'s load instead; the
+  exception exists only because `tools/cmake/delayload.cmake` delay-loads it (re-read 2026-11-07).
+  Hence
   `NriUpscalerExtension.CreateUpscaler` checks `GetRuntimeFiles` / `IsRuntimeInstalled` and throws
   `NriUnsupportedException` naming the file.
 - **Host directory**: NRI and the delay-load helper load by bare name, and Windows searches the
@@ -1343,8 +1361,13 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   child with best practices on) fails only on that warning and errors; also seen there, not NRI's:
   `suboptimal-swapchain-image-count` (two images) and, with implicit layers, an overlay's
   `ImageBarrierAccessLayout` from `vkCmdPipelineBarrier` (NRI records only `...Barrier2`).
-- `StreamerDesc::constantBufferMemoryLocation` is marked optional but validation rejects its
-  default.
+- **A streamer without a constant buffer (patch 0048).** `constantBufferMemoryLocation` and
+  `constantBufferSize` are `NriOptional`, and `StreamerImpl::Create` creates the constant buffer
+  only for a non-zero size, but validation (`ImplVal.cpp:2057`) demanded an UPLOAD location
+  whatever the size: "CreateStreamer: 'constantBufferMemoryLocation' must be an UPLOAD heap" for
+  the defaults. The patch checks the location only with a constant buffer.
+  `StreamerExtensionTests.A_streamer_without_a_constant_buffer_takes_the_default_constant_buffer_location`:
+  red without it on both backends, green with it, no constant buffer handed out.
 - **Streamer ring: `queuedFrameNum` regions, no +1; the header comment is wrong** (its "adds 1
   under the hood" came with 3f38b1a; 6f80a7c dropped the `++` and kept the comment). The binding's
   docs state the code's behaviour. `StreamerExtensionTests`: with 2, frame 2 reuses frame 0's
@@ -1372,9 +1395,47 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   D3D12 answers min = max = the size asked. Decodes record and close; validation names each broken
   field.
 - **H.264 encode**: D3D12 minimum 256x256 (a 64x64 capability query draws error 1312, SEH); one IDR
-  at QP 26 = 277 B, `00 00 00 01 65`. VK minimum 160x64; the feedback query never becomes available
-  and `vkCmdCopyQueryPoolResults` with WAIT never completes: skipped on VK naming that. D3D12's AV1
-  and H.265 encode need no feedback resolve, so `ResolveVideoEncodeFeedback` runs nowhere here.
+  at QP 26 = 277 B, `00 00 00 01 65`. VK minimum 160x64; on v190 the feedback query never became
+  available (`vkCmdCopyQueryPoolResults` with WAIT never completed) and VK was skipped. Since
+  90112642 (in v191) NRI records only the query index at the resolve and reads the results on the
+  host; re-measured 2026-11-07: VK encodes the same IDR, 277 B, `00 00 00 01 65`, through
+  `ResolveVideoEncodeFeedback` on GRAPHICS, and the skip is gone. The readback barrier on GRAPHICS
+  had named `VIDEO_ENCODE` as its before stage (VUID-vkCmdPipelineBarrier2-srcStageMask-09675, a
+  test defect the skip had hidden): the encode was another queue's submit, waited for, so the side
+  names no stages.
+- **AV1 encode on Vulkan.** Session parameters from a sequence without a colour description failed
+  with `VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR`, no validation message (patch 0047): NRI's
+  `FillVideoAV1ColorConfig` copied the desc's colour values whatever the flags, while AV1 infers
+  "unspecified" (2) without `COLOR_DESCRIPTION_PRESENT` and NRI's own OBU writer omits them; the
+  desc's 0 is reserved for primaries and transfer. Measured: refused for 0/0/0 with or without the
+  flag and for 1/0/0 with it; accepted for 2/2/2 with it and 1/1/1 without.
+  `VideoExtensionTests.AV1_session_parameters_take_a_sequence_without_a_colour_description`.
+- **NVIDIA's Vulkan AV1 encode fails into a bitstream without `HOST_VISIBLE` (driver 617.14, RTX
+  4070 SUPER; a driver defect, worked around in the test).** Past 0047 the AV1 encode wrote no byte
+  and its feedback query never became available, no validation message. Pinned 2026-11-07 with a
+  minimal NRI-free program (one 256x256 key frame, intra, CQP q index 40): the feedback query
+  answers `VK_NOT_READY` with status -1 (`VK_QUERY_RESULT_STATUS_ERROR_KHR`) and nothing is written
+  when the bitstream buffer's memory type is 0 (no flags) or 1 (`DEVICE_LOCAL`), and 35 bytes with
+  status 1 for types 2, 3 and 4 (`HOST_VISIBLE`, including `DEVICE_LOCAL | HOST_VISIBLE`); all five
+  are in the buffer's `memoryTypeBits`, so every placement is valid Vulkan. Every other NRI choice
+  was ruled out in that program, one by one and all together (the AV1 rate-control GOP info, the
+  quality level at reset, the separate reset scope, DPB slots 2 / one active reference, the decoder
+  model and buffer delays, the encode usage info, profile-independent and `CONCURRENT` resources,
+  `disable_cdf_update`, loop-filter deltas, global motion, plane-aspect barriers, video
+  maintenance 1/2, unified image layouts, descriptor heaps, zero-initialized memory, maintenance10,
+  allocation callbacks, the quality level in the parameters, `vkQueueSubmit2` with a timeline
+  semaphore, `ONE_TIME_SUBMIT`, the Khronos layer); NRI's H.264 encode into the same device-local
+  memory works. The AV1 encode test puts the Vulkan bitstream in `HOST_READBACK` memory, and then
+  Vulkan encodes a 39-byte key frame (an OBU stream, `32 A2 ...`). Caller's rule: on NVIDIA Vulkan
+  give the AV1 bitstream a host-visible location. Not NRI's: NRI does not choose the memory.
+- **AV1 encode info per backend.** Vulkan's payload is OBUs, so NRI describes a frame only from the
+  payload passed as the header (`UNSUPPORTED` without it); D3D12's is bare tile data, so the
+  reverse. The described payload is the frame OBU on Vulkan (34 B at 5: frame header, then the
+  tile group) and the tile itself on D3D12; a tile's offset is relative to the payload, so the one
+  tile ends where the payload does. With `seq_force_screen_content_tools` / `seq_force_integer_mv`
+  0 in the sequence, a picture asking for screen-content tools or integer MVs is refused on Vulkan
+  ("session parameters do not allow screen-content tools", as AV1 requires) and ignored on D3D12.
+  D3D12's AV1 and H.265 encode need no feedback resolve.
 - **D3D12 AV1 encode with default picture flags** (fixed upstream, N8, af45e72): the encoder needs
   `AUTO_SEGMENTATION`, `LOOP_RESTORATION_FILTER`, `CDEF_FILTERING`; v190 enabled auto segmentation
   only with `SEGMENTATION_ENABLED` ("[1306] ... ENABLE_FRAME_SEGMENTATION_AUTO is required in
@@ -1435,7 +1496,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
     crash and timestamps (MoltenVK and the paravirtual Mac).
   - `TestDevice.IsMoltenVK` (Vulkan on macOS): defects in MoltenVK's own code, which every Mac
     shares: the region-resolve abort (MoltenVK and the paravirtual Mac).
-  - Backend-keyed: Reflex on VK, H.264 and AV1 encode on VK (Extensions), NVIDIA Vulkan's refused
+  - Backend-keyed: Reflex on VK (Extensions), NVIDIA Vulkan's refused
     micromap-size query pools (Ray tracing).
   - Lavapipe's clipping-primitive counter (`TestDevice.IsLavapipeVK`): a known bug to remove. The
     test asserts the wrong value 0 on lavapipe instead of skipping, so the day Mesa counts the
@@ -1533,7 +1594,9 @@ minutes and a Windows minute about two. That shapes the runs:
 - **Branch runs are started by hand** (owner, 2026-11-06): `ci.yml` has no pull-request trigger. On
   a branch, Actions > ci > Run workflow (the branch selected). A pull request's checks leave out
   `workflow_dispatch` runs (PR #44, 2026-11-06: the run was green and linked to the pull request,
-  the required checks kept "Waiting for status to be reported"), so the `report` job posts commit statuses `gate`, `win-x64` and `linux-x64` on the tested
+  the required checks kept "Waiting for status to be reported"), so the gate's first step marks
+  `gate`, `win-x64` and `linux-x64` pending with a link to the run (the pull request shows at once
+  that a run started), and the `report` job posts them as commit statuses on the tested
   commit (skipped by the gate counts as passed, any other non-success or a failed gate as failed),
   which the required checks read: a pull request merges only after a green run of its latest
   commit. Pushes to master run by themselves. When master has moved, the branch must be

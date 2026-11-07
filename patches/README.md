@@ -9,7 +9,7 @@ a header changes the L0 layer and the ABI oracle measures the patched header. Bo
 that is already applied, so the submodule working tree normally sits with every patch applied and
 `git -C nri status` shows the patched files as modified. Listed and explained in `AGENTS.md` (Patches).
 
-The set for NRI v191 (46c93d79) on master: seventeen patches, all applying in order onto v191, each also
+The set for NRI v191 (46c93d79) on master: twenty patches, all applying in order onto v191, each also
 alone, and each passing the scripts' `-C0` reverse check. `next` (NRI main) carries five of them:
 upstream took the others on 2026-11-06 (`AGENTS.md`: Branches, Patches). Patches dropped
 when upstream took the fix are in git log and `docs/upstream.md`.
@@ -33,3 +33,6 @@ when upstream took the fix are in git log and `docs/upstream.md`.
 | `0043-validation-draw-parameters-emulation-d3d12-metal` | `DrawIndirect` / `DrawIndexedIndirect` validation applies the emulated record stride only on D3D12 and Metal | the flag is "D3D12, METAL", but validation demanded `DrawBaseDesc` strides on Vulkan too, refusing the plain records the Vulkan backend reads (AGENTS.md: Draws, render state and attachments) |
 | `0044-vulkan-disabled-logic-op-valid-value` | a pipeline without a logic op passes `VK_LOGIC_OP_COPY` for the (ignored) `logicOp` | workaround for lavapipe on Windows, which converts the disabled value and jumps to a garbage address in MSVC builds; not an NRI defect, dropped once the pinned Mesa is fixed (AGENTS.md: Lavapipe) |
 | `0045-vulkan-enumerate-physical-devices` | Vulkan device creation and the adapter enumeration list physical devices with `vkEnumeratePhysicalDevices` instead of device groups | a leftover of the mGPU support dropped in v1.124: only each group's first device was used, and RivaTuner's layer, which knows only physical devices from `vkEnumeratePhysicalDevices`, killed every presenting process (AGENTS.md: Device creation and callbacks) |
+| `0046-d3d12-micromap-prebuild-dummy-addresses` | the D3D12 micromap prebuild query passes dummy non-zero `InputBuffer` and `PerOmmDescs` addresses | it passed null, which the DXR spec lets the query inspect, and the debug layer refused every micromap creation with [1162] (AGENTS.md: Ray tracing) |
+| `0047-vulkan-av1-color-config-unspecified` | an AV1 sequence without a colour description passes "unspecified" colour values to Vulkan | the desc's reserved 0s reached `StdVideoAV1ColorConfig` and NVIDIA refused the session parameters (AGENTS.md: Extensions) |
+| `0048-validation-streamer-optional-constant-buffer-location` | `CreateStreamer` validation checks the constant buffer's location only when there is a constant buffer | the optional location's default was refused even without a constant buffer (AGENTS.md: Extensions) |
