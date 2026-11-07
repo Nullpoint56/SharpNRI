@@ -117,6 +117,9 @@ dotnet_naming_style.underscore_camel.required_prefix = _
 #   from outside the assembly (its Destroy is private protected), so SuppressFinalize would do nothing
 # - CA1822 on the public surface: extension and object methods keep NRI's table shape (an instance
 #   call on the interface that owns it) even where the binding needs no instance data
+# - IDE0130: the layers are folders (Core, Extensions, Interop) of one public namespace, SharpNRI
+#   (AGENTS.md: Layers); the rule is silent only in a checkout whose path holds "C#"
+dotnet_diagnostic.IDE0130.severity = none
 dotnet_diagnostic.CA1711.severity = none
 dotnet_diagnostic.CA1816.severity = none
 dotnet_code_quality.CA1822.api_surface = private, internal
