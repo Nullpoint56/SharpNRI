@@ -2,6 +2,7 @@ namespace SharpNRI.Native;
 
 public partial struct ComponentMapping
 {
+    /// <summary>Only for non-"STORAGE" views</summary>
     [NativeTypeName("nri::ComponentSwizzle")]
     public ComponentSwizzle r;
 

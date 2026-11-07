@@ -141,6 +141,19 @@ if ($headerVersion -ne $NriVersion) {
 }
 Write-Host "==> NRI v$NriVersion, $Rid, $Configuration, variant $Variant$(if ($dlssDir) { " + DLSS from $dlssDir" })"
 
+# The Agility SDK NRI compiles against: SharpNRI.AgilitySDK makes applications restore exactly this
+# Microsoft.Direct3D.D3D12 version, so the props value must be NRI's CMake pin.
+if ($props -notmatch '<AgilitySdkVersion>([^<]+)</AgilitySdkVersion>') { throw "AgilitySdkVersion not found in Directory.Build.props" }
+$agilityVersion = $Matches[1].Trim()
+$nriCmake = Get-Content (Join-Path $nri "CMakeLists.txt") -Raw
+if ($nriCmake -notmatch 'NRI_AGILITY_SDK_VERSION_MAJOR\s+"(\d+)"' ) { throw "NRI_AGILITY_SDK_VERSION_MAJOR not found in nri/CMakeLists.txt" }
+$agilityMajor = $Matches[1]
+if ($nriCmake -notmatch 'NRI_AGILITY_SDK_VERSION_MINOR\s+"(\d+)"' ) { throw "NRI_AGILITY_SDK_VERSION_MINOR not found in nri/CMakeLists.txt" }
+$nriAgility = "1.$agilityMajor.$($Matches[1])"
+if ($nriAgility -ne $agilityVersion) {
+    throw "nri/CMakeLists.txt pins the Agility SDK $nriAgility but Directory.Build.props has AgilitySdkVersion ${agilityVersion}: set it to $nriAgility"
+}
+
 # ------------------------------------------------------------------------------------------ 2. patches
 $patches = @(Get-ChildItem (Join-Path $root "patches") -Filter "*.patch" -File -ErrorAction SilentlyContinue | Sort-Object Name)
 $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -226,7 +239,12 @@ $delayLoad = $targetWindows
 $delayLoadDlls = @(if (& $on NRI_ENABLE_D3D12_SUPPORT) { "d3d12.dll", "dxgi.dll" }) + @(if (& $on NRI_ENABLE_XESS_SDK) { "libxess.dll" })
 $delayLoadFragment = Join-Path $PSScriptRoot "cmake" "delayload.cmake"
 
-$optString = ($opt.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ";"
+# Windows: the C and C++ runtime linked statically into NRI.dll (owner, 2026-11-07), so the library
+# needs no VC++ redistributable on the machine: without it a DllNotFoundException at the first call
+# was the symptom. NRI picks NGX's static-runtime library from this variable as well.
+$crt = if ($targetWindows) { 'MultiThreaded$<$<CONFIG:Debug>:Debug>' }
+
+$optString = (@($opt.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) + @(if ($crt) { "crt=$crt" })) -join ";"
 # NRI_VERSION alone does not identify the sources: NRI's main moves its dependency pins (VMA, D3D12MA)
 # without bumping it, and the "next" branch builds such commits (AGENTS.md: Branches).
 $nriCommit = (git -C $nri rev-parse HEAD 2>$null) -join ""
@@ -272,6 +290,7 @@ $cmakeArgs += @(
 )
 # Only the -WithDlss build tree ever has NGX on, so this never needs clearing elsewhere.
 if ($dlssDir) { $cmakeArgs += "-DFETCHCONTENT_SOURCE_DIR_NGX=$(& $fwd $dlssDir)" }
+if ($crt) { $cmakeArgs += @("-DCMAKE_MSVC_RUNTIME_LIBRARY=$crt", "-DCMAKE_POLICY_DEFAULT_CMP0091=NEW") }
 foreach ($kv in $opt.GetEnumerator()) { $cmakeArgs += "-D$($kv.Key)=$($kv.Value)" }
 
 # A new NRI commit, patch set or option set starts the variant's tree from scratch, downloads included.

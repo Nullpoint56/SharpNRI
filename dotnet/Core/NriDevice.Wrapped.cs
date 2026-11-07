@@ -177,7 +177,7 @@ public sealed unsafe partial class NriDevice
                     throw new NriException(result, "nriCreateDeviceFromVKDevice", recorder.LastError);
                 }
 
-                var device = new NriDevice(handle, messages, allocator, options.Allocator);
+                var device = Adopt(handle, messages, allocator, options.Allocator);
                 recorder.Attach(device);
                 messages = null!;
                 allocator = null;
@@ -254,7 +254,7 @@ public sealed unsafe partial class NriDevice
                     throw new NriException(result, "nriCreateDeviceFromD3D12Device", recorder.LastError);
                 }
 
-                var device = new NriDevice(handle, messages, allocator, options.Allocator);
+                var device = Adopt(handle, messages, allocator, options.Allocator);
                 recorder.Attach(device);
                 messages = null!;
                 allocator = null;

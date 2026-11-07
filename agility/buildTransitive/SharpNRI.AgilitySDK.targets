@@ -1,0 +1,52 @@
+<Project>
+
+  <!--
+    SharpNRI.AgilitySDK: the D3D12 Agility SDK runtime NRI was built against, copied from Microsoft's
+    Microsoft.Direct3D.D3D12 package (which this package depends on at that exact version, so the
+    application restores it under Microsoft's licence) into AgilitySDK\ beside the application, where
+    SharpNRI looks by default (NriDeviceOptions.D3D12AgilitySdkPath = null). This package carries no
+    Microsoft file.
+
+      SharpNRIAgilityDebugLayer   true copies d3d12SDKLayers.dll too (the debug layer, for graphics-API
+                                  validation); default true in Debug, false otherwise
+
+    A restored Microsoft.Direct3D.D3D12 of another version fails the build (SHARPNRI011): NRI loads the
+    runtime through the SDK version it was compiled against, and any other runtime fails every D3D12
+    device creation with INVALID_SDK. The application also gets the runtime switch
+    SharpNRI.RequireAgilitySdk, so a missing AgilitySDK\ at run time is an error instead of a silent
+    fallback to the inbox runtime. Values written at pack time: SharpNRI.AgilitySDK.props.
+  -->
+
+  <PropertyGroup>
+    <SharpNRIAgilityDebugLayer Condition="'$(SharpNRIAgilityDebugLayer)' == '' and '$(Configuration)' == 'Debug'">true</SharpNRIAgilityDebugLayer>
+    <!-- Windows RIDs and portable builds; a RID-specific build for another OS copies nothing -->
+    <_SharpNRIAgilityApplies Condition="'$(RuntimeIdentifier)' == '' or $(RuntimeIdentifier.StartsWith('win'))">true</_SharpNRIAgilityApplies>
+    <_SharpNRIAgilityArch>x64</_SharpNRIAgilityArch>
+    <_SharpNRIAgilityArch Condition="$(RuntimeIdentifier.EndsWith('-arm64'))">arm64</_SharpNRIAgilityArch>
+    <!-- The Microsoft.Direct3D.D3D12 version NuGet resolved, as project.assets.json records it -->
+    <_SharpNRIAgilityAssets Condition="'$(ProjectAssetsFile)' != '' and Exists('$(ProjectAssetsFile)')">$([System.IO.File]::ReadAllText('$(ProjectAssetsFile)'))</_SharpNRIAgilityAssets>
+    <_SharpNRIAgilityResolved>$([System.Text.RegularExpressions.Regex]::Match($(_SharpNRIAgilityAssets), '"(?i:microsoft\.direct3d\.d3d12)/([^"]+)"').Groups[1].Value)</_SharpNRIAgilityResolved>
+    <_SharpNRIAgilityDir>$([MSBuild]::EnsureTrailingSlash('$(NuGetPackageRoot)'))microsoft.direct3d.d3d12/$(_SharpNRIAgilityResolved.ToLowerInvariant())/build/native/bin/$(_SharpNRIAgilityArch)/</_SharpNRIAgilityDir>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(_SharpNRIAgilityApplies)' == 'true' and '$(_SharpNRIAgilityResolved)' == '$(SharpNRIAgilitySdkVersion)'">
+    <None Include="$(_SharpNRIAgilityDir)D3D12Core.dll" Link="AgilitySDK\D3D12Core.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+    <None Include="$(_SharpNRIAgilityDir)d3d12SDKLayers.dll" Link="AgilitySDK\d3d12SDKLayers.dll" Condition="'$(SharpNRIAgilityDebugLayer)' == 'true'"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(_SharpNRIAgilityApplies)' == 'true'">
+    <RuntimeHostConfigurationOption Include="SharpNRI.RequireAgilitySdk" Value="true" />
+  </ItemGroup>
+
+  <Target Name="SharpNRIAgilityCheck" BeforeTargets="Build" Condition="'$(_SharpNRIAgilityApplies)' == 'true'">
+    <Error Code="SHARPNRI010" Condition="'$(_SharpNRIAgilityResolved)' == ''"
+           Text="SharpNRI.AgilitySDK: Microsoft.Direct3D.D3D12 is not in $(ProjectAssetsFile). Restore the project." />
+    <Error Code="SHARPNRI011" Condition="'$(_SharpNRIAgilityResolved)' != '' and '$(_SharpNRIAgilityResolved)' != '$(SharpNRIAgilitySdkVersion)'"
+           Text="SharpNRI.AgilitySDK: NRI v$(SharpNRIAgilityNriVersion) is built against the Agility SDK $(SharpNRIAgilitySdkVersion), and this project restores Microsoft.Direct3D.D3D12 $(_SharpNRIAgilityResolved). Every D3D12 device creation would fail with INVALID_SDK: reference Microsoft.Direct3D.D3D12 $(SharpNRIAgilitySdkVersion), or drop the explicit reference." />
+    <Error Code="SHARPNRI012" Condition="'$(_SharpNRIAgilityResolved)' == '$(SharpNRIAgilitySdkVersion)' and !Exists('$(_SharpNRIAgilityDir)D3D12Core.dll')"
+           Text="SharpNRI.AgilitySDK: $(_SharpNRIAgilityDir)D3D12Core.dll is missing from the restored Microsoft.Direct3D.D3D12 $(_SharpNRIAgilityResolved)." />
+  </Target>
+
+</Project>

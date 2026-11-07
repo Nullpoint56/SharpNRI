@@ -17,12 +17,15 @@ public partial struct RasterizationDesc
     [NativeTypeName("bool")]
     public byte depthClamp;
 
+    /// <summary>requires "features.lineSmoothing"</summary>
     [NativeTypeName("bool")]
     public byte lineSmoothing;
 
+    /// <summary>requires "tiers.conservativeRaster != 0"</summary>
     [NativeTypeName("bool")]
     public byte conservativeRaster;
 
+    /// <summary>requires "tiers.shadingRate != 0", expects "CmdSetShadingRate" and optionally "RenderingDesc::shadingRate"</summary>
     [NativeTypeName("bool")]
     public byte shadingRate;
 }

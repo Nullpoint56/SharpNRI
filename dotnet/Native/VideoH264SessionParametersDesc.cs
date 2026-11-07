@@ -14,9 +14,11 @@ public unsafe partial struct VideoH264SessionParametersDesc
     [NativeTypeName("uint32_t")]
     public uint pictureParameterSetNum;
 
+    /// <summary>defaults to "sequenceParameterSetNum"</summary>
     [NativeTypeName("uint32_t")]
     public uint maxSequenceParameterSetNum;
 
+    /// <summary>defaults to "pictureParameterSetNum"</summary>
     [NativeTypeName("uint32_t")]
     public uint maxPictureParameterSetNum;
 }

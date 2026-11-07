@@ -5,6 +5,7 @@ public unsafe partial struct BuildBottomLevelAccelerationStructureDesc
     [NativeTypeName("nri::AccelerationStructure *")]
     public AccelerationStructure* dst;
 
+    /// <summary>implies "update" instead of "build" if provided (requires "ALLOW_UPDATE")</summary>
     [NativeTypeName("const AccelerationStructure *")]
     public AccelerationStructure* src;
 

@@ -8,6 +8,7 @@ public unsafe partial struct MemoryVKDesc
     [NativeTypeName("uint64_t")]
     public ulong offset;
 
+    /// <summary>at "offset"</summary>
     public void* mappedMemory;
 
     [NativeTypeName("uint64_t")]

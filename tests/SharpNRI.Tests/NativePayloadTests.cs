@@ -182,26 +182,16 @@ public sealed class NativePayloadTests
     [AgilityFact]
     public void Agility_is_exactly_the_contract() => AssertExactly(Dir("runtimes-agility"), Agility[Rid]);
 
-    // What each NRI.dll loads with it: the system, the VC++ runtime (required, not shipped) and the
-    // UCRT, nothing else. A load-time import of a vendor runtime would make the whole library fail
-    // to load on a machine without it. d3d12.dll and dxgi.dll are delay-loaded in both variants
-    // (tools/cmake/delayload.cmake), so a Vulkan-only process never loads them
+    // What each NRI.dll loads with it: the system, nothing else. The C and C++ runtime are linked
+    // statically (build-native.ps1, CMAKE_MSVC_RUNTIME_LIBRARY), so neither the VC++ redistributable
+    // nor the UCRT sets are imported. A load-time import of a vendor runtime would make the whole
+    // library fail to load on a machine without it. d3d12.dll and dxgi.dll are delay-loaded in both
+    // variants (tools/cmake/delayload.cmake), so a Vulkan-only process never loads them
     // (AdapterEnumerationTests); libxess.dll is delay-loaded in Upscalers.
     private static readonly string[] LoadTimeImports =
     [
         "KERNEL32.dll",
         "USER32.dll",
-        "MSVCP140.dll",
-        "VCRUNTIME140.dll",
-        "VCRUNTIME140_1.dll",
-        "api-ms-win-crt-string-l1-1-0.dll",
-        "api-ms-win-crt-heap-l1-1-0.dll",
-        "api-ms-win-crt-utility-l1-1-0.dll",
-        "api-ms-win-crt-environment-l1-1-0.dll",
-        "api-ms-win-crt-convert-l1-1-0.dll",
-        "api-ms-win-crt-stdio-l1-1-0.dll",
-        "api-ms-win-crt-math-l1-1-0.dll",
-        "api-ms-win-crt-runtime-l1-1-0.dll",
     ];
 
     private static readonly string[] BaseDelayLoaded = ["d3d12.dll", "dxgi.dll"];

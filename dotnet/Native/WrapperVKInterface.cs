@@ -1,5 +1,6 @@
 namespace SharpNRI.Native;
 
+/// <summary>Threadsafe: yes</summary>
 public unsafe partial struct WrapperVKInterface
 {
     [NativeTypeName("Result (*)(Device &, const CommandAllocatorVKDesc &, CommandAllocator *&) __attribute__((stdcall))")]

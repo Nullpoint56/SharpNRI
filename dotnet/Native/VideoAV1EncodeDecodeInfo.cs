@@ -4,6 +4,7 @@ namespace SharpNRI.Native;
 
 public partial struct VideoAV1EncodeDecodeInfo
 {
+    /// <summary>offset relative to VideoEncodeFeedback::encodedBitstreamOffset</summary>
     [NativeTypeName("uint64_t")]
     public ulong bitstreamOffset;
 
@@ -34,6 +35,7 @@ public partial struct VideoAV1EncodeDecodeInfo
     [NativeTypeName("uint16_t[64]")]
     public _heightInSuperblocksMinus1_e__FixedBuffer heightInSuperblocksMinus1;
 
+    /// <summary>7 named entries, then a NONE entry for every other valid reference frame map entry</summary>
     [NativeTypeName("VideoAV1ReferenceDesc[15]")]
     public _references_e__FixedBuffer references;
 
@@ -55,9 +57,11 @@ public partial struct VideoAV1EncodeDecodeInfo
     [NativeTypeName("nri::VideoAV1GlobalMotionDesc")]
     public VideoAV1GlobalMotionDesc globalMotion;
 
+    /// <summary>resolved parameters ("load_grain_params" applied)</summary>
     [NativeTypeName("nri::VideoAV1FilmGrainDesc")]
     public VideoAV1FilmGrainDesc filmGrain;
 
+    /// <summary>store into "savedFrameStates[i]" for every slot "i" in "picture.refreshFrameFlags"</summary>
     [NativeTypeName("nri::VideoAV1SavedFrameState")]
     public VideoAV1SavedFrameState savedFrameState;
 

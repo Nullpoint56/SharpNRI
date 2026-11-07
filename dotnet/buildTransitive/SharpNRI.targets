@@ -1,0 +1,22 @@
+<Project>
+
+  <!--
+    SharpNRI: the licences of what the native NRI library contains (NRI, VMA, D3D12MA, NVAPI, AGS,
+    Vulkan-Headers, NVTX, the Agility SDK headers) and THIRD-PARTY-NOTICES.md, copied beside the
+    application to licenses\SharpNRI\<rid>\, folders kept: an application that ships NRI's library
+    ships its notices. A RID-specific build or publish gets its RID's, a portable one every packed RID's.
+    The package keeps them out of runtimes/<rid>/native/, which NuGet copies flat.
+
+      SharpNRICopyLicenses   false copies none (the application handles the notices itself)
+  -->
+
+  <ItemGroup Condition="'$(SharpNRICopyLicenses)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)..\licenses\**\*" Condition="'$(RuntimeIdentifier)' == ''"
+          Link="licenses\SharpNRI\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\licenses\$(RuntimeIdentifier)\**\*" Condition="'$(RuntimeIdentifier)' != ''"
+          Link="licenses\SharpNRI\$(RuntimeIdentifier)\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+  </ItemGroup>
+
+</Project>

@@ -29,6 +29,7 @@ public partial struct VideoEncodeFeedback
     [NativeTypeName("uint64_t")]
     public ulong writtenSubregionNum;
 
+    /// <summary>offset of valid encoded data relative to VideoEncodeDesc::dstBitstream.offset</summary>
     [NativeTypeName("uint64_t")]
     public ulong encodedBitstreamOffset;
 }

@@ -44,6 +44,8 @@ jobs:
       statuses: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # descs-version.ps1 diffs against the commit the published SharpNRI.Descs came from
 
       - name: Mark lint pending
         env:
@@ -60,6 +62,11 @@ jobs:
 
       - name: Formatting
         run: dotnet format whitespace SharpNRI.slnx --exclude dotnet/Native --verify-no-changes --verbosity diagnostic
+
+      # The descs changed since the published SharpNRI.Descs version without a new version (AGENTS.md: Versions)
+      - name: SharpNRI.Descs version
+        shell: pwsh
+        run: ./tools/ci/descs-version.ps1
 
       - name: Post lint
         if: always()

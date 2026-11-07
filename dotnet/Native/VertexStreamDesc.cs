@@ -8,6 +8,7 @@ public partial struct VertexStreamDesc
     [NativeTypeName("nri::VertexStreamStepRate")]
     public VertexStreamStepRate stepRate;
 
+    /// <summary>fallback if "features.extendedDynamicState" is not supported</summary>
     [NativeTypeName("uint16_t")]
     public ushort stride;
 }

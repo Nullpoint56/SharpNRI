@@ -2,6 +2,7 @@ namespace SharpNRI.Native;
 
 public partial struct Window
 {
+    /// <summary>Only one entity must be initialized</summary>
     [NativeTypeName("nri::WindowsWindow")]
     public WindowsWindow windows;
 

@@ -8,6 +8,7 @@ public partial struct VideoH264SequenceParameterSetDesc
     [NativeTypeName("uint8_t")]
     public byte profileIdc;
 
+    /// <summary>"level_idc" as coded in the bitstream: 10 times the level number (e.g. 41 = level 4.1), level 1b is not supported</summary>
     [NativeTypeName("uint8_t")]
     public byte levelIdc;
 
@@ -47,12 +48,14 @@ public partial struct VideoH264SequenceParameterSetDesc
     [NativeTypeName("uint16_t")]
     public ushort pictureHeightInMapUnitsMinus1;
 
+    /// <summary>used with "FRAME_CROPPING", in "CropUnitX" units (2 luma samples for 4:2:0)</summary>
     [NativeTypeName("uint16_t")]
     public ushort frameCropLeftOffset;
 
     [NativeTypeName("uint16_t")]
     public ushort frameCropRightOffset;
 
+    /// <summary>used with "FRAME_CROPPING", in "CropUnitY" units (2 luma samples for 4:2:0 progressive)</summary>
     [NativeTypeName("uint16_t")]
     public ushort frameCropTopOffset;
 

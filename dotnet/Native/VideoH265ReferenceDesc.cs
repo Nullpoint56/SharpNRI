@@ -14,6 +14,7 @@ public partial struct VideoH265ReferenceDesc
     [NativeTypeName("nri::VideoFrameType")]
     public VideoFrameType frameType;
 
+    /// <summary>decode only, encode supports short-term references only</summary>
     [NativeTypeName("uint8_t")]
     public byte longTerm;
 

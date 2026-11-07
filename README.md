@@ -39,7 +39,7 @@ dotnet add package SharpNRI --prerelease
 ```
 
 ```xml
-<PackageReference Include="SharpNRI" Version="1.0.0-beta.2" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.3" />
 ```
 
 Each [release](https://github.com/Nullpoint56/SharpNRI/releases) also carries the same `.nupkg`
@@ -48,18 +48,19 @@ files, for a local folder feed.
 | Package | What it is |
 |---|---|
 | `SharpNRI` | the binding and the native NRI library (Windows x64, Linux x64) |
-| `SharpNRI.Descs` | every NRI enum and desc struct, with no native code: for code that builds layouts and descs without a device |
+| `SharpNRI.Descs` | every NRI enum and desc struct, with no native code: for code that builds layouts and descs without a device. Versioned by NRI (`191.x` is NRI v191), new only when the descs change |
 | `SharpNRI.Testing` | a validated headless device per backend, for your own GPU tests |
-| `SharpNRI.Native.Upscalers` | NRI built with its upscalers (NIS, FSR, XeSS), replacing the library in `SharpNRI`: reference it with `ExcludeAssets="native"` on `SharpNRI` |
+| `SharpNRI.Native.Upscalers` | NRI built with its upscalers (NIS, FSR, XeSS), replacing the library in `SharpNRI`: reference it, nothing else |
+| `SharpNRI.AgilitySDK` | build targets that copy Microsoft's D3D12 Agility SDK runtime at NRI's version into `AgilitySDK\` and fail the build on another version; your restore takes Microsoft's package |
 
-No package ships a vendor upscaler runtime or Microsoft's Agility SDK; the guide's
+No package ships a vendor upscaler runtime or a Microsoft file; the guide's
 [Packages and install](docs/guide.md#packages-and-install) shows how an application adds them.
 
 ## Platforms
 
 | Platform | Backends | Notes |
 |---|---|---|
-| Windows x64 | D3D12, Vulkan | needs the Visual C++ 2015-2022 runtime |
+| Windows x64 | D3D12, Vulkan | no Visual C++ runtime needed (static) |
 | Linux x64 | Vulkan | needs the Vulkan loader (`libvulkan1`) |
 | macOS arm64 | Vulkan through MoltenVK | the native library is a release attachment (`SharpNRI-native-base-osx-arm64-<tag>.zip`) when a macOS build ran, not part of the packages; needs macOS 15+, the Vulkan loader and MoltenVK |
 

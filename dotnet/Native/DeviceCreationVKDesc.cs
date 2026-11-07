@@ -14,6 +14,7 @@ public unsafe partial struct DeviceCreationVKDesc
     [NativeTypeName("nri::VKBindingOffsets")]
     public VKBindingOffsets vkBindingOffsets;
 
+    /// <summary>enabled</summary>
     [NativeTypeName("nri::VKExtensions")]
     public VKExtensions vkExtensions;
 
@@ -32,12 +33,15 @@ public unsafe partial struct DeviceCreationVKDesc
     [NativeTypeName("uint32_t")]
     public uint queueFamilyNum;
 
+    /// <summary>&gt;= 2</summary>
     [NativeTypeName("uint8_t")]
     public byte minorVersion;
 
+    /// <summary>Switches (disabled by default)</summary>
     [NativeTypeName("bool")]
     public byte enableNRIValidation;
 
+    /// <summary>page-clears are fast, but memory is not cleared by default in VK</summary>
     [NativeTypeName("bool")]
     public byte enableMemoryZeroInitialization;
 }

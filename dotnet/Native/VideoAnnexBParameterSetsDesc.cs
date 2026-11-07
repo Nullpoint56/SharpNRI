@@ -20,6 +20,7 @@ public unsafe partial struct VideoAnnexBParameterSetsDesc
     [NativeTypeName("const VideoH265PictureParameterSetDesc *")]
     public VideoH265PictureParameterSetDesc* h265Pps;
 
+    /// <summary>if null, only "writtenSize" is returned</summary>
     [NativeTypeName("uint8_t *")]
     public byte* dst;
 

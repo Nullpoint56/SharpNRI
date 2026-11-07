@@ -1,5 +1,6 @@
 namespace SharpNRI.Native;
 
+/// <summary>Callbacks must be thread safe</summary>
 public unsafe partial struct AllocationCallbacks
 {
     [NativeTypeName("void *(*)(void *, size_t, size_t) __attribute__((stdcall))")]
@@ -13,6 +14,7 @@ public unsafe partial struct AllocationCallbacks
 
     public void* userArg;
 
+    /// <summary>to use "AllocationCallbacks" only for NRI needs</summary>
     [NativeTypeName("bool")]
     public byte disable3rdPartyAllocationCallbacks;
 }

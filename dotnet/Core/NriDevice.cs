@@ -50,6 +50,7 @@ public sealed unsafe partial class NriDevice : NriObject
     public static NriDevice Create(NriDeviceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        var agilitySdkPath = ResolveAgilitySdkPath(options); // may refuse: before anything needs disposing
 
         var recorder = new ErrorRecorder(options.MessageHandler);
         var messages = new MessageBridge(recorder.Handle, options.BreakOnError);
@@ -60,7 +61,7 @@ public sealed unsafe partial class NriDevice : NriObject
         var pins = new List<GCHandle>();
         using var instanceExtensions = new Utf8.StringArray(options.VkInstanceExtensions);
         using var deviceExtensions = new Utf8.StringArray(options.VkDeviceExtensions);
-        using var agilityPath = new Utf8.Scoped(ResolveAgilitySdkPath(options));
+        using var agilityPath = new Utf8.Scoped(agilitySdkPath);
 
         try
         {
@@ -122,7 +123,7 @@ public sealed unsafe partial class NriDevice : NriObject
                     throw new NriException(result, "nriCreateDevice", recorder.LastError);
                 }
 
-                var device = new NriDevice(handle, messages, allocator, options.Allocator);
+                var device = Adopt(handle, messages, allocator, options.Allocator);
                 recorder.Attach(device);
                 messages = null!;
                 allocator = null;
@@ -142,6 +143,36 @@ public sealed unsafe partial class NriDevice : NriObject
         }
     }
 
+    // Takes over a device NRI just created: acquires its tables and holds its NRI version to the
+    // binding's (Interop/NriVersionCheck.cs). On any failure the native device is destroyed here,
+    // before the caller's catch disposes the bridges it calls into.
+    private static NriDevice Adopt(Device* handle, MessageBridge messages, AllocatorBridge? allocator, INriAllocator? allocatorInstance)
+    {
+        NriDevice device;
+        try
+        {
+            device = new NriDevice(handle, messages, allocator, allocatorInstance);
+        }
+        catch (NriException e) when (e.Result == Result.INVALID_ARGUMENT)
+        {
+            // nriGetInterface refuses a table of another size: a library of another NRI version
+            NriApi.nriDestroyDevice(handle);
+            throw NriVersionCheck.TableMismatch(e);
+        }
+        catch
+        {
+            NriApi.nriDestroyDevice(handle);
+            throw;
+        }
+
+        if (NriVersionCheck.Mismatch(device._desc.nriVersion) is { } mismatch)
+        {
+            NriApi.nriDestroyDevice(handle);
+            throw mismatch;
+        }
+        return device;
+    }
+
     /// <summary>The directory the native package stages the Agility SDK into, when present.</summary>
     public static string? DefaultAgilitySdkPath
     {
@@ -153,12 +184,24 @@ public sealed unsafe partial class NriDevice : NriObject
         }
     }
 
-    private static string? ResolveAgilitySdkPath(NriDeviceOptions options)
+    /// <summary>
+    /// The runtime switch the SharpNRI.AgilitySDK package sets: the application ships the Agility SDK,
+    /// so a missing <c>AgilitySDK</c> directory is an error, not a fall back to the inbox runtime.
+    /// </summary>
+    internal const string RequireAgilitySdkSwitch = "SharpNRI.RequireAgilitySdk";
+
+    private static string? ResolveAgilitySdkPath(NriDeviceOptions options) =>
+        ResolveAgilitySdkPath(options, DefaultAgilitySdkPath, AppContext.TryGetSwitch(RequireAgilitySdkSwitch, out var required) && required);
+
+    internal static string? ResolveAgilitySdkPath(NriDeviceOptions options, string? defaultPath, bool required)
     {
         if (options.GraphicsApi != GraphicsAPI.D3D12) return null;
         return options.D3D12AgilitySdkPath switch
         {
-            null => DefaultAgilitySdkPath,
+            null when defaultPath is null && required => throw new NriException(Result.INVALID_SDK, "nriCreateDevice",
+                $"the application references SharpNRI.AgilitySDK ({RequireAgilitySdkSwitch}), but {Path.Combine(AppContext.BaseDirectory, "AgilitySDK", "D3D12Core.dll")} is missing: " +
+                "the build copies it (check the build output for SHARPNRI01x), or pass D3D12AgilitySdkPath = \"\" for the inbox runtime"),
+            null => defaultPath,
             "" => null,
             var explicitPath => explicitPath.EndsWith(Path.DirectorySeparatorChar) || explicitPath.EndsWith('/') ? explicitPath : explicitPath + Path.DirectorySeparatorChar,
         };

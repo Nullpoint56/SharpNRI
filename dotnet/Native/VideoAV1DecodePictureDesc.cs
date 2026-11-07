@@ -40,9 +40,11 @@ public unsafe partial struct VideoAV1DecodePictureDesc
     [NativeTypeName("uint8_t")]
     public byte codedDenom;
 
+    /// <summary>AV1 "interpolation_filter": 0..4 (4 = SWITCHABLE)</summary>
     [NativeTypeName("uint8_t")]
     public byte interpolationFilter;
 
+    /// <summary>AV1 "TxMode": 0..2 (ONLY_4X4, LARGEST, SELECT)</summary>
     [NativeTypeName("uint8_t")]
     public byte txMode;
 
@@ -79,12 +81,15 @@ public unsafe partial struct VideoAV1DecodePictureDesc
     [NativeTypeName("const VideoAV1GlobalMotionDesc *")]
     public VideoAV1GlobalMotionDesc* globalMotion;
 
+    /// <summary>used with "APPLY_GRAIN": resolved parameters ("load_grain_params" applied, e.g. "VideoAV1EncodeDecodeInfo::filmGrain")</summary>
     [NativeTypeName("const VideoAV1FilmGrainDesc *")]
     public VideoAV1FilmGrainDesc* filmGrain;
 
+    /// <summary>8 entries indexed like AV1 "OrderHints[]" by reference frame name: 0 = INTRA_FRAME, 1..7 = LAST..ALTREF; named reference entries are overridden by "references[].orderHint"</summary>
     [NativeTypeName("const uint8_t *")]
     public byte* orderHints;
 
+    /// <summary>"SkipModeFrame[0..1]" used with "SKIP_MODE_PRESENT"</summary>
     [NativeTypeName("VideoAV1ReferenceName[2]")]
     public _skipModeFrames_e__FixedBuffer skipModeFrames;
 

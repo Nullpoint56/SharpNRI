@@ -12,7 +12,8 @@
         pwsh tools/ci/upscaler-runtimes.ps1 runtimes-upscalers/win-x64/upscaler-runtimes.json
 #>
 param(
-    [Parameter(Mandatory)] [string]$Manifest
+    [Parameter(Mandatory)] [string]$Manifest,
+    [string]$AgilitySdk   # the Microsoft.Direct3D.D3D12 version NRI is built against (Directory.Build.props: AgilitySdkVersion)
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,7 @@ if (-not $m.sdks) { throw "$Manifest lists no upscaler SDK" }
 
 "## Bound libraries"
 "- NRI: [v$($m.nri)]($($m.nriUrl))"
+if ($AgilitySdk) { "- Agility SDK: [$AgilitySdk](https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/$AgilitySdk) (restored by the application through SharpNRI.AgilitySDK)" }
 foreach ($s in $m.sdks) {
     $files = @($s.runtimes | ForEach-Object { "``$($_.file)`` $($_.version)" })
     $detail = if ($files.Count) { $files -join ", " } else { $s.note }

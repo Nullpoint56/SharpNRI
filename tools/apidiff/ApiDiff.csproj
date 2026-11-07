@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The release body's "API changes": the public surface of each package's assemblies against the
+    previous release's, read from the .nupkg files with MetadataLoadContext (nothing is loaded or
+    run). Not in SharpNRI.slnx; release.yml's pack job runs it (tools/ci/api-changes.ps1).
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Reflection.MetadataLoadContext" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>

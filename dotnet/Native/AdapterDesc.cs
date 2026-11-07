@@ -7,6 +7,7 @@ public partial struct AdapterDesc
     [NativeTypeName("char[256]")]
     public _name_e__FixedBuffer name;
 
+    /// <summary>"LUID" (preferred) if "uid.high = 0", or "UUID" otherwise</summary>
     [NativeTypeName("nri::Uid_t")]
     public Uid_t uid;
 
@@ -19,9 +20,11 @@ public partial struct AdapterDesc
     [NativeTypeName("uint32_t")]
     public uint deviceId;
 
+    /// <summary>GAPI and OS dependent</summary>
     [NativeTypeName("uint32_t")]
     public uint driverVersion;
 
+    /// <summary>per type; queues of different types may alias the same native queue</summary>
     [NativeTypeName("uint32_t[5]")]
     public _queueNum_e__FixedBuffer queueNum;
 

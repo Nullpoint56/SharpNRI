@@ -27,6 +27,7 @@ integer-versioned, breaks between versions and promises no ABI. .NET 11 / C# 14,
 | `descs/` | `SharpNRI.Descs` project + hand-written managed desc forms that need no device (`NriPipelineLayoutDesc`, `NriShaderDesc`, `NriVertexInputDesc`, `NriWindow`, video descs, `NriQueueFamilyD3D12Desc`) |
 | `testing/` | `SharpNRI.Testing` (`NriTestDevice`) |
 | `native/` | packaging project for `SharpNRI.Native.Upscalers` |
+| `agility/` | packaging project for `SharpNRI.AgilitySDK` (build targets only; Native packages) |
 | `tests/SharpNRI.Tests/` | the suite; `TestDevice.cs` is the thin xunit wrapper over `NriTestDevice` |
 | `tools/` | `build-native.ps1`, `generate-native.ps1`, `compile-test-shaders.ps1`, `ci/`, `cmake/`, `coverage.ps1` + `coverage/` (Coverage), `upscalers.ps1` (Upscalers and vendor runtimes), `consume/` (Native packages) |
 | `runtimes*/`, `_build/`, `_tools/` | build output, git-ignored |
@@ -123,9 +124,10 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
 
 | Package | Staging | win-x64 contents | Built with |
 |---|---|---|---|
-| `SharpNRI` (Base) | `runtimes/<rid>/native/` | `NRI.dll` (1.4 MB), `amd_ags_x64.dll`, licences; 14 files, 1.8 MB | NGX, FFX, XeSS, NIS all OFF explicitly |
-| `SharpNRI.Native.Upscalers` | `runtimes-upscalers/<rid>/native/` | `NRI.dll` (2.7 MB), AGS, licences; 20 files, 3.1 MB | NIS, FFX, XeSS ON, NGX OFF; `libxess.dll` delay-loaded too |
-| (Agility, tests only, never packed) | `runtimes-agility/<rid>/native/AgilitySDK/` | `D3D12Core.dll`, `d3d12SDKLayers.dll`, licence; 3 files, 10.2 MB | staged by either variant on Windows; applications take `Microsoft.Direct3D.D3D12` (guide: Agility SDK) |
+| `SharpNRI` (Base) | `runtimes/<rid>/native/` | `NRI.dll` (1.9 MB, C runtime static), `amd_ags_x64.dll`, licences; 14 files, 2.2 MB | NGX, FFX, XeSS, NIS all OFF explicitly |
+| `SharpNRI.Native.Upscalers` | `runtimes-upscalers/<rid>/native/` | `NRI.dll` (3.4 MB), AGS, licences; 20 files, 3.8 MB | NIS, FFX, XeSS ON, NGX OFF; `libxess.dll` delay-loaded too |
+| (Agility, tests only, never packed) | `runtimes-agility/<rid>/native/AgilitySDK/` | `D3D12Core.dll`, `d3d12SDKLayers.dll`, licence; 3 files, 10.2 MB | staged by either variant on Windows; applications take `SharpNRI.AgilitySDK` (below) |
+| `SharpNRI.AgilitySDK` (targets only) | `agility/buildTransitive/` | no binary: `SharpNRI.AgilitySDK.targets` + a props written at pack time | depends on `Microsoft.Direct3D.D3D12` `[$(AgilitySdkVersion)]` |
 | (`-WithDlss`, never packed) | `runtimes-upscalers-dlss/<rid>/native/` | 21 files, 3.2 MB; NGX static, imports `ADVAPI32.dll` too | NGX ON from `FETCHCONTENT_SOURCE_DIR_NGX` |
 
 - Both NRI builds: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI (static), AGS, debug names,
@@ -138,12 +140,53 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   itself (`cmake_language(DEFER)`) and adds `/DELAYLOAD` + `delayimp.lib` to the NRI target only:
   `d3d12.dll` and `dxgi.dll` always, `libxess.dll` with XeSS (otherwise NRI does not load without
   the XeSS runtime). The script checks with dumpbin and throws when a listed DLL is still a
-  load-time import. So `NRI.dll` loads with the system, the VC++ runtime (required, not shipped) and
-  the UCRT only, and a process that never calls D3D12 or DXGI loads neither. On NRI's creation path
+  load-time import. So `NRI.dll` loads with the system only (`KERNEL32`, `USER32`), and a process that
+  never calls D3D12 or DXGI loads neither. On NRI's creation path
   the first D3D12 call is patch 0001's `D3D12GetInterface`, so Agility still loads (`AgilityTests`).
+- **Static C runtime on Windows** (owner, 2026-11-07, from 1.0.0-beta.3): `build-native.ps1` passes
+  `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>` (and CMP0091 NEW for the
+  dependencies), so no VC++ redistributable or UCRT set is imported; before, a machine without the
+  redistributable failed the first call with `DllNotFoundException`. Measured at v191: Base `NRI.dll`
+  1.5 -> 1.9 MB, Upscalers 2.7 -> 3.4 MB, no linker warning; NRI picks NGX's static-runtime library from
+  the same variable (`-WithDlss`). Every DLL keeps its own heap; NRI frees what it allocates.
+- **`SharpNRI.AgilitySDK`** (from 1.0.0-beta.3; `agility/`): build targets only. The package depends
+  on `Microsoft.Direct3D.D3D12` at `AgilitySdkVersion` (Directory.Build.props; `build-native.ps1`
+  refuses a value other than NRI's `NRI_AGILITY_SDK_VERSION_MAJOR` / `_MINOR`), so the application's
+  restore takes Microsoft's package under Microsoft's licence, and its `buildTransitive` targets copy
+  `build/native/bin/<x64|arm64>/D3D12Core.dll` (plus `d3d12SDKLayers.dll` with
+  `SharpNRIAgilityDebugLayer`, default true in Debug) into `AgilitySDK\` (Windows RIDs and portable
+  builds; publish too, excluded from single-file bundles). The resolved version is read from
+  `project.assets.json`: another one fails with `SHARPNRI011` (an explicit reference overriding the
+  dependency), a missing file with `SHARPNRI012`. The targets also set the runtime switch
+  `SharpNRI.RequireAgilitySdk`: with it `NriDevice.Create` throws `INVALID_SDK` when
+  `AgilitySDK\D3D12Core.dll` is missing instead of falling back to the inbox runtime
+  (`AgilityPathTests`). Microsoft's own targets are in `build/native`, which SDK-style .NET projects
+  never import. No Microsoft file in the package: the licence point under Decisions stands.
 - Base and Upscalers both put `NRI.dll` at the same package path, and NuGet's choice between two
-  packages' same-named assets is not to be relied on: a consumer takes one (`ExcludeAssets="native"`
-  on `SharpNRI` with Upscalers). `NriApi` imports library `NRI` for both.
+  packages' same-named assets is not to be relied on (beta.2: without `ExcludeAssets="native"` on
+  `SharpNRI` the Base library won and the upscalers silently did nothing, reported downstream). From
+  1.0.0-beta.3 `SharpNRI.Native.Upscalers` depends on `SharpNRI` `[v]` and its
+  `buildTransitive/SharpNRI.Native.Upscalers.targets` removes the `SharpNRI` package's native assets
+  after `ResolvePackageAssets` (`NativeCopyLocalItems` for RID builds, `RuntimeTargetsCopyLocalItems`
+  for portable ones and the deps.json), so referencing it alone is enough; `ExcludeAssets` still works.
+  `tools/consume -p:SharpNRIConsumeUpscalers=true` holds it to that (`IsUpscalerSupported(NIS)` on
+  each GPU device, portable and published). `NriApi` imports library `NRI` for both.
+- **Licences outside `runtimes/<rid>/native/`** (from 1.0.0-beta.3). NuGet treats every file under
+  `native/` as a native library and a RID-specific build or publish copies them flat: beta.2's
+  `licenses/<lib>/LICENSE.txt` collided (`dotnet publish -r` failed with NETSDK1152) or overwrote each
+  other and the application's own `LICENSE.txt` (reported downstream). Staging keeps
+  `runtimes/<rid>/native/licenses/`; the packages carry them as `licenses/<rid>/...`, and each
+  package's `buildTransitive` targets copy them to `licenses/<PackageId>/<rid>/` beside the
+  application, folders kept (`SharpNRICopyLicenses=false` copies none). `release.yml`'s pack check
+  refuses any subfolder under `runtimes/<rid>/native/`; the consume job publishes `-r` and Native AOT
+  and checks the layout (`tools/consume`).
+- **A missing NRI library** (`Interop/NativeLibraryHint.cs`, from 1.0.0-beta.3): a
+  `ResolvingUnmanagedDll` handler, which runs only after default probing failed and leaves the
+  assembly's single `DllImport` resolver to applications, throws `DllNotFoundException` naming the
+  file, the RID, the directories looked in and where that platform's library comes from.
+- **Trimming and Native AOT** declared (`IsAotCompatible` on `SharpNRI`, `SharpNRI.Descs`,
+  `SharpNRI.Testing`; the analyzers run in every build, lint fails on a finding) and run by the
+  consume job's AOT publish.
 - In-repo, `dotnet/SharpNRI.csproj` copies `runtimes/<rid>/native` (or, with
   `-p:SharpNRIDevPayload=upscalers` / `upscalers-dlss`, that variant and its vendor runtimes, local
   only and never packed: Upscalers and vendor runtimes) beside `ProjectReference`
@@ -156,14 +199,17 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   (default `nupkg/`), restored into `tools/consume/obj/packages` so the global cache never stands
   in. Prints the loaded NRI path and creates NONE and each available GPU backend's validated device
   with a buffer and a fence; exit 0 only when NONE and one GPU backend worked; on Windows it also
-  takes `Microsoft.Direct3D.D3D12` as the guide says and requires `Using Agility SDK`. The release
-  `consume` job runs it on windows, ubuntu and macos, portable and `-r <rid>`. Locally (win-x64):
+  takes `SharpNRI.AgilitySDK` as the guide says (debug layer on) and requires `Using Agility SDK`. The
+  release `consume` job runs it on windows and ubuntu, portable and `-r <rid>`, and on Windows builds
+  it once more with `-p:SharpNRIAgilityOverride=1.619.6` (an explicit older `Microsoft.Direct3D.D3D12`),
+  which must fail with `SHARPNRI011`. After editing the targets, build with `-nodeReuse:false`: a
+  reused MSBuild node kept evaluating the old file (measured 2026-11-07). Locally (win-x64):
   `dotnet pack SharpNRI.slnx -c Release -o <dir>`, `$env:SHARPNRI_FEED = "<dir>"`, then `dotnet run
   --project tools/consume -c Release [-r win-x64] -p:SharpNRIPackageVersion=<version>`; delete
   `tools/consume/obj` after re-packing the same version.
 - `NativePayloadTests` hold the staged files to an allowlist and the PE import and delay-import
-  tables to exact lists (load-time: `KERNEL32`, `USER32`, `MSVCP140`, `VCRUNTIME140[_1]`, eight UCRT
-  `api-ms-win-crt-*` sets; delay-loaded: `d3d12`, `dxgi`, plus `libxess` in Upscalers).
+  tables to exact lists (load-time: `KERNEL32`, `USER32`; delay-loaded: `d3d12`, `dxgi`, plus `libxess`
+  in Upscalers).
   `NativeExportTests` resolve every `NriApi` `DllImport` with `NativeLibrary.TryGetExport`.
 - **Debugging into the binding** (from 1.0.0-beta.3): `SharpNRI`, `SharpNRI.Descs` and
   `SharpNRI.Testing` carry each portable PDB beside its DLL and name the repository and commit in
@@ -175,7 +221,8 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   `SharpNRI-symbols-<base|upscalers>-win-x64-<tag>.zip` (about 3.6 MB), checked to belong to the staged
   `NRI.dll` (same file, its debug directory names `NRI.pdb`). NRI ships no binaries or symbols itself,
   so a release is the only source of symbols matching its `NRI.dll`. `libNRI.so` and `libNRI.dylib` are
-  built without debug info, so Linux and macOS have none.
+  built without debug info, so Linux and macOS have none; they get symbols only when someone asks
+  (owner, 2026-11-07).
 - Licences that shaped the split: NGX terms attach to `NRI.dll` itself when NGX is linked
   (static), require downstream terms "at least as protective" and forbid stand-alone
   redistribution. The Agility runtime may be redistributed only in applications that bind users to
@@ -375,7 +422,13 @@ Needs the Xcode command-line tools, CMake 3.30+, Ninja, pwsh 7 and the .NET 11 S
   `global.json` has `"test": { "runner": "Microsoft.Testing.Platform" }` (a `dotnet.config` did
   nothing on 11.0.100-rc.1), the test project is an `Exe`, no `Microsoft.NET.Test.Sdk`,
   serialization in `xunit.runner.json`.
-- `SHARPNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) prefers WARP / lavapipe;
+- `SHARPNRI_TEST_SOFTWARE=1` prefers WARP / lavapipe, `=0` hardware; unset it follows
+  `GITHUB_ACTIONS=true` (from 1.0.0-beta.3; before, `0` could not override GitHub). `NriTestDevice`
+  enumerates adapters and probes availability per API on first use: asking about Vulkan creates no
+  D3D12 device (`AdapterEnumerationTests`, child `adapters-testing-vk-probe`), and a Vulkan probe whose
+  layer reports NRI's structures as "unknown VkStructureType" (a layer older than NRI's headers) answers
+  that as the unavailability reason instead of failing every test (downstream Linux CI on Ubuntu's
+  layer);
   `SHARPNRI_TEST_BACKEND=VK` restricts; `SHARPNRI_TRACE=1` prints messages live (the only record
   that survives a native crash).
 - `SHARPNRI_TEST_CHILD=<name>` makes the test executable run one scenario from a
@@ -492,12 +545,26 @@ upstream took the fix (git log, `docs/upstream.md`).
   routes VMA/D3D12MA too; off because it is chatty and the usual reason to supply an allocator is
   accounting NRI's own use.
 - **Versions: 1.0.0-beta.N**, beta while the API may still change. The 0.x alphas and their tags
-  were deleted with the rename from PrismNRI to SharpNRI.
+  were deleted with the rename from PrismNRI to SharpNRI. All in `Directory.Build.props`:
+  `SharpNRIVersion` is the release (tag `v<it>`; `SharpNRI`, `SharpNRI.Testing`,
+  `SharpNRI.Native.Upscalers`, `SharpNRI.AgilitySDK`), `SharpNRIDescsVersion` is `SharpNRI.Descs`'s own
+  (owner, 2026-11-07, from 191.0.0-beta.1): the NRI version as major (a build error, `SHARPNRI004`,
+  otherwise), moved only when the descs change. In lockstep, every SharpNRI release forced a release of
+  every downstream binding pinning the descs exactly, also when the descs had not changed (beta.2's
+  fixes were all in the binding). The pin downstream is still exact per NRI version, by design: enum
+  constants are compiled into the caller. `tools/ci/descs-version.ps1` (the `lint` jobs, the release)
+  fails when `dotnet/Native` (without `NriApi.cs`), `descs/` or `NativeSplit.props` changed since the
+  commit the published version names, and a release reuses an unchanged published package byte for
+  byte. Package dependencies between this repository's packages are exact (`[v]`,
+  `Directory.Build.targets`): NuGet's default minimum let a later `SharpNRI.Descs` stand under an
+  older `SharpNRI`.
 - **Agility by path, through a patch**, and no other D3D12 COM sequence in the binding (GPU-based
   validation, the info-queue break): those are NRI's, and AGS on AMD creates the device inside NRI.
 - **Packages: Base / Upscalers, no vendor or Agility runtimes, DLSS as a build switch.** Licence
   exposure (NGX static terms, Agility terms), payload size (225.6 MB unsplit vs 1.8 MB Base), users
-  swap vendor DLLs.
+  swap vendor DLLs. The Agility runtime reaches applications through `SharpNRI.AgilitySDK`, which
+  ships none of Microsoft's files and makes the application restore Microsoft's package (Native
+  packages); a consumer had to wire that by hand and found a wrong version only at run time.
 - **Oracles, not self-description**:
 
   | Claim | Oracle |
@@ -541,7 +608,11 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   it for the process, CA2211): made `static readonly`. ClangSharp's redundant `using System;` (two
   helper attributes; both projects use implicit usings) and its unused `using static` of
   `GraphicsAPI` in `NriApi.cs` (the one candidate, `ALL` in a default value, resolves to `NriApi`'s
-  own constant) are dropped, so the layer is clean under the lint rules (Lint). All in
+  own constant) are dropped, so the layer is clean under the lint rules (Lint). NRI's header comments
+  become `/// <summary>` on the types and members they describe (`tools/generate-native-docs.ps1`,
+  step 7; from 1.0.0-beta.3; at v191 115 types and 926 of 927 member comments), matched by NRI's names:
+  the comment block above a declaration plus its trailing `//`, whitespace folded, the format table's
+  glyph rows and column legend left out; anonymous unions' members get none. All in
   `tools/generate-native.ps1` only.
 - NRI's headers have no C++ default member initializers (`NriDefault` unused), so generator-dropped
   defaults cannot happen. C `bool` is `byte` with `[NativeTypeName("bool")]`.
@@ -572,6 +643,20 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   `LayerSettingsTests` (NVIDIA and lavapipe): `validate_best_practices` = `VK_TRUE` gives the
   committed 64 KiB buffer's `BestPractices-vkBindBufferMemory-small-dedicated-allocation` warning, a
   device without it does not; no `VK_EXT_layer_settings` needed; runs on Linux too.
+- **NRI version guard** (from 1.0.0-beta.3; `Interop/NriVersionCheck.cs`). NRI exports nothing that
+  states its version before a device exists, so every creation path (`NriDevice.Create`, the two
+  wrapped forms) takes the new device through `Adopt`: a table `nriGetInterface` refuses by size, a
+  `DeviceDesc::nriVersion` other than SharpNRI's `NriVersion` metadata, or a loaded `SharpNRI.Descs`
+  whose `NriVersion` metadata differs destroys the native device (before the bridges) and throws
+  `NriException` `INVALID_SDK` naming both versions and the loaded library's path. A stale `NRI.dll`
+  of another tag on the load path otherwise misread every renumbered enum silently (v191 renumbered
+  `StageBits` / `AccessBits`). Blind on `next` between tags: main keeps its `NRI_VERSION` while enums
+  move (Branches). `VersionCheckTests` overrides the expected native or descs version for the
+  creating thread and checks the refusal, the message and that the allocator ends at 0 live
+  allocations; the table diagnosis is checked on a real `nriGetInterface` size refusal. Not run by any
+  test: `Adopt` catching a constructor failure (it needs a library of another version on the load
+  path), and the missing-library handler firing for real (NRI is loaded in the test process; its
+  `Resolve` is called directly, and the throw reaching the caller was checked by hand, 2026-11-07).
 - **Null `AbortExecution` kills the process.** NRI's default handler calls `DebugBreak()` for every
   report with a positive result, i.e. every ERROR except `DEVICE_LOST`, `OUT_OF_DATE`,
   `INVALID_SDK`: without a debugger, exit `0x80000003` before the call returns (a vanished test
@@ -1342,6 +1427,14 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   D3D12 reports both. Header: buffers "follow D3D12: ownership transfers are only needed to or from
   an external user"; "After an FD import takes ownership, clear `SharedHandle` instead of
   destroying it"; "FD 0 is valid". D3D11, WGPU and Metal answer `UNSUPPORTED` for `shared`.
+- **Probing what exports: the Try forms.** `TryCreateSharedFence`, `TryCreateSharedBinaryFence`,
+  `TryCreateSharedBuffer`, `TryCreateSharedTexture` answer false (and clear the reported text) for
+  `UNSUPPORTED`, throw for anything else (`SharedHandleTests`). No feature bit predicts those
+  refusals (UNSUPPORTED without a capability, below): `features.sharedFences` is true when a timeline
+  *or* a binary semaphore exports (`DeviceVK.hpp:1700`), D3D12 reports it while a binary fence is
+  always `UNSUPPORTED` (`FenceD3D12.hpp:11`), and Vulkan asks the driver per buffer usage and per
+  image format, usage, size, mips, layers and samples. Their `false` answer is measured for the D3D12
+  binary fence only: no adapter here (NVIDIA, WARP, lavapipe) refuses a buffer or texture export.
 - **`NriSharedHandle`** captures the device's `DestroySharedHandle` and calls it once on `Dispose`;
   it may outlive its device (`InteropTests.A_shared_handle_outlives_its_device_and_still_closes`).
   Released, it reads as the cleared struct (`Handle` 0, `Type` `NONE`, `Size` 0). `Detach()` gives
@@ -1561,6 +1654,35 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   `UNKNOWN` for the 52 block-compressed ones); VK 125 `X8_D24` -> `D24_UNORM_S8_UINT` is one-way.
   BC1 RGB (131, 132) stay `UNKNOWN`: NRI has only BC1 RGBA.
 
+### UNSUPPORTED without a capability
+
+Audited 2026-11-07 on v191 + patches (`Source/VK`, `Source/D3D12`, `Source/Shared`): the paths where a
+call validation accepted returns `UNSUPPORTED` and no `DeviceDesc` field, `GetFormatSupport` or query
+says so first. Shared objects are covered by the Try forms (Shared handles); the rest is documented
+here and in the guide (Traps).
+
+| Call | Backend | Condition | Message |
+|---|---|---|---|
+| shared `CreateCommittedBuffer` / `Texture`, shared `CreateFence` | VK; D3D12 binary fence | export refused by the driver (`BufferVK.hpp:44`, `TextureVK.hpp:53, 61`, `FenceVK.hpp:22`); D3D12 has no binary fence (`FenceD3D12.hpp:11`) | silent; `Try*` forms |
+| `CreateUpscaler` FSR / XeSS | VK, D3D12 | the runtime or driver refuses (`FFX_API_RETURN_NO_PROVIDER`, `XESS_RESULT_ERROR_UNSUPPORTED*`; `UpscalerInterface.hpp:216, 382`); `IsUpscalerSupported` answers what is compiled in | ERROR (patch 0049) |
+| `CreateUpscaler` NIS | all | without `shaderFeatures.storageWriteWithoutFormat`, an output format other than `RGBA8_UNORM`, `RGBA16_SFLOAT`, `RGBA32_SFLOAT` (`UpscalerInterface.hpp:59-72, 868`) | silent |
+| `GetVideoAV1EncodeDecodeInfo` | VK / D3D12 | VK needs the payload header, D3D12 refuses it (`VideoSessionVK.hpp:487`, `VideoSessionD3D12.hpp:148`; Extensions) | silent |
+| `WriteVideoAnnexBParameterSets` | all | H.264 outside the High profiles or with `TRANSFORM_8X8_MODE`; H.265 with reference sets, long-term references, VUI, scaling lists or tiles (`SharedVideo.h:205, 538`) | silent |
+| `CreateVideoSessionParameters` | VK | AV1 encode whose sequence header the driver overrides (`VideoSessionParametersVK.hpp:700`) | ERROR |
+| `CreateVideoSession` | VK | no memory type for a session memory requirement (`VideoSessionVK.hpp:672`) | silent |
+| `QueryVideoMemoryInfo` | VK | no `VK_EXT_memory_budget` (`DeviceVK.hpp:3241`) | silent |
+| `nriReportDeviceLostInfo` | VK | no `deviceFault` (`DeviceVK.hpp:2619`) | silent |
+| `GetDisplayDesc` | VK on Linux / macOS | no D3D backend compiled: 80-nit defaults filled (`SharedExternal.h:763`) | silent |
+| `WaitForPresent` | D3D12 | a swap chain below `IDXGISwapChain2` while `waitableSwapChain` is 1 (`SwapChainD3D12.hpp:200`; never seen) | silent |
+| any call with a native result | VK, D3D12 | `VK_ERROR_FORMAT_NOT_SUPPORTED`, `..._NATIVE_WINDOW_IN_USE_KHR` and the other "not supported" codes (`ConversionVK.h:540-551`), `DXGI_ERROR_UNSUPPORTED` (`SharedExternal.hpp:268`) | ERROR |
+
+Also found: Vulkan's `GetVideoCapabilities` reports an ERROR when the driver refuses a profile
+while probing (`VideoSessionVK.hpp:271`); with validation on, a micromap below `tiers.rayTracing` 3 is
+`INVALID_ARGUMENT` and `WaitForPresent` without `WAITABLE` is `FAILURE` (the backends' `UNSUPPORTED`
+only without validation); validation answers `UNSUPPORTED` itself for the shared features,
+`HOST_COPY`, DXIL, descriptor heaps, `maxReferenceNum`, the upscaler type and an Annex-B codec. No
+query pool returns `UNSUPPORTED`.
+
 ### Tests and skips
 
 - Skip strings name the capability: feature bit, extension, file. The exceptions quote a measured
@@ -1632,7 +1754,7 @@ have no intermittent failures. Both were test defects, not driver bugs.
 
 - `.github/workflows/ci.yml`: `gate` (Linux, seconds), then `win-x64` (WARP + NONE), `linux-x64`
   (lavapipe, stock 1.3 loader, 1.4.363 layer, `ubuntu-24.04`), `osx-arm64` (MoltenVK; opt-in, below),
-  `lint` (Linux, no native payload: analyzers as errors and the formatter; Lint) and `zero-alloc`
+  `lint` (Linux, no native payload: analyzers as errors, the formatter and the `SharpNRI.Descs` version; Lint, Versions) and `zero-alloc`
   (Linux, after `linux-x64`, whose cached payload it restores: the allocation classes on NONE and
   lavapipe; Lifetime). `regen.yml`
   is the ClangSharp drift check, run only when `nri`, `patches/`, the generator, `dotnet/Native/` or
@@ -1718,7 +1840,15 @@ minutes and a Windows minute about two. That shapes the runs:
   the owner's approval and admits `master` only. A version on NuGet.org is permanent (unlisting only
   hides it), so a failure after the push means a new version. Releases only: no CI or merge build is
   published there. Each package carries `docs/nuget/README.md` (absolute links), which the
-  `pack` job requires.
+  `pack` job requires. `SharpNRI.Descs` is pushed only when its version is new: an unchanged published
+  one is downloaded in `pack` and reused (Versions under Decisions), and `--skip-duplicate` skips it.
+  `tools/ci/api-changes.ps1` (in `pack`) writes the body's "API changes": `tools/apidiff`
+  (MetadataLoadContext, not in the solution) lists each package's public types and members with
+  signatures and values against the previous SharpNRI version on NuGet.org and its SharpNRI.Descs,
+  removed / changed / added, mechanically; NRI's own changelog is not repeated (owner, 2026-11-07:
+  consumers need what changed in our API, not why). The `pack` check also holds the packages to their exact dependencies and `SharpNRI`'s description
+  to the platforms packed (`SharpNRIPackageDescription`, built from the staged libraries; beta.2
+  claimed macOS arm64 and said "Alpha").
 - **apt without an up-front refresh**: packages install from the runner image's lists; only an
   install that fails on a stale list runs `apt-get update` and retries (the unconditional refresh
   alone took minutes on a slow mirror, 2026-11-06). Test packages (`libvulkan1`,

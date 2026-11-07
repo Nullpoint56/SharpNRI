@@ -35,5 +35,6 @@ public enum VideoAV1PictureBits : uint
     USES_CHROMA_LR = (1U << (27)),
     SHOW_FRAME = (1U << (28)),
     SHOWABLE_FRAME = (1U << (29)),
+    /// <summary>decode: requires "VideoSessionDesc::av1FilmGrain"</summary>
     APPLY_GRAIN = (1U << (30)),
 }

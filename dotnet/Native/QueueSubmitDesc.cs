@@ -20,9 +20,11 @@ public unsafe partial struct QueueSubmitDesc
     [NativeTypeName("uint32_t")]
     public uint signalFenceNum;
 
+    /// <summary>Required if "NRILowLatency" is enabled for the swap chain</summary>
     [NativeTypeName("const SwapChain *")]
     public SwapChain* swapChain;
 
+    /// <summary>must match the value passed to "QueuePresent" for the frame</summary>
     [NativeTypeName("uint64_t")]
     public ulong presentId;
 }

@@ -27,6 +27,7 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
     private const string ChildVulkanOnly = "adapters-vk-only";
     private const string ChildAll = "adapters-all";
     private const string ChildLoader = "adapters-vk-loader";
+    private const string ChildTestingProbe = "adapters-testing-vk-probe";
     private static readonly string[] D3DModules = ["d3d12.dll", "dxgi.dll", "D3D12Core.dll"];
 
     /// <summary>
@@ -68,6 +69,48 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
         }
         Assert.False(Has(loader, "after a Vulkan instance with no NRI", "d3d12.dll"), "a bare Vulkan instance loads d3d12.dll: the Vulkan-only child cannot show that NRI does not");
         Assert.False(Has(loader, "after a Vulkan instance with no NRI", "D3D12Core.dll"), "a bare Vulkan instance loads D3D12Core.dll: the Vulkan-only child cannot show that NRI does not");
+    }
+
+    /// <summary>
+    /// SharpNRI.Testing asked whether Vulkan is available enumerates Vulkan only and creates only the
+    /// Vulkan probe device: d3d12.dll and D3D12Core.dll stay unloaded (the probe used to enumerate
+    /// every backend, which creates D3D12 devices, and to probe D3D12 as well).
+    /// </summary>
+    [Fact]
+    public void SharpNRI_Testing_probing_Vulkan_loads_no_D3D12_module()
+    {
+        TestDevice.RequireAvailable(new Backend(GraphicsAPI.VK));
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "d3d12.dll and D3D12Core.dll are Windows DLLs");
+        var probe = RunChild(ChildTestingProbe);
+        foreach (var line in probe.Where(l => l.StartsWith("RESULT ", StringComparison.Ordinal))) GpuWork.Record(line);
+        var modules = probe.Single(l => l.StartsWith("RESULT modules after the Vulkan probe: ", StringComparison.Ordinal))["RESULT modules after the Vulkan probe: ".Length..].Split(", ");
+        Assert.DoesNotContain("d3d12.dll", modules, StringComparer.OrdinalIgnoreCase);
+        Assert.DoesNotContain("D3D12Core.dll", modules, StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(null, null, false)]
+    [InlineData(null, "true", true)]
+    [InlineData("1", null, true)]
+    [InlineData("true", null, true)]
+    [InlineData("0", "true", false)]
+    [InlineData("false", "true", false)]
+    [InlineData(" FALSE ", "true", false)]
+    public void SHARPNRI_TEST_SOFTWARE_decides_and_GitHub_Actions_is_only_the_default(string? software, string? githubActions, bool expected) =>
+        Assert.Equal(expected, SharpNRI.Testing.NriTestDevice.PreferSoftwareFrom(software, githubActions));
+
+    /// <summary>The probe's reason for a validation layer older than NRI's Vulkan headers, from the message it reports.</summary>
+    [Fact]
+    public void A_validation_layer_that_reports_NRI_structures_as_unknown_is_a_reason_not_a_failure()
+    {
+        var stale = new NriMessage(Message.ERROR, null, 0,
+            "vkCreateDevice(): pCreateInfo->pNext chain includes a structure with unknown VkStructureType (1000620000); Allowed structures are [...]. This error is based on the Valid Usage documentation for version 275 of the Vulkan header.");
+        var reason = SharpNRI.Testing.NriTestDevice.StaleValidationLayer([stale]);
+        Assert.NotNull(reason);
+        Assert.Contains("older than the Vulkan headers NRI was built with", reason, StringComparison.Ordinal);
+        Assert.Contains("1000620000", reason, StringComparison.Ordinal);
+        Assert.Null(SharpNRI.Testing.NriTestDevice.StaleValidationLayer([new NriMessage(Message.ERROR, null, 0, "VUID-vkCmdDraw-None-08600: something else")]));
+        Assert.Null(SharpNRI.Testing.NriTestDevice.StaleValidationLayer([stale with { Type = Message.WARNING }]));
     }
     /// <summary>
     /// The adapter NRI picks for a device created with no adapter is the first adapter of the
@@ -146,11 +189,11 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
     internal static void RunChildIfAsked()
     {
         var name = Environment.GetEnvironmentVariable(ChildVariable);
-        if (name is not (ChildVulkanOnly or ChildAll or ChildLoader)) return;
+        if (name is not (ChildVulkanOnly or ChildAll or ChildLoader or ChildTestingProbe)) return;
         int code;
         try
         {
-            code = name switch { ChildVulkanOnly => VulkanOnly(), ChildAll => All(), _ => LoaderOnly() };
+            code = name switch { ChildVulkanOnly => VulkanOnly(), ChildAll => All(), ChildTestingProbe => TestingProbe(), _ => LoaderOnly() };
         }
         catch (Exception e)
         {
@@ -206,6 +249,15 @@ public sealed class AdapterEnumerationTests(ITestOutputHelper output)
         }
         foreach (var m in messages.Where(m => m.IsError)) Console.WriteLine("FAIL NRI error: " + m.Text);
         return messages.Any(m => m.IsError) ? 1 : 0;
+    }
+
+    private static int TestingProbe()
+    {
+        Baseline();
+        var reason = SharpNRI.Testing.NriTestDevice.Unavailable(GraphicsAPI.VK);
+        Console.WriteLine($"RESULT Vulkan probe: {reason ?? "available"}");
+        Console.WriteLine($"RESULT modules after the Vulkan probe: {LoadedD3DModules()}");
+        return reason is null ? 0 : 1;
     }
 
     private static int All()

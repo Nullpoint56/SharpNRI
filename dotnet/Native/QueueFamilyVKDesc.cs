@@ -1,5 +1,6 @@
 namespace SharpNRI.Native;
 
+/// <summary>A collection of queues of the same type</summary>
 public partial struct QueueFamilyVKDesc
 {
     [NativeTypeName("uint32_t")]

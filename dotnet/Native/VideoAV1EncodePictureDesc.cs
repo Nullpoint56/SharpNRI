@@ -26,9 +26,11 @@ public unsafe partial struct VideoAV1EncodePictureDesc
     [NativeTypeName("uint8_t")]
     public byte codedDenom;
 
+    /// <summary>AV1 "interpolation_filter": 0..4 (4 = SWITCHABLE)</summary>
     [NativeTypeName("uint8_t")]
     public byte interpolationFilter;
 
+    /// <summary>0 selects the default, else AV1 "TxMode" 1..2 (LARGEST, SELECT); ONLY_4X4 is implied for lossless frames</summary>
     [NativeTypeName("uint8_t")]
     public byte txMode;
 
@@ -68,6 +70,7 @@ public unsafe partial struct VideoAV1EncodePictureDesc
     [NativeTypeName("const VideoAV1GlobalMotionDesc *")]
     public VideoAV1GlobalMotionDesc* globalMotion;
 
+    /// <summary>if provided, must include 8 entries</summary>
     [NativeTypeName("const uint8_t *")]
     public byte* orderHints;
 

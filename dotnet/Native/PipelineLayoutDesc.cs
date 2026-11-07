@@ -2,6 +2,7 @@ namespace SharpNRI.Native;
 
 public unsafe partial struct PipelineLayoutDesc
 {
+    /// <summary>must be unique, avoid big gaps</summary>
     [NativeTypeName("uint32_t")]
     public uint rootRegisterSpace;
 

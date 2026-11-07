@@ -13,6 +13,13 @@ namespace SharpNRI;
 /// <summary>NRI's device-independent exports.</summary>
 public static unsafe class Nri
 {
+    /// <summary>
+    /// The NRI version this SharpNRI was built for (`NRI_VERSION`), compiled in from the SharpNRI.Descs it
+    /// was built against (<see cref="NriHeaders.Version"/>). Device creation refuses a native library of
+    /// another version; the loaded library's is <see cref="NriDevice.NriVersion"/>.
+    /// </summary>
+    public const int NriVersion = NriHeaders.Version;
+
     // ---------------------------------------------------------------- formats
 
     /// <summary>

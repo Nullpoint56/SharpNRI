@@ -2,6 +2,7 @@ namespace SharpNRI.Native;
 
 public unsafe partial struct BottomLevelAabbsDesc
 {
+    /// <summary>contains "BottomLevelAabb" entries</summary>
     [NativeTypeName("const Buffer *")]
     public Buffer* buffer;
 

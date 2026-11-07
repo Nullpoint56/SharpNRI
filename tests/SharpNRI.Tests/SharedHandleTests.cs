@@ -129,6 +129,38 @@ public sealed class SharedHandleTests
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
+    /// <summary>
+    /// The Try forms create what the device exports (a buffer, a texture, a timeline fence, each
+    /// shared) and answer false only for UNSUPPORTED: a desc NRI validation refuses still throws.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
+    public void The_Try_forms_create_exportable_objects_and_throw_for_a_refused_desc(Backend backend)
+    {
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(backend.Api, messages);
+        RequireSharedResources(device);
+        RequireSharedFences(device);
+
+        Assert.True(device.TryCreateSharedBuffer(SharedBuffer, out var buffer));
+        using (buffer) Assert.Equal(1, buffer.Desc.shared);
+        Assert.True(device.TryCreateSharedTexture(SharedTexture, out var texture));
+        using (texture) Assert.Equal(1, texture.Desc.shared);
+        Assert.True(device.TryCreateSharedFence(out var fence, 3));
+        using (fence)
+        {
+            Assert.Equal(3UL, fence.Value);
+            using var handle = fence.GetSharedHandle();
+            Assert.Equal(ExpectedFenceType(backend.Api), handle.Type);
+        }
+        Assert.DoesNotContain(messages, m => m.IsError);
+
+        var refused = Assert.Throws<NriException>(() => device.TryCreateSharedBuffer(new BufferDesc { size = 0 }, out _));
+        Assert.Equal(Result.INVALID_ARGUMENT, refused.Result);
+        Assert.Equal(0, device.LiveObjects);
+    }
+
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
     public void A_shared_fence_exports_a_handle_and_still_works_as_a_fence(Backend backend)
@@ -166,8 +198,9 @@ public sealed class SharedHandleTests
     /// <summary>
     /// The binary form (FenceDesc { SWAPCHAIN_SEMAPHORE, shared }): on Vulkan a binary semaphore
     /// that exports like the timeline one and is signalled and then waited by NRI's own queue; on
-    /// D3D12, which has no binary fences, UNSUPPORTED without an error report. The import into
-    /// another device is SharedHandleImportTests.
+    /// D3D12, which has no binary fences, UNSUPPORTED without an error report, though it reports
+    /// features.sharedFences: TryCreateSharedBinaryFence answers false there and creates the fence
+    /// on Vulkan. The import into another device is SharedHandleImportTests.
     /// </summary>
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
@@ -180,12 +213,17 @@ public sealed class SharedHandleTests
 
         if (backend.Api == GraphicsAPI.D3D12)
         {
+            Assert.Equal(1, device.Desc.features.sharedFences);
             Assert.Throws<NriUnsupportedException>(() => device.CreateSharedBinaryFence().Dispose());
+            Assert.False(device.TryCreateSharedBinaryFence(out var none));
+            Assert.Null(none);
             Assert.Equal(0, device.LiveObjects);
             Assert.DoesNotContain(messages, m => m.IsError);
             return;
         }
 
+        Assert.True(device.TryCreateSharedBinaryFence(out var probed));
+        probed.Dispose();
         using var binary = device.CreateSharedBinaryFence();
         using (var handle = binary.GetSharedHandle())
         {

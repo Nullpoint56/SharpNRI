@@ -1,0 +1,31 @@
+<Project>
+
+  <!--
+    Package dependencies between this repository's packages are exact ([v]), not NuGet's default
+    minimum (v, meaning >= v). SharpNRI is compiled against one SharpNRI.Descs, and the enum
+    constants of the descs are compiled into every caller: with a minimum, an application that also
+    references a later SharpNRI.Descs (another NRI version, through another package) would run
+    SharpNRI against it and misread every renumbered value. Likewise SharpNRI.Testing against
+    SharpNRI. tools/ci checks the packed nuspecs (release.yml, pack).
+  -->
+  <Target Name="SharpNRIExactProjectReferenceVersions" AfterTargets="_GetProjectReferenceVersions">
+    <ItemGroup>
+      <_ProjectReferencesWithVersions Condition="!$([System.String]::Copy('%(_ProjectReferencesWithVersions.ProjectVersion)').StartsWith('['))">
+        <ProjectVersion>[%(_ProjectReferencesWithVersions.ProjectVersion)]</ProjectVersion>
+      </_ProjectReferencesWithVersions>
+    </ItemGroup>
+  </Target>
+
+  <!--
+    The package page (docs/nuget/README.md) with its repository links pinned to the release: blob/master/
+    becomes blob/v$(SharpNRIVersion)/, the tag the release workflow creates on the packed commit, so a
+    package's page shows the guide of its own version (beta.2 linked master).
+  -->
+  <Target Name="SharpNRIPackageReadme" BeforeTargets="_GetPackageFiles;GenerateNuspec" Condition="'$(IsPackable)' != 'false'">
+    <PropertyGroup>
+      <_SharpNRIReadme>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)docs/nuget/README.md').Replace('/blob/master/', '/blob/v$(SharpNRIVersion)/'))</_SharpNRIReadme>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(BaseIntermediateOutputPath)nuget-readme/README.md" Lines="$([MSBuild]::Escape($(_SharpNRIReadme)))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+</Project>

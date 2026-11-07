@@ -14,6 +14,7 @@ public partial struct VideoEncodeRateControlDesc
     [NativeTypeName("uint8_t")]
     public byte qpB;
 
+    /// <summary>CBR/VBR QP range (AV1: Q index); omitted bounds use the supported codec limits</summary>
     [NativeTypeName("uint8_t")]
     public byte qpMin;
 
@@ -26,9 +27,11 @@ public partial struct VideoEncodeRateControlDesc
     [NativeTypeName("uint32_t")]
     public uint frameRateDenominator;
 
+    /// <summary>CBR target bitrate, or VBR average bitrate</summary>
     [NativeTypeName("uint64_t")]
     public ulong targetBitrate;
 
+    /// <summary>VBR peak bitrate; defaults to "targetBitrate"</summary>
     [NativeTypeName("uint64_t")]
     public ulong maxBitrate;
 

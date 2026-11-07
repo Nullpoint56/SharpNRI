@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    SharpNRI.AgilitySDK - a targets-only package (AGENTS.md: Native packages).
+
+    Depends on Microsoft.Direct3D.D3D12 at exactly the version NRI's CMake pins ($(AgilitySdkVersion),
+    Directory.Build.props; build-native.ps1 refuses a mismatch), so the application restores
+    Microsoft's package and takes its licence itself; this package carries none of Microsoft's files.
+    buildTransitive/SharpNRI.AgilitySDK.targets copies the runtime into AgilitySDK\ and fails the
+    build on another version. The values it needs are written at pack time into
+    SharpNRI.AgilitySDK.props beside it.
+  -->
+
+  <PropertyGroup>
+    <PackageId>SharpNRI.AgilitySDK</PackageId>
+    <Version>$(SharpNRIVersion)</Version>
+    <Description>Copies the D3D12 Agility SDK runtime that SharpNRI's NRI v$(NriVersion) was built against ($(AgilitySdkVersion)) from Microsoft's Microsoft.Direct3D.D3D12 package, which it depends on at that exact version, into AgilitySDK\ beside the application, and fails the build on another version. Contains no Microsoft file: the application restores Microsoft's package under its licence. The debug layer is copied in Debug builds (SharpNRIAgilityDebugLayer).</Description>
+    <PackageTags>nri;d3d12;agility;directx</PackageTags>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeSymbols>false</IncludeSymbols>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <_SharpNRIAgilityProps>$(BaseIntermediateOutputPath)SharpNRI.AgilitySDK.props</_SharpNRIAgilityProps>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Downloaded by the application's restore; it has no .NET assets (build/native is for C++ projects only) -->
+    <PackageReference Include="Microsoft.Direct3D.D3D12" Version="[$(AgilitySdkVersion)]" />
+    <None Include="buildTransitive\SharpNRI.AgilitySDK.targets" Pack="true" PackagePath="buildTransitive\" />
+    <None Include="$(_SharpNRIAgilityProps)" Pack="true" PackagePath="buildTransitive\" Visible="false" />
+  </ItemGroup>
+
+  <Target Name="SharpNRIWriteAgilityProps" BeforeTargets="Build;_GetPackageFiles">
+    <ItemGroup>
+      <_SharpNRIAgilityPropsLine Include="&lt;Project&gt;" />
+      <_SharpNRIAgilityPropsLine Include="  &lt;!-- Written by SharpNRI.AgilitySDK.csproj at pack time --&gt;" />
+      <_SharpNRIAgilityPropsLine Include="  &lt;PropertyGroup&gt;" />
+      <_SharpNRIAgilityPropsLine Include="    &lt;SharpNRIAgilitySdkVersion&gt;$(AgilitySdkVersion)&lt;/SharpNRIAgilitySdkVersion&gt;" />
+      <_SharpNRIAgilityPropsLine Include="    &lt;SharpNRIAgilityNriVersion&gt;$(NriVersion)&lt;/SharpNRIAgilityNriVersion&gt;" />
+      <_SharpNRIAgilityPropsLine Include="  &lt;/PropertyGroup&gt;" />
+      <_SharpNRIAgilityPropsLine Include="&lt;/Project&gt;" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_SharpNRIAgilityProps)" Lines="@(_SharpNRIAgilityPropsLine)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
+</Project>

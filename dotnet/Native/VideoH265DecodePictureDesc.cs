@@ -23,6 +23,7 @@ public unsafe partial struct VideoH265DecodePictureDesc
     [NativeTypeName("uint16_t")]
     public ushort numBitsForShortTermRefPicSetInSlice;
 
+    /// <summary>offsets to 4-byte Annex-B start codes, relative to the selected bitstream range start</summary>
     [NativeTypeName("const uint32_t *")]
     public uint* sliceSegmentOffsets;
 

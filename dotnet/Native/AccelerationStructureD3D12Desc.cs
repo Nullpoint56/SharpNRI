@@ -7,6 +7,7 @@ public unsafe partial struct AccelerationStructureD3D12Desc
     [NativeTypeName("nri::AccelerationStructureBits")]
     public AccelerationStructureBits flags;
 
+    /// <summary>D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO</summary>
     [NativeTypeName("uint64_t")]
     public ulong size;
 

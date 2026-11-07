@@ -1,6 +1,7 @@
 // L2 — the device's Create* surface, one method per CoreInterface entry, plus the two Helper
 // entries that belong beside them.
 
+using System.Diagnostics.CodeAnalysis;
 using SharpNRI.Native;
 using Buffer = SharpNRI.Native.Buffer;
 
@@ -31,7 +32,9 @@ public sealed unsafe partial class NriDevice
     /// <summary>
     /// An exportable binary semaphore (<c>FenceDesc { SWAPCHAIN_SEMAPHORE, shared }</c>), the object an
     /// external compositor imports as an opaque NT handle or file descriptor. Vulkan only; D3D12 has
-    /// no binary fences and throws <see cref="NriUnsupportedException"/>.
+    /// no binary fences and throws <see cref="NriUnsupportedException"/>, though it reports
+    /// <c>features.sharedFences</c> (its timeline fences export): probe with
+    /// <see cref="TryCreateSharedBinaryFence"/>.
     /// </summary>
     /// <remarks>
     /// Binary semantics: every signal must be followed by exactly one wait before the next signal,
@@ -39,6 +42,62 @@ public sealed unsafe partial class NriDevice
     /// <see cref="NriFence.Value"/> and <see cref="NriFence.Wait"/> must not be used on it.
     /// </remarks>
     public NriFence CreateSharedBinaryFence() => CreateSharedFence(NriApi.SWAPCHAIN_SEMAPHORE);
+
+    // ---------------------------------------------------------------- shared objects, probing
+    //
+    // NRI answers UNSUPPORTED without a message when it cannot export what was asked, and no feature
+    // bit predicts every case: features.sharedFences is 1 on D3D12 (timeline fences export) while a
+    // binary one is UNSUPPORTED there, and Vulkan asks the driver per buffer usage, image format,
+    // usage, size and sample count. The Try forms answer that case with false; every other failure
+    // still throws.
+
+    /// <summary><see cref="CreateSharedFence"/>, answering false instead of throwing <see cref="NriUnsupportedException"/>.</summary>
+    public bool TryCreateSharedFence([NotNullWhen(true)] out NriFence? fence, ulong initialValue = 0)
+    {
+        var desc = new FenceDesc { initialValue = initialValue, shared = 1 };
+        Fence* handle = null;
+        fence = TryCreate(Core.CreateFence(Raw, &desc, &handle), "CreateFence") ? new NriFence(this, handle) : null;
+        return fence is not null;
+    }
+
+    /// <summary>
+    /// <see cref="CreateSharedBinaryFence"/>, answering false where NRI cannot export a binary
+    /// semaphore: always on D3D12, which has none, whatever <c>features.sharedFences</c> says.
+    /// </summary>
+    public bool TryCreateSharedBinaryFence([NotNullWhen(true)] out NriFence? fence) => TryCreateSharedFence(out fence, NriApi.SWAPCHAIN_SEMAPHORE);
+
+    /// <summary><see cref="CreateSharedBuffer"/>, answering false where Vulkan cannot export a buffer of that usage.</summary>
+    public bool TryCreateSharedBuffer(in BufferDesc desc, [NotNullWhen(true)] out NriBuffer? buffer, float priority = 0)
+    {
+        var shared = desc;
+        shared.shared = 1;
+        Buffer* handle = null;
+        buffer = TryCreate(Core.CreateCommittedBuffer(Raw, MemoryLocation.DEVICE, priority, &shared, &handle), "CreateCommittedBuffer") ? new NriBuffer(this, handle) : null;
+        return buffer is not null;
+    }
+
+    /// <summary><see cref="CreateSharedTexture"/>, answering false where Vulkan cannot export an image of that format, usage, size or sample count.</summary>
+    public bool TryCreateSharedTexture(in TextureDesc desc, [NotNullWhen(true)] out NriTexture? texture, float priority = 0)
+    {
+        var shared = desc;
+        shared.shared = 1;
+        Texture* handle = null;
+        texture = TryCreate(Core.CreateCommittedTexture(Raw, MemoryLocation.DEVICE, priority, &shared, &handle), "CreateCommittedTexture") ? new NriTexture(this, handle) : null;
+        return texture is not null;
+    }
+
+    // UNSUPPORTED is the answer, not an error: forget what was reported (NRI reports nothing then,
+    // a layer might) so no later call's exception carries it.
+    private static bool TryCreate(Result result, string call)
+    {
+        if (result == Result.UNSUPPORTED)
+        {
+            NriException.ClearReported();
+            return false;
+        }
+        NriException.Check(result, call);
+        return true;
+    }
 
     public NriDescriptorPool CreateDescriptorPool(in DescriptorPoolDesc desc)
     {
