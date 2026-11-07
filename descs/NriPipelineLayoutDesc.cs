@@ -32,10 +32,18 @@ public sealed class NriPipelineLayoutDesc
     public NriDescriptorSetDesc[] DescriptorSets { get; init; } = [];
 
     /// <summary>
-    /// Every stage any part of the layout is visible to. <c>StageBits.ALL</c> is 0 in NRI (the
-    /// barrier default) and the backends read it here as every shader stage; patch 0016 makes NRI
-    /// validation agree (upstream masked each range's stages with 0 and refused the layout as
-    /// "not compatible with 'shaderStages'").
+    /// The shader stages the layout serves (NRI v191, its validation and both backends):
+    /// <list type="bullet">
+    /// <item><c>StageBits.ALL</c> (0, the barrier default) or <c>ALL_SHADERS</c> is every shader stage;
+    /// any other value must be shader stages only (else "'shaderStages' must be 'ALL' or a shader stage
+    /// mask").</item>
+    /// <item>On a descriptor range, root constant, root descriptor or root sampler, <c>ALL</c> and
+    /// <c>ALL_SHADERS</c> mean this value; explicit stages must be shader stages, and a range's must lie
+    /// within this value ("is not compatible with 'shaderStages'").</item>
+    /// <item>Every shader of a pipeline made with the layout must have its stage here ("'shaders[i].stage'
+    /// is not enabled in the pipeline layout").</item>
+    /// <item>Draw-parameter and draw-index emulation (D3D12) apply only with <c>VERTEX_SHADER</c> here.</item>
+    /// </list>
     /// </summary>
     public StageBits ShaderStages { get; init; }
 

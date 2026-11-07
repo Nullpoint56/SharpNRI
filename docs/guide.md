@@ -62,7 +62,9 @@ headers do not say. NRI v191.
   (`DeviceDesc.nriVersion`) and of the loaded `SharpNRI.Descs` with SharpNRI's own and throws
   `NriException` with `INVALID_SDK`, naming both and the library's path, instead of misreading
   renumbered enums (v191 renumbered `StageBits` and `AccessBits`): a stale `NRI.dll` left on the load
-  path fails loudly.
+  path fails loudly. A `SharpNRI.Descs` package other than the one `SharpNRI` depends on is refused
+  the same way, though its NRI version agrees: NuGet lets a direct reference to another version win
+  with only the warning `NU1608`, so `SharpNRI`'s build targets fail such a build first (`SHARPNRI005`).
 - The release workflow's `consume` job restores them that way (`tools/consume`) and creates NONE
   plus a GPU device on windows and ubuntu before the release and the NuGet push.
 - Base and Upscalers both contain `NRI.dll` / `libNRI.so` at the same path. `SharpNRI.Native.Upscalers`
@@ -75,8 +77,11 @@ headers do not say. NRI v191.
 - A missing native library is a `DllNotFoundException` that names the file, the RID, where it was
   looked for and where that platform's library comes from.
 - Trimming and Native AOT: declared (`IsAotCompatible`) and published by the release's consume job.
-- `Nri.NriVersion` is the NRI version the binding was built for (a constant), `NriHeaders.Version`
-  the one `SharpNRI.Descs` was generated from; L0's types carry NRI's header comments as XML docs.
+- `Nri.NriVersion` is the NRI version the binding was built for, `NriHeaders.Version` the one
+  `SharpNRI.Descs` was generated from. Both are constants, compiled into your assembly: they name what
+  you built against. What is loaded is read at run time: `Nri.BindingVersion` and `Nri.DescsVersion`
+  (the package versions), `Nri.BindingNriVersion` and `Nri.DescsNriVersion`, and the native library's
+  `NriDevice.NriVersion`. L0's types carry NRI's header comments as XML docs.
 - Base: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI, AGS, debug names; no upscaler SDK.
   `IsUpscalerSupported` answers nothing there.
 - osx-arm64: not in the packages. Each release gets `SharpNRI-native-base-osx-arm64-<tag>.zip`
@@ -126,6 +131,11 @@ is null:
   builds; `<SharpNRIAgilityDebugLayer>true</SharpNRIAgilityDebugLayer>` (or `false`) decides
   otherwise. Windows RIDs and portable builds get the files; `win-arm64` takes `bin/arm64`. Publish
   copies them too, outside a single-file bundle.
+- The Agility SDK loads its debug layer from its own directory only, never the system's (Graphics
+  Tools), and NRI says nothing when it is missing: the device would run unvalidated (measured). So a
+  D3D12 device with `EnableGraphicsApiValidation` on an Agility path without `d3d12SDKLayers.dll` is
+  refused (`NriUnsupportedException`, naming the file and `SharpNRIAgilityDebugLayer`): in a Release
+  build that validates, set the property to `true`. On the inbox runtime the layer is the system's.
 - With the package referenced, a missing `AgilitySDK/D3D12Core.dll` at run time is an error
   (`NriException`, `INVALID_SDK`, from the runtime switch `SharpNRI.RequireAgilitySdk` the package
   sets) instead of a silent fall back to the inbox runtime; `D3D12AgilitySdkPath = ""` still asks for
@@ -229,7 +239,7 @@ Caveats:
   texture, `Map` null, 0 allocations from `AllocateAndBindMemory`, zero shared handles. Use it for
   lifetime and allocation tests on a machine with no GPU; nothing it answers is a measurement.
 - **`GetQueue` with a bad index**: `INVALID_ARGUMENT` on Vulkan and D3D12, no message first.
-- **`NriVersion`** reports `NRI_VERSION` as built (190).
+- **`NriDevice.NriVersion`** reports the loaded native library's `NRI_VERSION` (191).
 
 ## Lifetime and ownership
 
@@ -378,11 +388,21 @@ set.Update(rangeIndex: 1, descriptorIndex: 0, outputView);
   (3,1), (6,2); back to (0,0) after `Reset`. Vulkan: (0,0) always.
 - `Nri.FitPipelineLayoutSettingsIntoDeviceLimits(device.Desc, wanted)` clamps counts and sizes in
   NRI's priority order.
-- `ShaderStages = StageBits.ALL` on a layout means every shader stage. `ALL` is 0 in NRI (the
-  barrier default); since NRI #302 (v191) every backend and NRI validation resolve `ALL` and
-  `ALL_SHADERS` to the layout's stages. Before, validation masked each range's stages with 0 and refused a range with explicit
-  stages ("not compatible with 'shaderStages'"), and any graphics pipeline on an all-`ALL` layout
-  ("not enabled in the pipeline layout").
+- **`shaderStages`** (NRI v191; NRI's header says only that `ALL` and `ALL_SHADERS` resolve to the
+  layout's stages):
+  - on the layout (`NriPipelineLayoutDesc.ShaderStages`): `ALL` (0, the barrier default) or
+    `ALL_SHADERS` is every shader stage; anything else must be shader stages only ("'shaderStages'
+    must be 'ALL' or a shader stage mask");
+  - on a descriptor range, root constant, root descriptor or root sampler: `ALL` and `ALL_SHADERS`
+    mean the layout's stages; explicit stages must be shader stages, and a range's must lie within the
+    layout's ("is not compatible with 'shaderStages'");
+  - every shader of a pipeline on the layout must have its stage in the layout's ("'shaders[i].stage'
+    is not enabled in the pipeline layout");
+  - D3D12 draw-parameter and draw-index emulation apply only with `VERTEX_SHADER` in the layout's;
+  - on Vulkan, stages the device lacks (tessellation, geometry, task, mesh, ray tracing) are dropped
+    from what `ALL` resolves to (patch 0039).
+  Before v191 (NRI #302) validation masked each range's stages with 0 and refused explicit stages, and
+  any graphics pipeline on an all-`ALL` layout.
 - **Root descriptor offsets mean different things per backend.** `SetRootDescriptor(index, view,
   offset)` on Vulkan slides the view's window: the offset is added to the view's own offset and the
   view's range is kept. D3D12 binds the view's address plus the offset with no range. NRI
@@ -1043,6 +1063,8 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Agility applied once | inbox runtime unreachable for the rest of the process | Device creation |
 | `Microsoft.Direct3D.D3D12` of another version than NRI's (1.620.1 for v191) | `INVALID_SDK` on every D3D12 device; with `SharpNRI.AgilitySDK` a build error, `SHARPNRI011` | Agility SDK |
 | A stale `NRI.dll` or `SharpNRI.Descs` of another NRI version | `INVALID_SDK` at device creation naming both versions | Packages and install |
+| A direct `SharpNRI.Descs` reference of another version than `SharpNRI` depends on | only `NU1608` from NuGet; a build error, `SHARPNRI005`; `INVALID_SDK` at device creation | Packages and install |
+| D3D12 `EnableGraphicsApiValidation` with `SharpNRI.AgilitySDK` in a Release build | `NriUnsupportedException` at device creation: no `AgilitySDK/d3d12SDKLayers.dll`, set `SharpNRIAgilityDebugLayer` (before, the device ran unvalidated, silently) | Agility SDK |
 | `UNSUPPORTED` that no feature bit predicts | shared objects the driver cannot export (use the `TryCreateShared*` forms), a D3D12 binary shared fence, FSR / XeSS refused by the device or driver, NIS without `storageWriteWithoutFormat` beyond RGBA8 / RGBA16F / RGBA32F output, Annex-B parameter sets outside H.264 High / plain H.265, the AV1 encode-info input form per backend, `QueryVideoMemoryInfo` without `VK_EXT_memory_budget` | Shared buffers, textures and fences; Extensions |
 | Anything measured on NONE | NONE answers SUCCESS to everything and never validates | Device creation |
 | `GetQueue` bad index | `INVALID_ARGUMENT`, no message | Device creation |

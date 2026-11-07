@@ -15,10 +15,24 @@ public static unsafe class Nri
 {
     /// <summary>
     /// The NRI version this SharpNRI was built for (`NRI_VERSION`), compiled in from the SharpNRI.Descs it
-    /// was built against (<see cref="NriHeaders.Version"/>). Device creation refuses a native library of
-    /// another version; the loaded library's is <see cref="NriDevice.NriVersion"/>.
+    /// was built against (<see cref="NriHeaders.Version"/>). A constant, so it is compiled into the caller
+    /// too and names the SharpNRI the caller was built against; the loaded one's is
+    /// <see cref="BindingNriVersion"/>, the loaded native library's <see cref="NriDevice.NriVersion"/>.
+    /// Device creation refuses a native library or SharpNRI.Descs of another version.
     /// </summary>
     public const int NriVersion = NriHeaders.Version;
+
+    /// <summary>The package version of the loaded SharpNRI (<c>191.0.0-beta.4</c>), read at run time.</summary>
+    public static string BindingVersion => NriVersionCheck.Binding;
+
+    /// <summary>The NRI version the loaded SharpNRI was built for, read at run time (<see cref="NriVersion"/> is compiled into the caller).</summary>
+    public static int BindingNriVersion => NriVersionCheck.Built;
+
+    /// <summary>The package version of the loaded SharpNRI.Descs, read at run time; device creation refuses one other than the version SharpNRI depends on.</summary>
+    public static string DescsVersion => NriVersionCheck.DescsPackage;
+
+    /// <summary>The NRI version the loaded SharpNRI.Descs was generated from, read at run time (<see cref="NriHeaders.Version"/> is compiled into the caller).</summary>
+    public static int DescsNriVersion => NriVersionCheck.Descs;
 
     // ---------------------------------------------------------------- formats
 

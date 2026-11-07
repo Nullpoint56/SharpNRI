@@ -10,6 +10,22 @@
       SharpNRICopyLicenses   false copies none (the application handles the notices itself)
   -->
 
+  <!--
+    SharpNRI depends on exactly one SharpNRI.Descs (SharpNRIDescsDependency, SharpNRI.props). A direct
+    reference to another version wins the restore with only the warning NU1608, and device creation
+    would then refuse it (INVALID_SDK): fail the build instead (SHARPNRI005).
+  -->
+  <PropertyGroup>
+    <_SharpNRIAssets Condition="'$(ProjectAssetsFile)' != '' and Exists('$(ProjectAssetsFile)')">$([System.IO.File]::ReadAllText('$(ProjectAssetsFile)'))</_SharpNRIAssets>
+    <_SharpNRIDescsResolved>$([System.Text.RegularExpressions.Regex]::Match($(_SharpNRIAssets), '"(?i:sharpnri\.descs)/([^"]+)"').Groups[1].Value)</_SharpNRIDescsResolved>
+  </PropertyGroup>
+
+  <Target Name="SharpNRIDescsCheck" BeforeTargets="Build"
+          Condition="'$(SharpNRIDescsDependency)' != '' and '$(_SharpNRIDescsResolved)' != '' and '$(_SharpNRIDescsResolved)' != '$(SharpNRIDescsDependency)'">
+    <Error Code="SHARPNRI005"
+           Text="SharpNRI $(SharpNRIPackedVersion) depends on SharpNRI.Descs $(SharpNRIDescsDependency) exactly, and this project restores SharpNRI.Descs $(_SharpNRIDescsResolved) (NU1608). Device creation would refuse it with INVALID_SDK: reference SharpNRI.Descs $(SharpNRIDescsDependency), or drop the direct reference." />
+  </Target>
+
   <ItemGroup Condition="'$(SharpNRICopyLicenses)' != 'false'">
     <None Include="$(MSBuildThisFileDirectory)..\licenses\**\*" Condition="'$(RuntimeIdentifier)' == ''"
           Link="licenses\SharpNRI\%(RecursiveDir)%(Filename)%(Extension)"

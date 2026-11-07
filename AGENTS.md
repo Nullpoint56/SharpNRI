@@ -160,7 +160,13 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   dependency), a missing file with `SHARPNRI012`. The targets also set the runtime switch
   `SharpNRI.RequireAgilitySdk`: with it `NriDevice.Create` throws `INVALID_SDK` when
   `AgilitySDK\D3D12Core.dll` is missing instead of falling back to the inbox runtime
-  (`AgilityPathTests`). Microsoft's own targets are in `build/native`, which SDK-style .NET projects
+  (`AgilityPathTests`). **The debug layer comes from the SDK's directory only**: without
+  `d3d12SDKLayers.dll` beside `D3D12Core.dll`, NRI's `D3D12GetDebugInterface` fails and it enables
+  nothing, without a message, also with the system's Graphics Tools layer installed (measured
+  2026-11-07: no `ID3D12InfoQueue`; reported downstream for Release builds, where the package copies no
+  layer). `NriDevice.Create` refuses D3D12 `EnableGraphicsApiValidation` on an Agility path without the
+  file (`NriUnsupportedException` naming `SharpNRIAgilityDebugLayer`, before NRI is called;
+  `AgilityPathTests`); the inbox runtime's layer is the system's and is not checked. Microsoft's own targets are in `build/native`, which SDK-style .NET projects
   never import. No Microsoft file in the package: the licence point under Decisions stands.
 - Base and Upscalers both put `NRI.dll` at the same package path, and NuGet's choice between two
   packages' same-named assets is not to be relied on (beta.2: without `ExcludeAssets="native"` on
@@ -216,9 +222,9 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   `<repository>` (`PublishRepositoryUrl`); Source Link (in the SDK) maps the PDB's documents to that
   commit on GitHub, the `nri` submodule's to NRI's. The release pack adds
   `ContinuousIntegrationBuild`; `release.yml`'s pack check requires the PDBs and the commit. A PDB beside
-  the DLL, not embedded: `tools/coverage/BoundSurface` reads the file. NRI's native `NRI.pdb` (12.5 MB on
-  win-x64) is not in the packages: `release.yml` attaches it per payload as
-  `SharpNRI-symbols-<base|upscalers>-win-x64-<tag>.zip` (about 3.6 MB), checked to belong to the staged
+  the DLL, not embedded: `tools/coverage/BoundSurface` reads the file. NRI's native `NRI.pdb` (25.3 MB on
+  win-x64 at 191.0.0-beta.4, with the static C runtime) is not in the packages: `release.yml` attaches it
+  per payload as `SharpNRI-symbols-<base|upscalers>-win-x64-<tag>.zip` (6.4 MB), checked to belong to the staged
   `NRI.dll` (same file, its debug directory names `NRI.pdb`). NRI ships no binaries or symbols itself,
   so a release is the only source of symbols matching its `NRI.dll`. `libNRI.so` and `libNRI.dylib` are
   built without debug info, so Linux and macOS have none; they get symbols only when someone asks
@@ -653,7 +659,15 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   wrapped forms) takes the new device through `Adopt`: a table `nriGetInterface` refuses by size, a
   `DeviceDesc::nriVersion` other than SharpNRI's `NriVersion` metadata, or a loaded `SharpNRI.Descs`
   whose `NriVersion` metadata differs destroys the native device (before the bridges) and throws
-  `NriException` `INVALID_SDK` naming both versions and the loaded library's path. A stale `NRI.dll`
+  `NriException` `INVALID_SDK` naming both versions and the loaded library's path. So does a loaded
+  `SharpNRI.Descs` package other than the one SharpNRI depends on (`AssemblyMetadata`
+  `SharpNRIDescsVersion` against the loaded assembly's informational version without `+<commit>`): a
+  direct reference to another version wins the restore with only `NU1608`, and within one NRI version
+  the NRI check passes. The package's `buildTransitive/SharpNRI.targets` fails that build first
+  (`SHARPNRI005`, the resolved version from `project.assets.json` against `SharpNRI.props`, written at
+  pack time; checked by hand 2026-11-07). The constants `Nri.NriVersion` and `NriHeaders.Version` are
+  compiled into callers; `Nri.BindingVersion`, `DescsVersion`, `BindingNriVersion` and
+  `DescsNriVersion` read the loaded assemblies. A stale `NRI.dll`
   of another tag on the load path otherwise misread every renumbered enum silently (v191 renumbered
   `StageBits` / `AccessBits`). Blind on `next` between tags: main keeps its `NRI_VERSION` while enums
   move (Branches). `VersionCheckTests` overrides the expected native or descs version for the

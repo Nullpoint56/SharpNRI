@@ -75,6 +75,14 @@ public static partial class NriHeader
         return int.Parse(m.Groups["v"].Value.Trim(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
+    /// <summary>A property of <c>Directory.Build.props</c> by element name (<c>SharpNRIVersion</c>, ...).</summary>
+    public static string Property(string name)
+    {
+        var props = File.ReadAllText(Path.Combine(RepoRoot(), "Directory.Build.props"));
+        var m = Regex.Match(props, $@"<{name}>\s*(?<v>[^<]+?)\s*</{name}>");
+        return m.Success ? m.Groups["v"].Value : throw new InvalidOperationException($"<{name}> not found in Directory.Build.props");
+    }
+
     [GeneratedRegex(@"<NriVersion>\s*(?<v>\d+)\s*</NriVersion>")]
     private static partial Regex PinnedVersionElement();
 

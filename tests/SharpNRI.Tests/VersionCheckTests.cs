@@ -97,6 +97,45 @@ public sealed class VersionCheckTests
     public void The_binding_and_the_descs_state_their_NRI_version_as_constants() =>
         Assert.Equal(NriHeaders.Version, Nri.NriVersion);
 
+    /// <summary>
+    /// The constants are compiled into the caller; these are read from the loaded assemblies at run
+    /// time: their package versions as Directory.Build.props sets them, and the NRI version of each.
+    /// </summary>
+    [Fact]
+    public void The_loaded_binding_and_descs_report_their_versions_at_run_time()
+    {
+        Assert.Equal(NriHeader.Property("SharpNRIVersion"), Nri.BindingVersion);
+        Assert.Equal(NriHeader.Property("SharpNRIDescsVersion"), Nri.DescsVersion);
+        Assert.Equal(NriHeader.PinnedVersion, Nri.BindingNriVersion);
+        Assert.Equal(NriHeader.PinnedVersion, Nri.DescsNriVersion);
+    }
+
+    /// <summary>
+    /// A SharpNRI.Descs package other than the one SharpNRI depends on fails creation like one of
+    /// another NRI version, though the NRI versions agree: NuGet takes a direct reference to another
+    /// SharpNRI.Descs over SharpNRI's exact dependency with only the warning NU1608.
+    /// </summary>
+    [Fact]
+    public void A_SharpNRI_Descs_package_of_another_version_fails_creation_and_leaves_nothing_alive()
+    {
+        var allocator = new NriCountingAllocator();
+        const string other = "191.99.0";
+        NriVersionCheck.t_descsPackageOverride = other;
+        try
+        {
+            var e = Assert.Throws<NriException>(() => NriDevice.Create(new NriDeviceOptions { GraphicsApi = GraphicsAPI.NONE, Allocator = allocator }).Dispose());
+            Assert.Equal(Result.INVALID_SDK, e.Result);
+            Assert.Equal("SharpNRI.Descs", e.Call);
+            Assert.Contains($"depends on SharpNRI.Descs {NriHeader.Property("SharpNRIDescsVersion")}", e.Message, StringComparison.Ordinal);
+            Assert.Contains($"the loaded one is {other}", e.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            NriVersionCheck.t_descsPackageOverride = null;
+        }
+        Assert.Equal(0, allocator.Live);
+    }
+
     [Fact]
     public void A_native_library_of_another_NRI_version_fails_creation_and_leaves_nothing_alive()
     {
