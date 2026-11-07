@@ -50,10 +50,12 @@ headers do not say. NRI v191.
   </configuration>
   ```
 
-- **Versions.** `SharpNRI`, `SharpNRI.Testing`, `SharpNRI.Native.Upscalers` and `SharpNRI.AgilitySDK`
-  carry the release version. `SharpNRI.Descs` has its own, with the NRI version as its major
-  (`191.0.0-beta.1` is NRI v191), and moves only when the descs change: a binding-only release keeps
-  it, so a library built on `SharpNRI.Descs` alone needs no new release. Pin one major
+- **Versions.** Every package has the NRI version as its major: `191.x` is built for NRI v191
+  (from 191.0.0-beta.4; 1.0.0-beta.1 to beta.3 were v191 too). Within one NRI version the second number
+  moves with a breaking change of the binding, the third with a fix. `SharpNRI`, `SharpNRI.Testing`,
+  `SharpNRI.Native.Upscalers` and `SharpNRI.AgilitySDK` carry the release version; `SharpNRI.Descs` moves
+  only when the descs change: a binding-only release keeps it, so a library built on `SharpNRI.Descs`
+  alone needs no new release. Pin one major
   (`[191.0.0-beta.1, 192.0.0)`): NRI breaks between versions, and the enum constants are compiled into
   your assembly. The packages depend on each other exactly (`SharpNRI` on one `SharpNRI.Descs`).
 - **Version guard.** Device creation compares the NRI version of the loaded native library

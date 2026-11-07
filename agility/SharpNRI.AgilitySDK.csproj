@@ -26,8 +26,10 @@
   <ItemGroup>
     <!-- Downloaded by the application's restore; it has no .NET assets (build/native is for C++ projects only) -->
     <PackageReference Include="Microsoft.Direct3D.D3D12" Version="[$(AgilitySdkVersion)]" />
-    <None Include="buildTransitive\SharpNRI.AgilitySDK.targets" Pack="true" PackagePath="buildTransitive\" />
-    <None Include="$(_SharpNRIAgilityProps)" Pack="true" PackagePath="buildTransitive\" Visible="false" />
+    <!-- net11.0 folders: the package is for .NET 11 (SharpNRI's framework), which nuget.org shows and restore enforces; _._ marks lib/ as intentionally empty -->
+    <None Include="buildTransitive\SharpNRI.AgilitySDK.targets" Pack="true" PackagePath="buildTransitive\net11.0\" />
+    <None Include="_._" Pack="true" PackagePath="lib\net11.0\" />
+    <None Include="$(_SharpNRIAgilityProps)" Pack="true" PackagePath="buildTransitive\net11.0\" Visible="false" />
   </ItemGroup>
 
   <Target Name="SharpNRIWriteAgilityProps" BeforeTargets="Build;_GetPackageFiles">

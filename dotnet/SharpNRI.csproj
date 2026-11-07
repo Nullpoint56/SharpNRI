@@ -21,7 +21,7 @@
     <PackageId>SharpNRI</PackageId>
     <Version>$(SharpNRIVersion)</Version>
     <!-- The packed description names the native libraries the package carries: SharpNRIPackageDescription below -->
-    <SharpNRIDescriptionLead>C# bindings over NRI (NVIDIA Render Interface) v$(NriVersion): Vulkan and D3D12 through one API. Pure managed P/Invoke over a pinned NRI build.</SharpNRIDescriptionLead>
+    <SharpNRIDescriptionLead>C# bindings over NRI (NVIDIA Render Interface) v$(NriVersion): Vulkan and D3D12 through one API. Pure managed P/Invoke over a pinned NRI build; the major of the version is the NRI version.</SharpNRIDescriptionLead>
     <Description>$(SharpNRIDescriptionLead)</Description>
     <PackageTags>nri;vulkan;d3d12;rhi;graphics;rendering</PackageTags>
     <!-- Trimming and Native AOT: declared (the trim, AOT and single-file analyzers run in every build, as errors in lint) and run by tools/consume's AOT publish -->
