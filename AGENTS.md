@@ -1835,7 +1835,15 @@ minutes and a Windows minute about two. That shapes the runs:
 - **NuGet.org** (since 1.0.0-beta.2): `release.yml`'s `nuget` job pushes the release's `.nupkg`
   artifact after the GitHub release, by Trusted Publishing: `NuGet/login` trades the job's OIDC
   token for a one-hour key, which nuget.org grants because the owner's policy names this
-  repository, `release.yml` and the `nuget` environment. No key is stored. The repository variable
+  repository, `release.yml` and the `nuget` environment, **and lists the package IDs it may push**:
+  a new package needs adding to the policy before its first release (1.0.0-beta.3: SharpNRI.AgilitySDK
+  was refused with 403, the policy listed the other four). No key is stored. Each package is pushed on
+  its own and every refusal is named at the end, so one refusal leaves the
+  others published (at beta.3 it left SharpNRI.Native.Upscalers unpushed). A push that failed after
+  the GitHub release is retried by starting release.yml on master with `nuget_from_run` = that run's
+  ID: it builds nothing, checks the run's commit carries a tag, and pushes that run's `nupkg`
+  artifact (GitHub re-runs jobs only of a run's latest attempt, and a full re-run stops at the
+  version check because the tag exists). The repository variable
   `NUGET_USER` is the nuget.org account; without it the job skips. The `nuget` environment requires
   the owner's approval and admits `master` only. A version on NuGet.org is permanent (unlisting only
   hides it), so a failure after the push means a new version. Releases only: no CI or merge build is
