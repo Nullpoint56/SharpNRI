@@ -20,10 +20,10 @@
   </Target>
 
   <ItemGroup Condition="'$(SharpNRICopyLicenses)' != 'false'">
-    <None Include="$(MSBuildThisFileDirectory)..\licenses\**\*" Condition="'$(RuntimeIdentifier)' == ''"
+    <None Include="$(MSBuildThisFileDirectory)..\..\licenses\**\*" Condition="'$(RuntimeIdentifier)' == ''"
           Link="licenses\SharpNRI.Native.Upscalers\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
-    <None Include="$(MSBuildThisFileDirectory)..\licenses\$(RuntimeIdentifier)\**\*" Condition="'$(RuntimeIdentifier)' != ''"
+    <None Include="$(MSBuildThisFileDirectory)..\..\licenses\$(RuntimeIdentifier)\**\*" Condition="'$(RuntimeIdentifier)' != ''"
           Link="licenses\SharpNRI.Native.Upscalers\$(RuntimeIdentifier)\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
   </ItemGroup>

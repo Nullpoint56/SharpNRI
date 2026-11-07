@@ -544,12 +544,17 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Callbacks opt-in; the allocator does not forward by default.** `ForwardAllocatorToThirdParty`
   routes VMA/D3D12MA too; off because it is chatty and the usual reason to supply an allocator is
   accounting NRI's own use.
-- **Versions: 1.0.0-beta.N**, beta while the API may still change. The 0.x alphas and their tags
-  were deleted with the rename from PrismNRI to SharpNRI. All in `Directory.Build.props`:
-  `SharpNRIVersion` is the release (tag `v<it>`; `SharpNRI`, `SharpNRI.Testing`,
-  `SharpNRI.Native.Upscalers`, `SharpNRI.AgilitySDK`), `SharpNRIDescsVersion` is `SharpNRI.Descs`'s own
-  (owner, 2026-11-07, from 191.0.0-beta.1): the NRI version as major (a build error, `SHARPNRI004`,
-  otherwise), moved only when the descs change. In lockstep, every SharpNRI release forced a release of
+- **Versions: `<NRI>.<binding>.<patch>[-beta.N]`** (owner, 2026-11-07; from 191.0.0-beta.4, after
+  1.0.0-beta.1 to beta.3), beta while the API may still change. The NRI version is every package's
+  major: NRI breaks between versions and the binding's API is NRI's (the descs in its signatures), so
+  a new NRI version is a breaking change anyway, and a package's version names the NRI it was built for
+  (only the descs did, at beta.3). Within one NRI version a breaking change of the binding moves the
+  second number, a fix the third. A build fails when a major is not `NriVersion` (`SHARPNRI004`,
+  `Directory.Build.targets`). `191.0.0-beta.4` sorts above `1.0.0-beta.3`; the 1.0.0 versions stay
+  published. The 0.x alphas and their tags were deleted with the rename from PrismNRI to SharpNRI.
+  All in `Directory.Build.props`: `SharpNRIVersion` is the release (tag `v<it>`; `SharpNRI`,
+  `SharpNRI.Testing`, `SharpNRI.Native.Upscalers`, `SharpNRI.AgilitySDK`), `SharpNRIDescsVersion` is
+  `SharpNRI.Descs`'s own (from 191.0.0-beta.1), moved only when the descs change. In lockstep, every SharpNRI release forced a release of
   every downstream binding pinning the descs exactly, also when the descs had not changed (beta.2's
   fixes were all in the binding). The pin downstream is still exact per NRI version, by design: enum
   constants are compiled into the caller. `tools/ci/descs-version.ps1` (the `lint` jobs, the release)

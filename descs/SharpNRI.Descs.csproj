@@ -20,7 +20,7 @@
     <RootNamespace>SharpNRI</RootNamespace>
     <PackageId>SharpNRI.Descs</PackageId>
     <Version>$(SharpNRIDescsVersion)</Version>
-    <Description>NRI (NVIDIA Render Interface) descriptor structs, enums and function-table layouts as plain .NET types, generated from the pinned NRI headers. No native dependency: reference this to build NRI descriptors without the library. Versioned by NRI: $(NriVersion).x is NRI v$(NriVersion); pin one major.</Description>
+    <Description>NRI (NVIDIA Render Interface) descriptor structs, enums and function-table layouts as plain .NET types, generated from the pinned NRI headers. No native dependency: reference this to build NRI descriptors without the library. Versioned by NRI, as every SharpNRI package: $(NriVersion).x is NRI v$(NriVersion); pin one major.</Description>
     <PackageTags>nri;vulkan;d3d12;rhi;graphics</PackageTags>
     <!-- Trimming and Native AOT: declared (the trim, AOT and single-file analyzers run in every build, as errors in lint) and run by tools/consume's AOT publish -->
     <IsAotCompatible>true</IsAotCompatible>
@@ -60,10 +60,6 @@
     </ItemGroup>
   </Target>
 
-  <!-- The version's major is the NRI version the descs were generated from (Directory.Build.props: Package versions) -->
-  <Target Name="SharpNRIDescsVersionMajor" BeforeTargets="Build;GenerateNuspec" Condition="!$(SharpNRIDescsVersion.StartsWith('$(NriVersion).'))">
-    <Error Code="SHARPNRI004" Text="SharpNRIDescsVersion $(SharpNRIDescsVersion) does not start with the NRI version $(NriVersion): a new NRI version starts $(NriVersion).0.0 (Directory.Build.props)" />
-  </Target>
 
   <ItemGroup>
     <AssemblyMetadata Include="NriVersion" Value="$(NriVersion)" />

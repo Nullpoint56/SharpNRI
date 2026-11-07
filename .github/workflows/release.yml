@@ -408,8 +408,8 @@ jobs:
             "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "lib/net11.0/SharpNRI.pdb", "buildTransitive/SharpNRI.targets", "licenses/win-x64/NRI/LICENSE.txt", "licenses/linux-x64/NRI/LICENSE.txt", "README.md"
             "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "lib/net11.0/SharpNRI.Descs.xml", "lib/net11.0/SharpNRI.Descs.pdb", "README.md"
             "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "lib/net11.0/SharpNRI.Testing.xml", "lib/net11.0/SharpNRI.Testing.pdb", "README.md"
-            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/win-x64/upscaler-runtimes.json", "runtimes/linux-x64/upscaler-runtimes.json", "buildTransitive/SharpNRI.Native.Upscalers.targets", "licenses/win-x64/NRI/LICENSE.txt", "licenses/linux-x64/NRI/LICENSE.txt", "README.md"
-            "SharpNRI.AgilitySDK"       = "buildTransitive/SharpNRI.AgilitySDK.targets", "buildTransitive/SharpNRI.AgilitySDK.props", "README.md"
+            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/win-x64/upscaler-runtimes.json", "runtimes/linux-x64/upscaler-runtimes.json", "buildTransitive/net11.0/SharpNRI.Native.Upscalers.targets", "lib/net11.0/_._", "licenses/win-x64/NRI/LICENSE.txt", "licenses/linux-x64/NRI/LICENSE.txt", "README.md"
+            "SharpNRI.AgilitySDK"       = "buildTransitive/net11.0/SharpNRI.AgilitySDK.targets", "buildTransitive/net11.0/SharpNRI.AgilitySDK.props", "lib/net11.0/_._", "README.md"
           }
           # Exact dependencies ([v], Directory.Build.targets): the packages are built against each other
           $deps = @{

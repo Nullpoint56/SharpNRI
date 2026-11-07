@@ -17,6 +17,17 @@
   </Target>
 
   <!--
+    Every package version has the NRI version as its major (Directory.Build.props: Package versions):
+    SharpNRIVersion for the release packages, SharpNRIDescsVersion for SharpNRI.Descs.
+  -->
+  <Target Name="SharpNRIVersionMajor" BeforeTargets="Build;GenerateNuspec" Condition="'$(IsPackable)' != 'false'">
+    <Error Code="SHARPNRI004" Condition="!$(SharpNRIVersion.StartsWith('$(NriVersion).'))"
+           Text="SharpNRIVersion $(SharpNRIVersion) does not start with the NRI version $(NriVersion): a new NRI version starts $(NriVersion).0.0 (Directory.Build.props)" />
+    <Error Code="SHARPNRI004" Condition="!$(SharpNRIDescsVersion.StartsWith('$(NriVersion).'))"
+           Text="SharpNRIDescsVersion $(SharpNRIDescsVersion) does not start with the NRI version $(NriVersion): a new NRI version starts $(NriVersion).0.0 (Directory.Build.props)" />
+  </Target>
+
+  <!--
     The package page (docs/nuget/README.md) with its repository links pinned to the release: blob/master/
     becomes blob/v$(SharpNRIVersion)/, the tag the release workflow creates on the packed commit, so a
     package's page shows the guide of its own version (beta.2 linked master).
