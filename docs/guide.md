@@ -59,8 +59,10 @@ headers do not say. NRI v191.
   where the application loads native libraries from.
 - Windows needs the Visual C++ 2015-2022 runtime; not shipped.
 - Debugging (from 1.0.0-beta.3): the packages carry PDBs with Source Link, so with Source Link support
-  on in the debugger, stepping into SharpNRI shows its source at the package's commit. NRI's native code
-  has no symbols in the packages.
+  on in the debugger, stepping into SharpNRI shows its source at the package's commit. NRI's native symbols
+  (win-x64 `NRI.pdb`) are on each GitHub release as `SharpNRI-symbols-*.zip`: put `NRI.pdb` beside
+  `NRI.dll` or on the debugger's symbol path, with native debugging on, to step into NRI. Linux and macOS
+  libraries have no symbols.
 - No package ships a vendor runtime. Beside your executable, under the vendor's terms:
 
   | Upscaler | D3D12 | Vulkan |

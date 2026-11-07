@@ -171,7 +171,11 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   commit on GitHub, the `nri` submodule's to NRI's. The release pack adds
   `ContinuousIntegrationBuild`; `release.yml`'s pack check requires the PDBs and the commit. A PDB beside
   the DLL, not embedded: `tools/coverage/BoundSurface` reads the file. NRI's native `NRI.pdb` (12.5 MB on
-  win-x64) is built but not staged.
+  win-x64) is not in the packages: `release.yml` attaches it per payload as
+  `SharpNRI-symbols-<base|upscalers>-win-x64-<tag>.zip` (about 3.6 MB), checked to belong to the staged
+  `NRI.dll` (same file, its debug directory names `NRI.pdb`). NRI ships no binaries or symbols itself,
+  so a release is the only source of symbols matching its `NRI.dll`. `libNRI.so` and `libNRI.dylib` are
+  built without debug info, so Linux and macOS have none.
 - Licences that shaped the split: NGX terms attach to `NRI.dll` itself when NGX is linked
   (static), require downstream terms "at least as protective" and forbid stand-alone
   redistribution. The Agility runtime may be redistributed only in applications that bind users to

@@ -137,6 +137,22 @@ jobs:
             if (-not (Test-Path $src)) { throw "$src was not staged" }
             # ZipFile writes '/' separators; the zip unpacks the same on every OS.
             [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $src).Path, "$PWD/dist/SharpNRI-native-$($v.Name)-win-x64-$env:RELEASE_TAG.zip")
+
+            # NRI's native symbols, for stepping into NRI and for reading crash dumps of this build:
+            # the PDB the same link wrote beside the staged NRI.dll, which names it in its debug directory
+            $bin = "_build/win-x64-$($v.Name)/bin/Release"
+            $pdb = Join-Path $bin "NRI.pdb"
+            if (-not (Test-Path $pdb)) { throw "$pdb was not built" }
+            $pe = [System.Reflection.PortableExecutable.PEReader]::new([System.IO.File]::OpenRead((Resolve-Path "$src/NRI.dll").Path))
+            try {
+              $codeView = $pe.ReadDebugDirectory() | Where-Object Type -eq CodeView | Select-Object -First 1
+              $named = $pe.ReadCodeViewDebugDirectoryData($codeView).Path
+            } finally { $pe.Dispose() }
+            if ((Split-Path $named -Leaf) -ne "NRI.pdb") { throw "the staged NRI.dll names $named, not NRI.pdb" }
+            if ((Get-FileHash "$src/NRI.dll").Hash -ne (Get-FileHash (Join-Path $bin "NRI.dll")).Hash) { throw "the staged NRI.dll is not the one beside $pdb" }
+            $symbols = "$PWD/dist/SharpNRI-symbols-$($v.Name)-win-x64-$env:RELEASE_TAG.zip"
+            $zip = [System.IO.Compression.ZipFile]::Open($symbols, "Create")
+            try { [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Resolve-Path $pdb).Path, "NRI.pdb") | Out-Null } finally { $zip.Dispose() }
           }
           Get-ChildItem dist | Format-Table Name, Length -AutoSize | Out-String | Write-Host
 
