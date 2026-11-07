@@ -3,8 +3,9 @@ name: release
 # How a release is made (owner, 2026-11-06: by hand, from master only):
 #   1. Bump <Version> in dotnet/SharpNRI.csproj and, to the same value, in descs/SharpNRI.Descs.csproj,
 #      testing/SharpNRI.Testing.csproj and native/SharpNRI.Native.Upscalers.csproj. Add
-#      docs/releases/v<Version>.md, the release body (NRI pin, changes, breaking changes, verified
-#      hardware and commit, coverage link). Merge to master; master's ci goes green.
+#      docs/releases/v<Version>.md: ## Added, ## Fixed, ## Breaking changes, ## Verified (hardware, commit,
+#      coverage link), compact lists of what happened; tools/ci/release-body.ps1 adds Bound libraries
+#      and Packages. Merge to master; master's ci goes green.
 #   2. Actions > release > Run workflow, on master. Nothing else starts it: no tag push, no merge.
 #   3. This workflow: version (all four csprojs agree on <Version>, v<Version> is not a tag yet,
 #      the notes exist, the run is on master) -> win-x64, linux-x64 (native payloads, same setup and
@@ -136,6 +137,22 @@ jobs:
             if (-not (Test-Path $src)) { throw "$src was not staged" }
             # ZipFile writes '/' separators; the zip unpacks the same on every OS.
             [System.IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path $src).Path, "$PWD/dist/SharpNRI-native-$($v.Name)-win-x64-$env:RELEASE_TAG.zip")
+
+            # NRI's native symbols, for stepping into NRI and for reading crash dumps of this build:
+            # the PDB the same link wrote beside the staged NRI.dll, which names it in its debug directory
+            $bin = "_build/win-x64-$($v.Name)/bin/Release"
+            $pdb = Join-Path $bin "NRI.pdb"
+            if (-not (Test-Path $pdb)) { throw "$pdb was not built" }
+            $pe = [System.Reflection.PortableExecutable.PEReader]::new([System.IO.File]::OpenRead((Resolve-Path "$src/NRI.dll").Path))
+            try {
+              $codeView = $pe.ReadDebugDirectory() | Where-Object Type -eq CodeView | Select-Object -First 1
+              $named = $pe.ReadCodeViewDebugDirectoryData($codeView).Path
+            } finally { $pe.Dispose() }
+            if ((Split-Path $named -Leaf) -ne "NRI.pdb") { throw "the staged NRI.dll names $named, not NRI.pdb" }
+            if ((Get-FileHash "$src/NRI.dll").Hash -ne (Get-FileHash (Join-Path $bin "NRI.dll")).Hash) { throw "the staged NRI.dll is not the one beside $pdb" }
+            $symbols = "$PWD/dist/SharpNRI-symbols-$($v.Name)-win-x64-$env:RELEASE_TAG.zip"
+            $zip = [System.IO.Compression.ZipFile]::Open($symbols, "Create")
+            try { [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, (Resolve-Path $pdb).Path, "NRI.pdb") | Out-Null } finally { $zip.Dispose() }
           }
           Get-ChildItem dist | Format-Table Name, Length -AutoSize | Out-String | Write-Host
 
@@ -343,16 +360,16 @@ jobs:
           if ($missing) { throw "missing after download: $($missing -join ', ')" }
 
       - name: Pack
-        run: dotnet pack SharpNRI.slnx -c Release -p:PackageOutputPath="$GITHUB_WORKSPACE/nupkg"
+        run: dotnet pack SharpNRI.slnx -c Release -p:ContinuousIntegrationBuild=true -p:PackageOutputPath="$GITHUB_WORKSPACE/nupkg"
 
       - name: Package contents
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $must = @{
-            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "README.md"
-            "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "lib/net11.0/SharpNRI.Descs.xml", "README.md"
-            "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "lib/net11.0/SharpNRI.Testing.xml", "README.md"
+            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "lib/net11.0/SharpNRI.pdb", "README.md"
+            "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "lib/net11.0/SharpNRI.Descs.xml", "lib/net11.0/SharpNRI.Descs.pdb", "README.md"
+            "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "lib/net11.0/SharpNRI.Testing.xml", "lib/net11.0/SharpNRI.Testing.pdb", "README.md"
             "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/win-x64/upscaler-runtimes.json", "runtimes/linux-x64/upscaler-runtimes.json", "README.md"
           }
           $version = "${{ needs.version.outputs.version }}"
@@ -366,6 +383,12 @@ jobs:
               Write-Host "`n==> $pkg ($([math]::Round((Get-Item $pkg).Length / 1KB)) KB)"
               $zip.Entries | Sort-Object FullName | ForEach-Object { Write-Host ("    {0,12}  {1}" -f $_.Length, $_.FullName) }
               foreach ($e in $must[$id]) { if ($entries -notcontains $e) { $failed += "$pkg lacks $e" } }
+              # Source Link: the package names the commit it was built from (PublishRepositoryUrl)
+              if ($id -ne "SharpNRI.Native.Upscalers") {
+                $nuspec = $zip.Entries | Where-Object { $_.FullName -like "*.nuspec" } | Select-Object -First 1
+                $reader = [System.IO.StreamReader]::new($nuspec.Open()); $text = $reader.ReadToEnd(); $reader.Dispose()
+                if ($text -notmatch "<repository [^>]*commit=""${{ github.sha }}""") { $failed += "$pkg does not name commit ${{ github.sha }} in <repository>" }
+              }
             } finally { $zip.Dispose() }
           }
           $extra = @(Get-ChildItem nupkg -Filter *.nupkg | Where-Object { $_.Name -notin ($must.Keys | ForEach-Object { "$_.$version.nupkg" }) })
@@ -460,17 +483,10 @@ jobs:
           name: runtimes-upscalers-win-x64
           path: upscalers
 
-      # docs/releases/<tag>.md with the upscaler runtimes listed under its first line (the NRI pin),
-      # plus where the macOS library comes from.
+      # Bound libraries (from the manifest), docs/releases/<tag>.md, Packages
       - name: Release body
         shell: pwsh
-        run: |
-          $notes = Get-Content "docs/releases/$env:RELEASE_TAG.md"
-          if ($notes[0] -notmatch '^\*\*NRI v\d+\*\*$') { throw "the notes must start with the NRI pin line (**NRI vNNN**)" }
-          $runtimes = & ./tools/ci/upscaler-runtimes.ps1 upscalers/win-x64/upscaler-runtimes.json
-          $body = @($notes[0]) + $runtimes + $notes[1..($notes.Count - 1)] + @("", "The macOS (osx-arm64) library is not in the packages: it is attached here as a zip once a macOS runner has built it.")
-          $body | Set-Content body.md -Encoding utf8NoBOM
-          Get-Content body.md
+        run: ./tools/ci/release-body.ps1 -Tag $env:RELEASE_TAG -Manifest upscalers/win-x64/upscaler-runtimes.json -Out body.md
 
       - uses: actions/download-artifact@v4
         with:

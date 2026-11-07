@@ -1,14 +1,13 @@
 <#
 .SYNOPSIS
-    Renders the vendor runtimes an Upscalers payload was built against as the Markdown list the
-    release notes show under the NRI version line.
+    Renders the "Bound libraries" section of a release body from an Upscalers payload's manifest.
 
 .DESCRIPTION
     Reads upscaler-runtimes.json, which tools/build-native.ps1 writes beside each Upscalers payload
     (runtimes-upscalers/<rid>/upscaler-runtimes.json; the package carries it as
-    runtimes/<rid>/upscaler-runtimes.json), and prints one list item per upscaler SDK: its version at
-    NRI's pin and each runtime file with its file version. release.yml inserts the output under the
-    first line of docs/releases/<tag>.md. Run it locally to preview:
+    runtimes/<rid>/upscaler-runtimes.json): NRI's version, then each upscaler SDK at NRI's pin with
+    the runtime files the application ships, each version linked to its release page. release.yml
+    puts the output above docs/releases/<tag>.md. Preview:
 
         pwsh tools/ci/upscaler-runtimes.ps1 runtimes-upscalers/win-x64/upscaler-runtimes.json
 #>
@@ -20,9 +19,11 @@ $ErrorActionPreference = "Stop"
 $m = Get-Content $Manifest -Raw | ConvertFrom-Json
 if (-not $m.sdks) { throw "$Manifest lists no upscaler SDK" }
 
-"- Upscalers (``SharpNRI.Native.Upscalers``, $($m.rid)) built against, runtimes shipped by the application:"
+"## Bound libraries"
+"- NRI: [v$($m.nri)]($($m.nriUrl))"
 foreach ($s in $m.sdks) {
     $files = @($s.runtimes | ForEach-Object { "``$($_.file)`` $($_.version)" })
-    $what = if ($files.Count) { $files -join ", " } else { $s.note }
-    "  - $($s.name) $($s.version): $what"
+    $detail = if ($files.Count) { $files -join ", " } else { $s.note }
+    "- $($s.name): [$($s.version)]($($s.url)) ($detail)"
 }
+""

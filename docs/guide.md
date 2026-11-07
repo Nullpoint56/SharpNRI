@@ -58,6 +58,11 @@ headers do not say. NRI v191.
   (`libNRI.dylib`, Base only; Vulkan and NONE) once a macOS runner has built it; put its files
   where the application loads native libraries from.
 - Windows needs the Visual C++ 2015-2022 runtime; not shipped.
+- Debugging (from 1.0.0-beta.3): the packages carry PDBs with Source Link, so with Source Link support
+  on in the debugger, stepping into SharpNRI shows its source at the package's commit. NRI's native symbols
+  (win-x64 `NRI.pdb`) are on each GitHub release as `SharpNRI-symbols-*.zip`: put `NRI.pdb` beside
+  `NRI.dll` or on the debugger's symbol path, with native debugging on, to step into NRI. Linux and macOS
+  libraries have no symbols.
 - No package ships a vendor runtime. Beside your executable, under the vendor's terms:
 
   | Upscaler | D3D12 | Vulkan |
@@ -69,7 +74,7 @@ headers do not say. NRI v191.
   `NriUpscalerExtension.GetRuntimeFiles(type, api)` names them for the running build. Which versions:
   `SharpNRI.Native.Upscalers` carries `runtimes/<rid>/upscaler-runtimes.json`, each SDK at NRI's pin and
   each runtime NRI's build fetched with its file version and SHA-256, and each release lists them
-  under its NRI version. Ship those, or a later version the vendor declares compatible.
+  under Bound libraries. Ship those, or a later version the vendor declares compatible.
 - DLSS: `pwsh tools/build-native.ps1 -WithDlss <DLSS SDK dir>` builds an NGX-linked `NRI.dll` into
   `runtimes-upscalers-dlss/<rid>/native/`. NGX is linked statically, so that `NRI.dll` is under
   NVIDIA's RTX SDK licence: yours to ship, never packed here.
