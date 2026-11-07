@@ -66,7 +66,10 @@ headers do not say. NRI v191.
   | XeSS | `libxess.dll` | not offered |
   | DLSR / DLRR | `nvngx_dlss*.dll` (DLSS build only) | same |
 
-  `NriUpscalerExtension.GetRuntimeFiles(type, api)` names them for the running build.
+  `NriUpscalerExtension.GetRuntimeFiles(type, api)` names them for the running build. Which versions:
+  `SharpNRI.Native.Upscalers` carries `runtimes/<rid>/upscaler-runtimes.json`, each SDK at NRI's pin and
+  each runtime NRI's build fetched with its file version and SHA-256, and each release lists them
+  under its NRI version. Ship those, or a later version the vendor declares compatible.
 - DLSS: `pwsh tools/build-native.ps1 -WithDlss <DLSS SDK dir>` builds an NGX-linked `NRI.dll` into
   `runtimes-upscalers-dlss/<rid>/native/`. NGX is linked statically, so that `NRI.dll` is under
   NVIDIA's RTX SDK licence: yours to ship, never packed here.

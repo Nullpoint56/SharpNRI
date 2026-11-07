@@ -295,6 +295,8 @@ Regenerate after any patch that touches a header; `NativeAbiTests` then re-measu
 ### Lint
 
 ```powershell
+pwsh tools/check.ps1 [-Lint] [-ZeroAlloc] [-Fix]   # both by default; -Fix applies the formatter first
+# which runs
 dotnet build SharpNRI.slnx -c Release -warnaserror -p:SharpNRIRequireNative=false
 dotnet format whitespace SharpNRI.slnx --exclude dotnet/Native --verify-no-changes
 ```
@@ -1239,6 +1241,15 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   without `nvngx_dlssd.dll` beside the application (NGX loads its feature DLLs from outside it too);
   XeSS an `SEHException` from the delay-load stub (0xC06D007E). FSR loads `amd_fidelityfx_loader_dx12.dll` / `amd_fidelityfx_loader_vk.dll` by name
   (the VK loader then loads `amd_fidelityfx_upscaler_vk.dll`).
+- **The vendor runtimes a payload was built against** (`upscaler-runtimes.json`): `build-native.ps1`
+  writes it beside each Upscalers payload (`runtimes-upscalers/<rid>/`, outside `native/` so it is not
+  copied next to applications): each SDK at NRI's pin (FidelityFX and XeSS archive tags and `NGX_VERSION`
+  in `nri/CMakeLists.txt`, NIS from `nri/Shaders/NIS.hlsl`) and each runtime NRI's build fetched, by file
+  version and SHA-256. At v191: NIS 1.0.3 (compiled in), FidelityFX SDK 2.4.0 (loaders 2.3.0.4555 and
+  1.0.2.4555, upscalers 4.1.2.4555), XeSS SDK 3.0.2 (`libxess.dll` 2.0.2.68), NGX 310.9.16 (not built).
+  The package carries it; `release.yml` lists it under the notes' NRI line
+  (`tools/ci/upscaler-runtimes.ps1`); `NativePayloadTests` holds it to the pins and to
+  `GetRuntimeFiles`.
 - **`GetRuntimeFiles` must name what the pinned NRI loads**; check it whenever the pin moves. v190
   loaded `amd_fidelityfx_vk.dll` for FSR on Vulkan; naming that file on v191 made the guard refuse
   FSR with the right files installed (`UpscalerExtensionTests`).
@@ -1631,8 +1642,8 @@ Hosted minutes are limited and billed per job, rounded up; a macOS minute costs 
 minutes and a Windows minute about two. That shapes the runs:
 
 - **Repository rules** (public since 2026-11-04): ruleset `master` (no deletion, no force-push,
-  pull requests only with 0 approvals, required checks `gate`, `win-x64`, `linux-x64` on a branch
-  that is up to date with master (since 2026-11-06); repository
+  pull requests only with 0 approvals, required checks `gate`, `win-x64`, `linux-x64` (since
+  2026-11-06), `lint` and `zero-alloc` (since 2026-11-07) on a branch that is up to date with master; repository
   admins may bypass when merging a pull request, for GitHub outages); ruleset `release tags`
   (`v*` cannot be deleted, moved or force-pushed; admins may bypass, to move a failed release's
   tag). Actions: the workflow token is read-only by default and cannot approve pull requests (the
@@ -1656,6 +1667,12 @@ minutes and a Windows minute about two. That shapes the runs:
   commit. Pushes to master run by themselves. When master has moved, the branch must be
   updated (merge or rebase master into it) and `ci` started again before it can merge. A fork's branch cannot be
   started that way: push its commits to a branch here first.
+- **The quick checks alone** (owner, 2026-11-07): `lint` and `zero-alloc` are required, and a
+  development branch iterates on them without the whole suite: Actions > checks > Run workflow
+  (`checks.yml`, either or both), which posts the same two commit statuses on the commit it ran, or
+  `pwsh tools/check.ps1` before pushing. `checks.yml`'s zero-alloc restores `ci.yml`'s payload under the
+  same key (`ci-gate.ps1`) and on a miss builds and saves it. `ci.yml` runs both too, so a full run
+  covers all five.
 - **`gate`** (`tools/ci/ci-gate.ps1`): a manual run tests everything but macOS (above); on a branch
   whose changes against master are all in the `paths-ignore` list it skips every platform job, which
   the required checks count as passed. A push to master whose tree equals the head of a merged pull

@@ -137,6 +137,45 @@ public sealed class NativePayloadTests
     [UpscalersFact]
     public void Upscalers_is_exactly_the_contract() => AssertExactly(Dir("runtimes-upscalers"), Upscalers[Rid]);
 
+    /// <summary>
+    /// upscaler-runtimes.json beside the Upscalers payload (the package carries it, the release notes
+    /// list it) names each upscaler SDK at NRI's pin, and on Windows each runtime NRI's build fetched,
+    /// with a file version and SHA-256.
+    /// </summary>
+    [UpscalersFact]
+    public void Upscalers_records_the_vendor_runtimes_it_was_built_against()
+    {
+        var path = Path.Combine(RepoRoot, "runtimes-upscalers", Rid, "upscaler-runtimes.json");
+        Assert.True(File.Exists(path), $"{path} is absent. Run: pwsh tools/build-native.ps1 -Rid {Rid} -Variant Upscalers");
+        using var manifest = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+        var root = manifest.RootElement;
+        Assert.Equal(NriHeader.PinnedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture), root.GetProperty("nri").GetString());
+        Assert.Equal(Rid, root.GetProperty("rid").GetString());
+
+        var cmake = File.ReadAllText(Path.Combine(RepoRoot, "nri", "CMakeLists.txt"));
+        string Pin(string pattern) => System.Text.RegularExpressions.Regex.Match(cmake, pattern).Groups[1].Value;
+        var sdks = root.GetProperty("sdks").EnumerateArray().ToDictionary(s => s.GetProperty("name").GetString()!);
+        Assert.Equal(Pin(@"set\(NGX_VERSION ""([\d.]+)""\)"), sdks["NVIDIA DLSS (NGX)"].GetProperty("version").GetString());
+        Assert.Contains("NVIDIA Image Scaling", sdks.Keys);
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Equal(Pin(@"FidelityFX-SDK/archive/refs/tags/v([\d.]+)\.zip"), sdks["AMD FidelityFX SDK"].GetProperty("version").GetString());
+            Assert.Equal(Pin(@"intel/xess/archive/refs/tags/v([\d.]+)\.zip"), sdks["Intel XeSS SDK"].GetProperty("version").GetString());
+            // What NRI loads (NriUpscalerExtension.GetRuntimeFiles) is what the manifest records
+            string[] Files(string sdk) => [.. sdks[sdk].GetProperty("runtimes").EnumerateArray().Select(r => r.GetProperty("file").GetString()!)];
+            foreach (var api in new[] { SharpNRI.Native.GraphicsAPI.D3D12, SharpNRI.Native.GraphicsAPI.VK })
+                Assert.Subset(Files("AMD FidelityFX SDK").ToHashSet(), NriUpscalerExtension.GetRuntimeFiles(SharpNRI.Native.UpscalerType.FSR, api).ToHashSet());
+            Assert.Subset(Files("Intel XeSS SDK").ToHashSet(), NriUpscalerExtension.GetRuntimeFiles(SharpNRI.Native.UpscalerType.XESS, SharpNRI.Native.GraphicsAPI.D3D12).ToHashSet());
+        }
+        foreach (var runtime in sdks.Values.SelectMany(s => s.GetProperty("runtimes").EnumerateArray()))
+        {
+            Assert.Matches(@"^\d+(\.\d+)+$", runtime.GetProperty("version").GetString());
+            Assert.Matches("^[0-9a-f]{64}$", runtime.GetProperty("sha256").GetString());
+        }
+        GpuWork.Record(string.Join("; ", sdks.Values.Select(s => $"{s.GetProperty("name").GetString()} {s.GetProperty("version").GetString()}: "
+            + string.Join(", ", s.GetProperty("runtimes").EnumerateArray().Select(r => $"{r.GetProperty("file").GetString()} {r.GetProperty("version").GetString()}")))));
+    }
+
     [AgilityFact]
     public void Agility_is_exactly_the_contract() => AssertExactly(Dir("runtimes-agility"), Agility[Rid]);
 

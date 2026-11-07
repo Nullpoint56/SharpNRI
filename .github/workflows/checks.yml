@@ -1,0 +1,179 @@
+name: checks
+
+# The two quick checks of ci.yml on their own, for iterating on a development branch: Actions >
+# checks > Run workflow, choosing the branch. Each posts the same commit status as ci.yml's job of
+# that name, which the master ruleset requires (AGENTS.md: Actions budget), so a style fix needs a
+# lint run of about a minute instead of the whole suite. Locally: pwsh tools/check.ps1.
+#   - lint: the SDK's analyzers and code-style rules as errors, and the formatter (AGENTS.md: Lint).
+#   - zero-alloc: the allocation classes on NONE and lavapipe (AGENTS.md: Lifetime). The native
+#     payload comes from ci.yml's cache under the same key; on a miss it is built here (about four
+#     minutes) and saved for ci.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      lint:
+        description: "lint: analyzers as errors and the formatter"
+        type: boolean
+        default: true
+      zero_alloc:
+        description: "zero-alloc: the per-frame allocation tests"
+        type: boolean
+        default: true
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "1"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+  VULKAN_SDK_VERSION: "1.4.363.0"   # as in ci.yml
+
+jobs:
+  lint:
+    if: inputs.lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mark lint pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=pending -f context=lint -f description="checks run in progress" -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" --silent
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Analyzers, warnings as errors
+        run: dotnet build SharpNRI.slnx -c Release -warnaserror -p:SharpNRIRequireNative=false
+
+      - name: Formatting
+        run: dotnet format whitespace SharpNRI.slnx --exclude dotnet/Native --verify-no-changes --verbosity diagnostic
+
+      - name: Post lint
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=$([ "${{ job.status }}" = "success" ] && echo success || echo failure)
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=$state -f context=lint -f description="checks run: ${{ job.status }}" -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" --silent
+
+  zero-alloc:
+    if: inputs.zero_alloc
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read          # the gate reads runs and caches of this repository for the payload key
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Mark zero-alloc pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=pending -f context=zero-alloc -f description="checks run in progress" -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" --silent
+
+      # Only for the payload key, which is ci.yml's (the same inputs, the same hash)
+      - name: Native payload key
+        id: gate
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GATE_REF: ${{ github.ref }}
+        run: ./tools/ci/ci-gate.ps1
+
+      - name: Install test packages
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 libvulkan1 mesa-vulkan-drivers ||
+            { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libvulkan1 mesa-vulkan-drivers; }
+
+      - name: Restore native payload
+        id: payload
+        uses: actions/cache/restore@v4
+        with:
+          path: runtimes
+          key: native-linux-x64-${{ steps.gate.outputs.key }}
+
+      - name: Read NRI pin
+        if: steps.payload.outputs.cache-hit != 'true'
+        id: pin
+        shell: pwsh
+        run: |
+          if ((Get-Content Directory.Build.props -Raw) -notmatch '<NriVersion>([^<]+)</NriVersion>') { throw "NriVersion not found" }
+          "nri=$($Matches[1].Trim())" >> $env:GITHUB_OUTPUT
+
+      - name: Cache NRI dependencies
+        if: steps.payload.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: _build/linux-x64-base/_deps
+          key: nri-deps-linux-x64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      # As in ci.yml's linux-x64 build: the X11 / Wayland headers keep the payload a release one
+      - name: Install build packages
+        if: steps.payload.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 ninja-build clang libx11-dev libwayland-dev ||
+            { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ninja-build clang libx11-dev libwayland-dev; }
+
+      - name: Build native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/build-native.ps1 -Rid linux-x64 -Configuration Release
+
+      - name: Save native payload
+        if: steps.payload.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: runtimes
+          key: native-linux-x64-${{ steps.gate.outputs.key }}
+
+      - name: Cache Khronos validation layer
+        id: vvl
+        uses: actions/cache@v4
+        with:
+          path: _tools/vvl
+          key: vvl-linux-x64-${{ env.VULKAN_SDK_VERSION }}
+
+      - name: Fetch Khronos validation layer
+        if: steps.vvl.outputs.cache-hit != 'true'
+        run: bash tools/ci/fetch-vulkan-layer.sh _tools/vvl
+
+      - name: Put the layer in front of the system one
+        run: echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/_tools/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Build managed
+        run: dotnet build tests/SharpNRI.Tests -c Release
+
+      - name: Zero-allocation frames
+        run: |
+          tests/SharpNRI.Tests/bin/Release/net11.0/SharpNRI.Tests -noColor -showLiveOutput \
+            -class SharpNRI.Tests.AllocationTests -class SharpNRI.Tests.ExtensionAllocationTests -class SharpNRI.Tests.AllocationCoverageTests
+
+      - name: Post zero-alloc
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=$([ "${{ job.status }}" = "success" ] && echo success || echo failure)
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=$state -f context=zero-alloc -f description="checks run: ${{ job.status }}" -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" --silent

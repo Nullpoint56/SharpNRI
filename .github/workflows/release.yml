@@ -350,10 +350,10 @@ jobs:
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $must = @{
-            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "README.md"
-            "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "README.md"
-            "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "README.md"
-            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "README.md"
+            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "README.md"
+            "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "lib/net11.0/SharpNRI.Descs.xml", "README.md"
+            "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "lib/net11.0/SharpNRI.Testing.xml", "README.md"
+            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/win-x64/upscaler-runtimes.json", "runtimes/linux-x64/upscaler-runtimes.json", "README.md"
           }
           $version = "${{ needs.version.outputs.version }}"
           $failed = @()
@@ -449,17 +449,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: docs/releases
+          sparse-checkout: |
+            docs/releases
+            tools/ci
 
-      # docs/releases/<tag>.md, plus where the macOS library comes from.
+      # The vendor runtimes the Upscalers payload was built against, from the manifest
+      # tools/build-native.ps1 wrote beside it (the package carries the same file)
+      - uses: actions/download-artifact@v4
+        with:
+          name: runtimes-upscalers-win-x64
+          path: upscalers
+
+      # docs/releases/<tag>.md with the upscaler runtimes listed under its first line (the NRI pin),
+      # plus where the macOS library comes from.
       - name: Release body
+        shell: pwsh
         run: |
-          cp "docs/releases/${RELEASE_TAG}.md" body.md
-          {
-            echo
-            echo "The macOS (osx-arm64) library is not in the packages: it is attached here as a zip once a macOS runner has built it."
-          } >> body.md
-          cat body.md
+          $notes = Get-Content "docs/releases/$env:RELEASE_TAG.md"
+          if ($notes[0] -notmatch '^\*\*NRI v\d+\*\*$') { throw "the notes must start with the NRI pin line (**NRI vNNN**)" }
+          $runtimes = & ./tools/ci/upscaler-runtimes.ps1 upscalers/win-x64/upscaler-runtimes.json
+          $body = @($notes[0]) + $runtimes + $notes[1..($notes.Count - 1)] + @("", "The macOS (osx-arm64) library is not in the packages: it is attached here as a zip once a macOS runner has built it.")
+          $body | Set-Content body.md -Encoding utf8NoBOM
+          Get-Content body.md
 
       - uses: actions/download-artifact@v4
         with:
