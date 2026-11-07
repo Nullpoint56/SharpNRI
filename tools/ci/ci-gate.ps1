@@ -121,7 +121,7 @@ switch ($EventName) {
 # ------------------------------------------------------------------------------ docs-only branches
 # Paths that cannot change a result; ci.yml's push trigger ignores the same list.
 $noResult = '*.md', 'docs/*', '.github/workflows/release.yml', '.github/workflows/regen.yml',
-            '.github/workflows/coverage.yml', 'tools/consume/*', 'tools/generate-native.ps1',
+            '.github/workflows/coverage.yml', '.github/workflows/checks.yml', 'tools/consume/*', 'tools/generate-native.ps1',
             'tools/coverage.ps1', 'tools/coverage/*'
 if ($EventName -eq 'workflow_dispatch' -and $Ref -and $Ref -ne 'refs/heads/master') {
     try {

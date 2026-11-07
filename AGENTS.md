@@ -295,6 +295,8 @@ Regenerate after any patch that touches a header; `NativeAbiTests` then re-measu
 ### Lint
 
 ```powershell
+pwsh tools/check.ps1 [-Lint] [-ZeroAlloc] [-Fix]   # both by default; -Fix applies the formatter first
+# which runs
 dotnet build SharpNRI.slnx -c Release -warnaserror -p:SharpNRIRequireNative=false
 dotnet format whitespace SharpNRI.slnx --exclude dotnet/Native --verify-no-changes
 ```
@@ -1640,8 +1642,8 @@ Hosted minutes are limited and billed per job, rounded up; a macOS minute costs 
 minutes and a Windows minute about two. That shapes the runs:
 
 - **Repository rules** (public since 2026-11-04): ruleset `master` (no deletion, no force-push,
-  pull requests only with 0 approvals, required checks `gate`, `win-x64`, `linux-x64` on a branch
-  that is up to date with master (since 2026-11-06); repository
+  pull requests only with 0 approvals, required checks `gate`, `win-x64`, `linux-x64` (since
+  2026-11-06), `lint` and `zero-alloc` (since 2026-11-07) on a branch that is up to date with master; repository
   admins may bypass when merging a pull request, for GitHub outages); ruleset `release tags`
   (`v*` cannot be deleted, moved or force-pushed; admins may bypass, to move a failed release's
   tag). Actions: the workflow token is read-only by default and cannot approve pull requests (the
@@ -1665,6 +1667,12 @@ minutes and a Windows minute about two. That shapes the runs:
   commit. Pushes to master run by themselves. When master has moved, the branch must be
   updated (merge or rebase master into it) and `ci` started again before it can merge. A fork's branch cannot be
   started that way: push its commits to a branch here first.
+- **The quick checks alone** (owner, 2026-11-07): `lint` and `zero-alloc` are required, and a
+  development branch iterates on them without the whole suite: Actions > checks > Run workflow
+  (`checks.yml`, either or both), which posts the same two commit statuses on the commit it ran, or
+  `pwsh tools/check.ps1` before pushing. `checks.yml`'s zero-alloc restores `ci.yml`'s payload under the
+  same key (`ci-gate.ps1`) and on a miss builds and saves it. `ci.yml` runs both too, so a full run
+  covers all five.
 - **`gate`** (`tools/ci/ci-gate.ps1`): a manual run tests everything but macOS (above); on a branch
   whose changes against master are all in the `paths-ignore` list it skips every platform job, which
   the required checks count as passed. A push to master whose tree equals the head of a merged pull

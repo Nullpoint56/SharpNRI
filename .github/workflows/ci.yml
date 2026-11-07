@@ -31,6 +31,7 @@ on:
       - ".github/workflows/release.yml"
       - ".github/workflows/regen.yml"
       - ".github/workflows/coverage.yml"
+      - ".github/workflows/checks.yml"
       - "tools/consume/**"
       - "tools/generate-native.ps1"
       - "tools/coverage.ps1"
