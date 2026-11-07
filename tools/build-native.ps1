@@ -449,28 +449,33 @@ if ($variantKey -ne "base") {
             [ordered]@{ file = $_.Name; version = "$version".Trim(); sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
         })
     }
+    # Each SDK's release page at that version, for the release notes' links
+    function ReleasePage([string]$Repo, [string]$Version) { "https://github.com/$Repo/releases/tag/v$Version" }
     $sdks = [System.Collections.Generic.List[object]]::new()
     if (& $on NRI_ENABLE_NIS_SDK) {
         $nisVersion = if ((Get-Content (Join-Path $nri "Shaders" "NIS.hlsl") -Raw) -match 'NVIDIA Image Scaling SDK\s+-\s+v([\d.]+)') { $Matches[1] } else { throw "the NIS SDK version was not found in nri/Shaders/NIS.hlsl" }
-        $sdks.Add([ordered]@{ name = "NVIDIA Image Scaling"; version = $nisVersion; runtimes = @(); note = "compiled into NRI; no runtime" })
+        $sdks.Add([ordered]@{ name = "NVIDIA Image Scaling"; version = $nisVersion; url = (ReleasePage "NVIDIAGameWorks/NVIDIAImageScaling" $nisVersion); runtimes = @(); note = "compiled in" })
     }
     if (& $on NRI_ENABLE_FFX_SDK) {
-        $sdks.Add([ordered]@{ name = "AMD FidelityFX SDK"; version = (PinOf 'FidelityFX-SDK/archive/refs/tags/v([\d.]+)\.zip' "FidelityFX SDK"); runtimes = [object[]](RuntimesOf '^amd_fidelityfx_(loader|upscaler)_(dx12|vk)\.dll$'); note = "loaded by name at upscaler creation" })
+        $ffx = PinOf 'FidelityFX-SDK/archive/refs/tags/v([\d.]+)\.zip' "FidelityFX SDK"
+        $sdks.Add([ordered]@{ name = "AMD FidelityFX SDK"; version = $ffx; url = (ReleasePage "GPUOpen-LibrariesAndSDKs/FidelityFX-SDK" $ffx); runtimes = [object[]](RuntimesOf '^amd_fidelityfx_(loader|upscaler)_(dx12|vk)\.dll$'); note = $null })
     }
     if (& $on NRI_ENABLE_XESS_SDK) {
-        $sdks.Add([ordered]@{ name = "Intel XeSS SDK"; version = (PinOf 'intel/xess/archive/refs/tags/v([\d.]+)\.zip' "XeSS SDK"); runtimes = [object[]](RuntimesOf '^libxess\.dll$'); note = "delay-loaded at upscaler creation" })
+        $xess = PinOf 'intel/xess/archive/refs/tags/v([\d.]+)\.zip' "XeSS SDK"
+        $sdks.Add([ordered]@{ name = "Intel XeSS SDK"; version = $xess; url = (ReleasePage "intel/xess" $xess); runtimes = [object[]](RuntimesOf '^libxess\.dll$'); note = $null })
     }
-    $ngxVersion = PinOf 'set\(NGX_VERSION "([\d.]+)"\)' "NGX"
+    $ngx = PinOf 'set\(NGX_VERSION "([\d.]+)"\)' "NGX"
     if (& $on NRI_ENABLE_NGX_SDK) {
-        $sdks.Add([ordered]@{ name = "NVIDIA DLSS (NGX)"; version = $ngxVersion; runtimes = [object[]](RuntimesOf '^(nvngx_dlssd?\.dll|libnvidia-ngx-dlssd?\.so\..*)$'); note = "NGX linked statically; feature DLLs loaded at creation" })
+        $sdks.Add([ordered]@{ name = "NVIDIA DLSS"; version = $ngx; url = (ReleasePage "NVIDIA/DLSS" $ngx); runtimes = [object[]](RuntimesOf '^(nvngx_dlssd?\.dll|libnvidia-ngx-dlssd?\.so\..*)$'); note = $null })
     } else {
-        $sdks.Add([ordered]@{ name = "NVIDIA DLSS (NGX)"; version = $ngxVersion; runtimes = @(); note = "not built (only with -WithDlss, never packed)" })
+        $sdks.Add([ordered]@{ name = "NVIDIA DLSS"; version = $ngx; url = (ReleasePage "NVIDIA/DLSS" $ngx); runtimes = @(); note = "not packaged" })
     }
     foreach ($s in $sdks) {
-        if ($s.note -notmatch '^(compiled|not built)' -and $s.runtimes.Count -eq 0) { throw "$($s.name): NRI's build fetched no runtime to record" }
+        if (-not $s.note -and $s.runtimes.Count -eq 0) { throw "$($s.name): NRI's build fetched no runtime to record" }
         foreach ($r in $s.runtimes) { if (-not $r.version) { throw "$($s.name): $($r.file) has no version" } }
     }
-    $manifest = [ordered]@{ nri = $NriVersion; rid = $Rid; sdks = $sdks }
+    $nriRepo = (git -C $root config -f .gitmodules submodule.nri.url) -replace '\.git$', ''
+    $manifest = [ordered]@{ nri = $NriVersion; nriUrl = "$nriRepo/releases/tag/v$NriVersion"; rid = $Rid; sdks = $sdks }
     $manifestPath = Join-Path $root $stageRoot $Rid "upscaler-runtimes.json"
     $manifest | ConvertTo-Json -Depth 5 | Set-Content $manifestPath -Encoding utf8NoBOM
     Write-Host "    vendor runtimes recorded in $manifestPath"

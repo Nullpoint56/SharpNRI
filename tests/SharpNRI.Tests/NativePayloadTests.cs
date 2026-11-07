@@ -155,8 +155,11 @@ public sealed class NativePayloadTests
         var cmake = File.ReadAllText(Path.Combine(RepoRoot, "nri", "CMakeLists.txt"));
         string Pin(string pattern) => System.Text.RegularExpressions.Regex.Match(cmake, pattern).Groups[1].Value;
         var sdks = root.GetProperty("sdks").EnumerateArray().ToDictionary(s => s.GetProperty("name").GetString()!);
-        Assert.Equal(Pin(@"set\(NGX_VERSION ""([\d.]+)""\)"), sdks["NVIDIA DLSS (NGX)"].GetProperty("version").GetString());
+        Assert.Equal(Pin(@"set\(NGX_VERSION ""([\d.]+)""\)"), sdks["NVIDIA DLSS"].GetProperty("version").GetString());
         Assert.Contains("NVIDIA Image Scaling", sdks.Keys);
+        Assert.Equal($"https://github.com/NVIDIA-RTX/NRI/releases/tag/v{NriHeader.PinnedVersion}", root.GetProperty("nriUrl").GetString());
+        foreach (var sdk in sdks.Values)
+            Assert.EndsWith($"/releases/tag/v{sdk.GetProperty("version").GetString()}", sdk.GetProperty("url").GetString(), StringComparison.Ordinal);
         if (OperatingSystem.IsWindows())
         {
             Assert.Equal(Pin(@"FidelityFX-SDK/archive/refs/tags/v([\d.]+)\.zip"), sdks["AMD FidelityFX SDK"].GetProperty("version").GetString());
