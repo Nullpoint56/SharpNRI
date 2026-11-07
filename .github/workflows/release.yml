@@ -396,66 +396,14 @@ jobs:
           Invoke-WebRequest "https://api.nuget.org/v3-flatcontainer/sharpnri.descs/$v/sharpnri.descs.$v.nupkg" -OutFile "nupkg/SharpNRI.Descs.${{ needs.version.outputs.descs_version }}.nupkg"
           Write-Host "SharpNRI.Descs $v taken from NuGet.org"
 
+      # tools/ci/check-packages.ps1, the same check a local pack is held to before a release
       - name: Package contents
         shell: pwsh
-        run: |
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $version = "${{ needs.version.outputs.version }}"
-          $descs = "${{ needs.version.outputs.descs_version }}"
-          $agility = "${{ needs.version.outputs.agility }}"
-          $reused = "${{ needs.version.outputs.descs_publish }}" -ne "true"
-          $must = @{
-            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "lib/net11.0/SharpNRI.pdb", "buildTransitive/SharpNRI.targets", "licenses/win-x64/NRI/LICENSE.txt", "licenses/linux-x64/NRI/LICENSE.txt", "README.md"
-            "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "lib/net11.0/SharpNRI.Descs.xml", "lib/net11.0/SharpNRI.Descs.pdb", "README.md"
-            "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "lib/net11.0/SharpNRI.Testing.xml", "lib/net11.0/SharpNRI.Testing.pdb", "README.md"
-            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/win-x64/upscaler-runtimes.json", "runtimes/linux-x64/upscaler-runtimes.json", "buildTransitive/net11.0/SharpNRI.Native.Upscalers.targets", "lib/net11.0/_._", "licenses/win-x64/NRI/LICENSE.txt", "licenses/linux-x64/NRI/LICENSE.txt", "README.md"
-            "SharpNRI.AgilitySDK"       = "buildTransitive/net11.0/SharpNRI.AgilitySDK.targets", "buildTransitive/net11.0/SharpNRI.AgilitySDK.props", "lib/net11.0/_._", "README.md"
-          }
-          # Exact dependencies ([v], Directory.Build.targets): the packages are built against each other
-          $deps = @{
-            "SharpNRI"            = @{ "SharpNRI.Descs" = "[$descs]" }
-            "SharpNRI.Testing"    = @{ "SharpNRI" = "[$version]" }
-            "SharpNRI.AgilitySDK" = @{ "Microsoft.Direct3D.D3D12" = "[$agility]" }
-            "SharpNRI.Native.Upscalers" = @{ "SharpNRI" = "[$version]" }
-          }
-          $failed = @()
-          foreach ($id in $must.Keys | Sort-Object) {
-            $v = if ($id -eq "SharpNRI.Descs") { $descs } else { $version }
-            $pkg = "nupkg/$id.$v.nupkg"
-            if (-not (Test-Path $pkg)) { $failed += "$pkg not produced"; continue }
-            $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $pkg))
-            try {
-              $entries = @($zip.Entries | ForEach-Object { $_.FullName })
-              Write-Host "`n==> $pkg ($([math]::Round((Get-Item $pkg).Length / 1KB)) KB)"
-              $zip.Entries | Sort-Object FullName | ForEach-Object { Write-Host ("    {0,12}  {1}" -f $_.Length, $_.FullName) }
-              foreach ($e in $must[$id]) { if ($entries -notcontains $e) { $failed += "$pkg lacks $e" } }
-              # nothing but libraries under runtimes/<rid>/native/: NuGet copies those flat (beta.2's licences collided)
-              foreach ($e in $entries | Where-Object { $_ -match '^runtimes/[^/]+/native/.+/' }) { $failed += "$pkg has $e in a subfolder of native/" }
-              $nuspec = $zip.Entries | Where-Object { $_.FullName -like "*.nuspec" } | Select-Object -First 1
-              $reader = [System.IO.StreamReader]::new($nuspec.Open()); $text = $reader.ReadToEnd(); $reader.Dispose()
-              [xml]$xml = $text
-              # Source Link: the package names the commit it was built from (PublishRepositoryUrl); a
-              # reused SharpNRI.Descs names the commit it was published from
-              if ($id -ne "SharpNRI.Native.Upscalers" -and -not ($id -eq "SharpNRI.Descs" -and $reused)) {
-                if ($text -notmatch "<repository [^>]*commit=""${{ github.sha }}""") { $failed += "$pkg does not name commit ${{ github.sha }} in <repository>" }
-              }
-              foreach ($d in ($deps[$id] ?? @{}).GetEnumerator()) {
-                $found = @($xml.package.metadata.dependencies.group.dependency | Where-Object id -eq $d.Key)
-                if (-not $found) { $failed += "$pkg does not depend on $($d.Key)" }
-                foreach ($f in $found) { if ($f.version -ne $d.Value) { $failed += "$pkg depends on $($d.Key) $($f.version), expected $($d.Value)" } }
-              }
-              # The description names exactly the platforms whose library is inside (SharpNRIPackageDescription)
-              if ($id -eq "SharpNRI") {
-                $description = $xml.package.metadata.description
-                Write-Host "    description: $description"
-                if ($description -notmatch 'Native library inside for: Windows x64, Linux x64\.$') { $failed += "$pkg description does not name exactly Windows x64 and Linux x64: $description" }
-              }
-            } finally { $zip.Dispose() }
-          }
-          $expected = $must.Keys | ForEach-Object { "$_.$(if ($_ -eq 'SharpNRI.Descs') { $descs } else { $version }).nupkg" }
-          $extra = @(Get-ChildItem nupkg -Filter *.nupkg | Where-Object { $_.Name -notin $expected })
-          foreach ($x in $extra) { Write-Warning "unexpected package $($x.Name)" }
-          if ($failed) { throw "package check failed:`n  $($failed -join "`n  ")" }
+        run: >-
+          ./tools/ci/check-packages.ps1 -Folder nupkg
+          -Version "${{ needs.version.outputs.version }}" -DescsVersion "${{ needs.version.outputs.descs_version }}"
+          -AgilitySdk "${{ needs.version.outputs.agility }}" -Commit "${{ github.sha }}"
+          -DescsReused:$${{ needs.version.outputs.descs_publish != 'true' }}
 
       # What changed in the packages' public API since the previous release on NuGet.org (tools/apidiff):
       # the body's "API changes", mechanical, per package

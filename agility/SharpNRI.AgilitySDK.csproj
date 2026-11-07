@@ -28,7 +28,7 @@
     <PackageReference Include="Microsoft.Direct3D.D3D12" Version="[$(AgilitySdkVersion)]" />
     <!-- net11.0 folders: the package is for .NET 11 (SharpNRI's framework), which nuget.org shows and restore enforces; _._ marks lib/ as intentionally empty -->
     <None Include="buildTransitive\SharpNRI.AgilitySDK.targets" Pack="true" PackagePath="buildTransitive\net11.0\" />
-    <None Include="_._" Pack="true" PackagePath="lib\net11.0\" />
+    <None Include="_._" Pack="true" PackagePath="lib/net11.0/_._" />
     <None Include="$(_SharpNRIAgilityProps)" Pack="true" PackagePath="buildTransitive\net11.0\" Visible="false" />
   </ItemGroup>
 
