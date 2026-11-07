@@ -47,7 +47,7 @@
           Visible="false" />
     <!-- net11.0 folders: the package is for .NET 11 (SharpNRI's framework), which nuget.org shows and restore enforces; _._ marks lib/ as intentionally empty -->
     <None Include="buildTransitive\SharpNRI.Native.Upscalers.targets" Pack="true" PackagePath="buildTransitive\net11.0\" />
-    <None Include="_._" Pack="true" PackagePath="lib\net11.0\" />
+    <None Include="_._" Pack="true" PackagePath="lib/net11.0/_._" />
   </ItemGroup>
 
   <Target Name="SharpNRIWarnIfNoStaging" BeforeTargets="GenerateNuspec" Condition="!Exists('$(SharpNRINativeStaging)')">
