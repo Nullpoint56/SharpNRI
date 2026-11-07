@@ -30,8 +30,8 @@ on:
         description: "Dry run: build, pack and consume only; no tag, release or NuGet push (any branch)"
         type: boolean
         default: false
-      nuget_from_run:
-        description: "Push again: the run ID of an earlier release run whose NuGet push failed; pushes its packages, builds nothing (master)"
+      nuget_from_release:
+        description: "Push again: the tag of a published release (v1.0.0-beta.3) whose NuGet push failed; pushes its .nupkg assets, builds nothing (master)"
         type: string
         default: ""
 
@@ -51,7 +51,7 @@ jobs:
   # Fails in seconds, before the native builds: package versions that disagree, missing notes, a
   # version already tagged, or a real run anywhere but master.
   version:
-    if: ${{ inputs.nuget_from_run == '' }}
+    if: ${{ inputs.nuget_from_release == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -676,43 +676,33 @@ jobs:
             if ($LASTEXITCODE -ne 0) { $refused += $p.Name }
           }
           $global:LASTEXITCODE = 0
-          if ($refused) { throw "NuGet.org refused: $($refused -join ', '). A 403 for a new package ID: add it to the nuget.org Trusted Publishing policy, then push again (input nuget_from_run)." }
+          if ($refused) { throw "NuGet.org refused: $($refused -join ', '). A 403 for a new package ID: add it to the nuget.org Trusted Publishing policy, then push again (input nuget_from_release)." }
 
-  # Push again (input nuget_from_run, on master): an earlier release run's packages to NuGet.org, for a
-  # push that failed after the GitHub release was published (1.0.0-beta.3: a new package ID the
-  # nuget.org Trusted Publishing policy did not list, fixed in the policy). GitHub re-runs jobs only of a
-  # run's latest attempt, and re-running a whole release stops at the version check (the tag exists),
-  # so this is the way back in. Nothing is built: the run's nupkg artifact is pushed, after checking the
-  # run is a release run whose commit carries a tag. Trusted Publishing as for nuget (release.yml, the
-  # nuget environment, its approval). Packages already on NuGet.org are skipped.
+  # Push again (input nuget_from_release, on master): a published release's packages to NuGet.org, for
+  # a push that failed after the GitHub release (1.0.0-beta.3: a new package ID the nuget.org Trusted
+  # Publishing policy did not list, fixed in the policy). GitHub re-runs jobs only of a run's latest
+  # attempt, a full re-run stops at the version check (the tag exists) and drops the earlier attempts'
+  # artifacts, so the source is the release's own .nupkg assets: the packed files, kept with the
+  # release. Nothing is built. Trusted Publishing as for nuget (release.yml, the nuget environment, its
+  # approval). Packages already on NuGet.org are skipped.
   nuget-again:
-    if: ${{ inputs.nuget_from_run != '' && github.ref == 'refs/heads/master' && vars.NUGET_USER != '' }}
+    if: ${{ inputs.nuget_from_release != '' && github.ref == 'refs/heads/master' && vars.NUGET_USER != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: nuget
     permissions:
       id-token: write
-      actions: read
       contents: read
     steps:
-      - name: The run published a release
+      - name: The release's packages
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.nuget_from_run }}
+          TAG: ${{ inputs.nuget_from_release }}
         run: |
-          $run = gh api "repos/${{ github.repository }}/actions/runs/$env:RUN_ID" | ConvertFrom-Json
-          if ($run.path -ne ".github/workflows/release.yml") { throw "run $env:RUN_ID is $($run.path), not a release run" }
-          $tag = @(gh api "repos/${{ github.repository }}/tags?per_page=100" | ConvertFrom-Json) | Where-Object { $_.commit.sha -eq $run.head_sha } | Select-Object -First 1
-          if (-not $tag) { throw "no tag on run $env:RUN_ID's commit $($run.head_sha): that run published no release" }
-          Write-Host "pushing the packages of run ${env:RUN_ID}, $($tag.name) on $($run.head_sha)"
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: nupkg
-          path: dist
-          run-id: ${{ inputs.nuget_from_run }}
-          github-token: ${{ github.token }}
+          gh release download $env:TAG --repo "${{ github.repository }}" --pattern "*.nupkg" --dir dist
+          if ($LASTEXITCODE -ne 0) { throw "no release $env:TAG, or it has no .nupkg assets" }
+          Get-ChildItem dist -Filter *.nupkg | ForEach-Object { Write-Host "  $($_.Name) $($_.Length)" }
 
       - name: NuGet login
         id: login
@@ -733,4 +723,4 @@ jobs:
             if ($LASTEXITCODE -ne 0) { $refused += $p.Name }
           }
           $global:LASTEXITCODE = 0
-          if ($refused) { throw "NuGet.org refused: $($refused -join ', '). A 403 for a new package ID: add it to the nuget.org Trusted Publishing policy, then push again (input nuget_from_run)." }
+          if ($refused) { throw "NuGet.org refused: $($refused -join ', '). A 403 for a new package ID: add it to the nuget.org Trusted Publishing policy, then push again (input nuget_from_release)." }
