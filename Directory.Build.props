@@ -19,6 +19,17 @@
 
   <PropertyGroup>
     <NriVersion>191</NriVersion>
+    <!--
+      Package versions (AGENTS.md: Versions). SharpNRIVersion is the release: the tag v$(SharpNRIVersion)
+      and the version of SharpNRI, SharpNRI.Testing, SharpNRI.Native.Upscalers and SharpNRI.AgilitySDK.
+      SharpNRI.Descs moves only when its assembly changes, with the NRI version as its major
+      ($(NriVersion).x.y): a binding-only release leaves it, and with it everything built on the descs,
+      where it was. tools/ci/descs-version.ps1 fails when the descs changed since the published version.
+    -->
+    <SharpNRIVersion>1.0.0-beta.3</SharpNRIVersion>
+    <SharpNRIDescsVersion>191.0.0-beta.1</SharpNRIDescsVersion>
+    <!-- The Agility SDK NRI's CMake pins (NRI_AGILITY_SDK_VERSION_MAJOR / _MINOR), as its Microsoft.Direct3D.D3D12 version; build-native.ps1 refuses a mismatch -->
+    <AgilitySdkVersion>1.620.1</AgilitySdkVersion>
     <TargetFramework>net11.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>

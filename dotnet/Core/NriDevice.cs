@@ -122,7 +122,7 @@ public sealed unsafe partial class NriDevice : NriObject
                     throw new NriException(result, "nriCreateDevice", recorder.LastError);
                 }
 
-                var device = new NriDevice(handle, messages, allocator, options.Allocator);
+                var device = Adopt(handle, messages, allocator, options.Allocator);
                 recorder.Attach(device);
                 messages = null!;
                 allocator = null;
@@ -140,6 +140,36 @@ public sealed unsafe partial class NriDevice : NriObject
             foreach (var pin in pins) pin.Free();
             NriException.ClearReported(); // creation's own messages are no later call's reason
         }
+    }
+
+    // Takes over a device NRI just created: acquires its tables and holds its NRI version to the
+    // binding's (Interop/NriVersionCheck.cs). On any failure the native device is destroyed here,
+    // before the caller's catch disposes the bridges it calls into.
+    private static NriDevice Adopt(Device* handle, MessageBridge messages, AllocatorBridge? allocator, INriAllocator? allocatorInstance)
+    {
+        NriDevice device;
+        try
+        {
+            device = new NriDevice(handle, messages, allocator, allocatorInstance);
+        }
+        catch (NriException e) when (e.Result == Result.INVALID_ARGUMENT)
+        {
+            // nriGetInterface refuses a table of another size: a library of another NRI version
+            NriApi.nriDestroyDevice(handle);
+            throw NriVersionCheck.TableMismatch(e);
+        }
+        catch
+        {
+            NriApi.nriDestroyDevice(handle);
+            throw;
+        }
+
+        if (NriVersionCheck.Mismatch(device._desc.nriVersion) is { } mismatch)
+        {
+            NriApi.nriDestroyDevice(handle);
+            throw mismatch;
+        }
+        return device;
     }
 
     /// <summary>The directory the native package stages the Agility SDK into, when present.</summary>

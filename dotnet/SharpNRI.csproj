@@ -19,8 +19,10 @@
   <PropertyGroup>
     <RootNamespace>SharpNRI</RootNamespace>
     <PackageId>SharpNRI</PackageId>
-    <Version>1.0.0-beta.2</Version>
-    <Description>C# bindings over NRI (NVIDIA Render Interface): Vulkan and D3D12 through one API. Pure managed P/Invoke over a pinned NRI build. Windows x64, Linux x64 and macOS arm64 (Vulkan through MoltenVK). Alpha.</Description>
+    <Version>$(SharpNRIVersion)</Version>
+    <!-- The packed description names the native libraries the package carries: SharpNRIPackageDescription below -->
+    <SharpNRIDescriptionLead>C# bindings over NRI (NVIDIA Render Interface) v$(NriVersion): Vulkan and D3D12 through one API. Pure managed P/Invoke over a pinned NRI build.</SharpNRIDescriptionLead>
+    <Description>$(SharpNRIDescriptionLead)</Description>
     <PackageTags>nri;vulkan;d3d12;rhi;graphics;rendering</PackageTags>
     <NoWarn>$(NoWarn);CS0169;CS0649;CS1591;CS8981;NU5128</NoWarn>
   </PropertyGroup>
@@ -92,6 +94,25 @@
              Pack="false"
              Visible="false" />
   </ItemGroup>
+  <!--
+    The package description says which native libraries are inside, read from what is staged at pack
+    time, so it cannot claim a platform the package lacks (beta.2 named macOS arm64, which only the
+    GitHub release carries as a zip). release.yml's pack check compares it with the package's files.
+  -->
+  <Target Name="SharpNRIPackageDescription" BeforeTargets="GenerateNuspec">
+    <ItemGroup>
+      <_SharpNRIPackedPlatform Include="Windows x64" Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\win-x64\native\NRI.dll')" />
+      <_SharpNRIPackedPlatform Include="Windows arm64" Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\win-arm64\native\NRI.dll')" />
+      <_SharpNRIPackedPlatform Include="Linux x64" Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\linux-x64\native\libNRI.so')" />
+      <_SharpNRIPackedPlatform Include="Linux arm64" Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\linux-arm64\native\libNRI.so')" />
+      <_SharpNRIPackedPlatform Include="macOS arm64 (Vulkan through MoltenVK)" Condition="Exists('$(MSBuildThisFileDirectory)..\runtimes\osx-arm64\native\libNRI.dylib')" />
+    </ItemGroup>
+    <Error Code="SHARPNRI005" Condition="'@(_SharpNRIPackedPlatform)' == ''" Text="No native library is staged under runtimes/: run pwsh tools/build-native.ps1 before packing." />
+    <PropertyGroup>
+      <PackageDescription>$(SharpNRIDescriptionLead) Native library inside for: @(_SharpNRIPackedPlatform, ', ').</PackageDescription>
+    </PropertyGroup>
+  </Target>
+
   <Target Name="SharpNRIDevPayloadIsNotPacked" BeforeTargets="GenerateNuspec" Condition="'$(SharpNRIDevPayloadDir)' != ''">
     <Error Code="SHARPNRI002" Text="SharpNRIDevPayload=$(SharpNRIDevPayload) is a local test payload and is never packed; pack without it." />
   </Target>
