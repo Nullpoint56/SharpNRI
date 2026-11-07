@@ -54,7 +54,7 @@ public sealed unsafe class NriWrapperD3D12Extension
             d3d12CommandAllocator = (ID3D12CommandAllocator*)d3d12CommandAllocator,
         };
         CommandBuffer* handle = null;
-        Device.Check(_table.CreateCommandBufferD3D12(Device.Raw, &desc, &handle), "CreateCommandBufferD3D12");
+        NriException.Check(_table.CreateCommandBufferD3D12(Device.Raw, &desc, &handle), "CreateCommandBufferD3D12");
         return new NriCommandBuffer(Device, handle);
     }
 
@@ -72,7 +72,7 @@ public sealed unsafe class NriWrapperD3D12Extension
             descriptorSetMaxNum = descriptorSetMaxNum,
         };
         DescriptorPool* handle = null;
-        Device.Check(_table.CreateDescriptorPoolD3D12(Device.Raw, &desc, &handle), "CreateDescriptorPoolD3D12");
+        NriException.Check(_table.CreateDescriptorPoolD3D12(Device.Raw, &desc, &handle), "CreateDescriptorPoolD3D12");
         return new NriDescriptorPool(Device, handle);
     }
 
@@ -91,7 +91,7 @@ public sealed unsafe class NriWrapperD3D12Extension
             structureStride = structureStride,
         };
         Buffer* handle = null;
-        Device.Check(_table.CreateBufferD3D12(Device.Raw, &native, &handle), "CreateBufferD3D12");
+        NriException.Check(_table.CreateBufferD3D12(Device.Raw, &native, &handle), "CreateBufferD3D12");
         return new NriBuffer(Device, handle);
     }
 
@@ -103,7 +103,7 @@ public sealed unsafe class NriWrapperD3D12Extension
     {
         var desc = new TextureD3D12Desc { d3d12Resource = (ID3D12Resource*)d3d12Resource, format = format };
         Texture* handle = null;
-        Device.Check(_table.CreateTextureD3D12(Device.Raw, &desc, &handle), "CreateTextureD3D12");
+        NriException.Check(_table.CreateTextureD3D12(Device.Raw, &desc, &handle), "CreateTextureD3D12");
         return new NriTexture(Device, handle);
     }
 
@@ -112,7 +112,7 @@ public sealed unsafe class NriWrapperD3D12Extension
     {
         var desc = new MemoryD3D12Desc { d3d12Heap = (ID3D12Heap*)d3d12Heap, offset = offset };
         Memory* handle = null;
-        Device.Check(_table.CreateMemoryD3D12(Device.Raw, &desc, &handle), "CreateMemoryD3D12");
+        NriException.Check(_table.CreateMemoryD3D12(Device.Raw, &desc, &handle), "CreateMemoryD3D12");
         return new NriMemory(Device, handle);
     }
 
@@ -126,7 +126,7 @@ public sealed unsafe class NriWrapperD3D12Extension
     {
         var rayTracing = Device.RayTracing;
         AccelerationStructure* handle = null;
-        fixed (AccelerationStructureD3D12Desc* p = &accelerationStructureD3D12Desc) Device.Check(_table.CreateAccelerationStructureD3D12(Device.Raw, p, &handle), "CreateAccelerationStructureD3D12");
+        fixed (AccelerationStructureD3D12Desc* p = &accelerationStructureD3D12Desc) NriException.Check(_table.CreateAccelerationStructureD3D12(Device.Raw, p, &handle), "CreateAccelerationStructureD3D12");
         return new NriAccelerationStructure(rayTracing, handle, type);
     }
 
@@ -135,7 +135,7 @@ public sealed unsafe class NriWrapperD3D12Extension
     {
         var desc = new FenceD3D12Desc { d3d12Fence = (ID3D12Fence*)d3d12Fence };
         Fence* handle = null;
-        Device.Check(_table.CreateFenceD3D12(Device.Raw, &desc, &handle), "CreateFenceD3D12");
+        NriException.Check(_table.CreateFenceD3D12(Device.Raw, &desc, &handle), "CreateFenceD3D12");
         return new NriFence(Device, handle);
     }
 }

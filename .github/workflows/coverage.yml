@@ -21,19 +21,7 @@ on:
       - "docs/badges/**"
       - "tools/coverage.ps1"
       - ".github/workflows/coverage.yml"
-  pull_request:
-    branches: [master]
-    paths:
-      - "dotnet/**"
-      - "descs/**"
-      - "testing/**"
-      - "tests/**"
-      - "patches/**"
-      - "nri"
-      - "docs/coverage.md"
-      - "docs/badges/**"
-      - "tools/coverage.ps1"
-      - ".github/workflows/coverage.yml"
+  # Other branches: started by hand only (Actions > coverage > Run workflow), as ci.yml.
   workflow_dispatch:
 
 concurrency:

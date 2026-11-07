@@ -2,19 +2,25 @@ name: ci
 
 # Billed per job, each rounded up to whole minutes; a macOS minute costs about ten Linux minutes and
 # a Windows minute about two (measured in AGENTS.md: Actions budget). The shape follows from that:
-#   - gate (Linux, seconds; tools/ci/ci-gate.ps1) tells each platform job to run fully, only to
-#     build the native payload into the cache, or to skip. A merge to master whose tree a pull
-#     request run already passed is not tested again.
+#   - Runs on master by itself (pushes); on any other branch only when started (owner, 2026-11-06):
+#     Actions > ci > Run workflow, choosing the branch. A pull request's checks leave out runs
+#     started that way (PR #44: green run, required checks still waiting), so such a run posts its
+#     results as commit statuses named gate, win-x64, linux-x64, lint and zero-alloc on the commit it tested (job
+#     report), which the required checks read: a pull request merges only after a green run of its
+#     latest commit.
+#   - gate (Linux, seconds; tools/ci/ci-gate.ps1) tells each platform job to run or to skip. A
+#     merge to master whose tree a branch run already passed runs nothing (branches must be up to
+#     date with master to merge, so the merged tree is the tested one); a branch run whose changes
+#     cannot change a result skips every platform job.
 #   - The native payload is cached under a key of its inputs and rebuilt only when one of them
 #     changes. A rebuilt payload is saved before the tests run, so a red test run keeps it.
 #   - Edits that cannot change a result (Markdown, docs/, the other workflows, tools/consume, the
-#     interop generator) start no run on master; on a pull request the gate skips every platform
-#     job for them. regen.yml checks the interop layer when its inputs change.
+#     interop generator) start no run on master. regen.yml checks the interop layer.
 #   - Superseded runs are cancelled. Timeouts sit a few times above the slowest measured job, so a
 #     hang costs minutes, not an hour.
-#   - macOS is opt-in (hosted macOS arm64 runners are often unavailable for long stretches): a pull
-#     request labelled "macos" (adding the label runs only macOS), a manual run with the macos
-#     input, and a weekly run on master. The release builds macOS when a runner is available.
+#   - macOS is opt-in (hosted macOS arm64 runners are often unavailable for long stretches): a
+#     manual run with the macos input, and a weekly run on master. The release builds macOS when a
+#     runner is available.
 
 on:
   push:
@@ -25,15 +31,11 @@ on:
       - ".github/workflows/release.yml"
       - ".github/workflows/regen.yml"
       - ".github/workflows/coverage.yml"
+      - ".github/workflows/checks.yml"
       - "tools/consume/**"
       - "tools/generate-native.ps1"
       - "tools/coverage.ps1"
       - "tools/coverage/**"
-  pull_request:
-    branches: [master] # pull requests into "next" are verified locally (AGENTS.md: Branches)
-    types: [opened, synchronize, reopened, labeled]
-    # No paths-ignore here: gate decides (a docs-only pull request skips every platform job), so
-    # gate, win-x64 and linux-x64 always report and branch protection can require them.
   workflow_dispatch:
     inputs:
       macos:
@@ -43,10 +45,8 @@ on:
   schedule:
     - cron: "0 4 * * 1"   # Mondays 04:00 UTC: the macOS leg on master
 
-# A run started by adding the macos label must not cancel the pull request's own run, nor be
-# cancelled by it.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && '-macos' || '' }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -57,24 +57,39 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
   VULKAN_SDK_VERSION: "1.4.363.0"   # tools/ci/fetch-vulkan-layer.sh; the layer must know every struct NRI's 1.4.365 headers chain
+  MESA_WIN_VERSION: "26.2.6"        # tools/ci/fetch-vulkan-windows.ps1: lavapipe for the Windows leg (mesa-dist-win)
+  MESA_WIN_SHA256: "B2E00615FEABA45942343C265CC8C5F576142CA682C1AC6661922D4B72492877"
 
 jobs:
-  # full | warm | skip per platform, and the payload cache key; the reasoning is in the run summary.
+  # full | skip per platform, and the payload cache key; the reasoning is in the run summary.
   gate:
-    # Of the label events only "macos" starts anything.
-    if: github.event.action != 'labeled' || github.event.label.name == 'macos'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
       actions: read          # runs and caches of this repository
       pull-requests: read    # the pull request a merge commit belongs to
+      statuses: write        # a run started by hand marks the required checks pending (job report finishes them)
     outputs:
       key: ${{ steps.gate.outputs.key }}
       win: ${{ steps.gate.outputs.win }}
       linux: ${{ steps.gate.outputs.linux }}
       osx: ${{ steps.gate.outputs.osx }}
     steps:
+      # A pull request does not show a run started by hand; pending statuses linking to the run show
+      # on it at once that one started and where its progress is
+      - name: Mark the required checks pending
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          foreach ($name in 'gate', 'win-x64', 'linux-x64', 'lint', 'zero-alloc') {
+              gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=pending -f context=$name -f description="ci run in progress" -f target_url=$env:RUN_URL --silent
+              if ($LASTEXITCODE -ne 0) { throw "posting the pending $name status failed" }
+          }
+
       - uses: actions/checkout@v4
 
       - name: Decide
@@ -82,11 +97,8 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          GATE_ACTION: ${{ github.event.action }}
-          GATE_LABEL: ${{ github.event.label.name }}
-          GATE_PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           GATE_MACOS: ${{ inputs.macos }}
-          GATE_PR: ${{ github.event.pull_request.number }}
+          GATE_REF: ${{ github.ref }}
         run: ./tools/ci/ci-gate.ps1
 
   win-x64:
@@ -147,6 +159,44 @@ jobs:
         shell: pwsh
         run: ./tools/ci/apply-patches.ps1
 
+      # Vulkan on Windows (owner, 2026-11-06): the runner has no Vulkan driver, so the loader and the
+      # validation layer come from the Vulkan SDK of VULKAN_SDK_VERSION and the device is Mesa's
+      # lavapipe (tools/ci/fetch-vulkan-windows.ps1), cached per version pair. The tests then run both
+      # backends here: D3D12 on WARP, Vulkan on lavapipe.
+      - name: Cache Vulkan for Windows
+        if: needs.gate.outputs.win == 'full'
+        id: vkwin
+        uses: actions/cache@v4
+        with:
+          path: _tools/vk-win
+          key: vk-win-${{ env.VULKAN_SDK_VERSION }}-mesa-${{ env.MESA_WIN_VERSION }}
+
+      - name: Fetch Vulkan for Windows
+        if: needs.gate.outputs.win == 'full' && steps.vkwin.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/ci/fetch-vulkan-windows.ps1 -Dest _tools/vk-win
+
+      # The runner's processes are elevated, and an elevated process's Vulkan loader ignores
+      # VK_DRIVER_FILES and VK_ADD_LAYER_PATH (a loader security rule): with only those, the first run
+      # skipped every Vulkan case. So lavapipe and the layer are registered as an installer would,
+      # under HKLM\SOFTWARE\Khronos\Vulkan (Drivers, ExplicitLayers); the variables stay for a
+      # non-elevated process. The loader directory goes on PATH (NRI loads vulkan-1.dll by name).
+      - name: Put Vulkan for Windows in place
+        if: needs.gate.outputs.win == 'full'
+        shell: pwsh
+        run: |
+          $vk = Join-Path $env:GITHUB_WORKSPACE '_tools\vk-win'
+          $icd = Join-Path $vk 'lvp\lvp_icd.x86_64.json'
+          $layer = Join-Path $vk 'layers\VkLayer_khronos_validation.json'
+          foreach ($entry in @(@{ Key = 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers'; Json = $icd }, @{ Key = 'HKLM:\SOFTWARE\Khronos\Vulkan\ExplicitLayers'; Json = $layer })) {
+            New-Item -Path $entry.Key -Force | Out-Null
+            New-ItemProperty -Path $entry.Key -Name $entry.Json -PropertyType DWord -Value 0 -Force | Out-Null
+            Get-Item $entry.Key | Select-Object -ExpandProperty Property | ForEach-Object { "$($entry.Key): $_" }
+          }
+          Join-Path $vk 'bin' | Add-Content -Path $env:GITHUB_PATH
+          "VK_ADD_LAYER_PATH=$(Join-Path $vk 'layers')" | Add-Content -Path $env:GITHUB_ENV
+          "VK_DRIVER_FILES=$icd" | Add-Content -Path $env:GITHUB_ENV
+
       - uses: actions/setup-dotnet@v4
         if: needs.gate.outputs.win == 'full'
         with:
@@ -156,6 +206,17 @@ jobs:
       - name: Build managed
         if: needs.gate.outputs.win == 'full'
         run: dotnet build SharpNRI.slnx -c Release
+
+      # Which adapter each backend gets, or why it is unavailable (the suite skips a backend by that
+      # reason, which the test summary does not print).
+      - name: Test adapters
+        if: needs.gate.outputs.win == 'full'
+        shell: pwsh
+        env:
+          SHARPNRI_TEST_CHILD: test-adapters
+        run: |
+          & tests/SharpNRI.Tests/bin/Release/net11.0/SharpNRI.Tests.exe
+          $global:LASTEXITCODE = 0
 
       - name: Test
         if: needs.gate.outputs.win == 'full'
@@ -174,15 +235,20 @@ jobs:
         with:
           submodules: true
 
-      # Vulkan loader + lavapipe (software ICD) + Khronos validation layer for the tests.
-      # libx11-dev / libwayland-dev: NRI enables its X11 / Wayland swapchain paths when it finds the
-      # headers; installing them keeps the CI payload identical to a release payload.
-      - name: Install system packages
+      # Packages come from the runner image's package lists, without the up-front "apt-get update":
+      # the lists are almost always current, and the refresh alone took minutes on a slow mirror
+      # (2026-11-06). Only an install that fails on a stale list refreshes them and retries. The
+      # validation layer is not Ubuntu's (1.3.275, too old): "Fetch Khronos validation layer" below.
+      # Tests: the Vulkan loader, lavapipe (software ICD) and vulkaninfo for the device summary.
+      - name: Install test packages
+        if: needs.gate.outputs.linux == 'full'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends \
-            ninja-build clang libvulkan1 mesa-vulkan-drivers vulkan-validationlayers vulkan-tools \
-            libx11-dev libwayland-dev
+          apt_install() {
+            sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=30 "$@" ||
+              { sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 &&
+                sudo apt-get install -y -qq --no-install-recommends "$@"; }
+          }
+          apt_install libvulkan1 mesa-vulkan-drivers vulkan-tools
 
       - name: Restore native payload
         id: payload
@@ -205,6 +271,18 @@ jobs:
         with:
           path: _build/linux-x64-base/_deps
           key: nri-deps-linux-x64-base-v${{ steps.pin.outputs.nri }}-${{ hashFiles('patches/**') }}
+
+      # Only for a build: clang and Ninja, and libx11-dev / libwayland-dev, because NRI enables its
+      # X11 / Wayland swap chain paths when it finds the headers, so a CI payload equals a release one.
+      - name: Install build packages
+        if: steps.payload.outputs.cache-hit != 'true'
+        run: |
+          apt_install() {
+            sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 -o Acquire::http::Timeout=30 "$@" ||
+              { sudo apt-get update -qq -o Acquire::Retries=3 -o Acquire::http::Timeout=30 &&
+                sudo apt-get install -y -qq --no-install-recommends "$@"; }
+          }
+          apt_install ninja-build clang libx11-dev libwayland-dev
 
       - name: Build native payload
         if: steps.payload.outputs.cache-hit != 'true'
@@ -423,3 +501,106 @@ jobs:
       - name: Test
         if: needs.gate.outputs.osx == 'full'
         run: dotnet test --solution SharpNRI.slnx -c Release --no-build --output Detailed
+
+  # Lint: the SDK's analyzers and code-style rules (.editorconfig, Directory.Build.props) over every
+  # C# file, generated dotnet/Native included, as errors; and the formatter's verdict on everything
+  # hand-written. No native payload: the build only compiles (SharpNRIRequireNative=false).
+  lint:
+    needs: gate
+    if: needs.gate.outputs.linux != 'skip'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Analyzers, warnings as errors
+        run: dotnet build SharpNRI.slnx -c Release -warnaserror -p:SharpNRIRequireNative=false
+
+      - name: Formatting
+        run: dotnet format whitespace SharpNRI.slnx --exclude dotnet/Native --verify-no-changes --verbosity diagnostic
+
+  # Zero allocation: every per-frame call of the binding, measured (AllocationTests,
+  # ExtensionAllocationTests) and held to the whole public surface (AllocationCoverageTests). On
+  # NONE and lavapipe, after linux-x64, whose native payload it restores from the cache (saved
+  # before linux-x64's tests, so it is there whatever they found).
+  zero-alloc:
+    needs: [gate, linux-x64]
+    if: always() && needs.gate.result == 'success' && needs.gate.outputs.linux != 'skip'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install test packages
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 libvulkan1 mesa-vulkan-drivers ||
+            { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libvulkan1 mesa-vulkan-drivers; }
+
+      - name: Restore native payload
+        id: payload
+        uses: actions/cache/restore@v4
+        with:
+          path: runtimes
+          key: native-linux-x64-${{ needs.gate.outputs.key }}
+          fail-on-cache-miss: true   # linux-x64 builds and saves it; a miss means its native build failed
+
+      - name: Cache Khronos validation layer
+        id: vvl
+        uses: actions/cache@v4
+        with:
+          path: _tools/vvl
+          key: vvl-linux-x64-${{ env.VULKAN_SDK_VERSION }}
+
+      - name: Fetch Khronos validation layer
+        if: steps.vvl.outputs.cache-hit != 'true'
+        run: bash tools/ci/fetch-vulkan-layer.sh _tools/vvl
+
+      - name: Put the layer in front of the system one
+        run: echo "VK_ADD_LAYER_PATH=$GITHUB_WORKSPACE/_tools/vvl/share/vulkan/explicit_layer.d" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "11.0.x"
+          dotnet-quality: preview
+
+      - name: Build managed
+        run: dotnet build tests/SharpNRI.Tests -c Release
+
+      - name: Zero-allocation frames
+        run: |
+          tests/SharpNRI.Tests/bin/Release/net11.0/SharpNRI.Tests -noColor -showLiveOutput \
+            -class SharpNRI.Tests.AllocationTests -class SharpNRI.Tests.ExtensionAllocationTests -class SharpNRI.Tests.AllocationCoverageTests
+
+  # A run started by hand is left out of a pull request's checks, so it posts the required checks'
+  # results as commit statuses on the commit it tested. A platform job skipped by the gate's decision
+  # passes, as a skipped check does; anything else that is not success fails, and when the gate
+  # itself did not succeed every status fails (its skipped jobs prove nothing).
+  report:
+    needs: [gate, win-x64, linux-x64, lint, zero-alloc]
+    if: always() && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
+      - name: Post the results as commit statuses
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEEDS: ${{ toJSON(needs) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $needs = $env:NEEDS | ConvertFrom-Json
+          $gateOk = $needs.gate.result -eq 'success'
+          foreach ($name in 'gate', 'win-x64', 'linux-x64', 'lint', 'zero-alloc') {
+              $result = $needs.$name.result
+              $state = if ($gateOk -and ($result -eq 'success' -or ($result -eq 'skipped' -and $name -ne 'gate'))) { 'success' } else { 'failure' }
+              gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=$state -f context=$name -f description="ci run: $result" -f target_url=$env:RUN_URL --silent
+              if ($LASTEXITCODE -ne 0) { throw "posting the $name status failed" }
+              "$name -> $state ($result)"
+          }

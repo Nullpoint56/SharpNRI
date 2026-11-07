@@ -47,7 +47,7 @@ public sealed unsafe class NriLowLatencyExtension
     /// </summary>
     public void SetLatencySleepMode(NriSwapChain swapChain, in LatencySleepMode latencySleepMode)
     {
-        fixed (LatencySleepMode* p = &latencySleepMode) Device.Check(_table.SetLatencySleepMode(swapChain.Raw, p), "SetLatencySleepMode");
+        fixed (LatencySleepMode* p = &latencySleepMode) NriException.Check(_table.SetLatencySleepMode(swapChain.Raw, p), "SetLatencySleepMode");
     }
 
     /// <summary><see cref="SetLatencySleepMode(NriSwapChain, in LatencySleepMode)"/> with the fields inline.</summary>
@@ -64,17 +64,17 @@ public sealed unsafe class NriLowLatencyExtension
     /// <see cref="LatencyMarker"/> for where each one belongs (<c>INPUT_SAMPLE</c> is 6).
     /// </summary>
     public void SetLatencyMarker(NriSwapChain swapChain, ulong presentId, LatencyMarker latencyMarker) =>
-        Device.Check(_table.SetLatencyMarker(swapChain.Raw, presentId, latencyMarker), "SetLatencyMarker");
+        NriException.Check(_table.SetLatencyMarker(swapChain.Raw, presentId, latencyMarker), "SetLatencyMarker");
 
     /// <summary>Sleeps to reduce latency. Call once per frame, before <c>INPUT_SAMPLE</c>.</summary>
     public void LatencySleep(NriSwapChain swapChain, ulong presentId) =>
-        Device.Check(_table.LatencySleep(swapChain.Raw, presentId), "LatencySleep");
+        NriException.Check(_table.LatencySleep(swapChain.Raw, presentId), "LatencySleep");
 
     /// <summary>Timestamps (microseconds) of the markers and of the driver, OS and GPU stages of a recent frame.</summary>
     public LatencyReport GetLatencyReport(NriSwapChain swapChain)
     {
         LatencyReport report;
-        Device.Check(_table.GetLatencyReport(swapChain.Raw, &report), "GetLatencyReport");
+        NriException.Check(_table.GetLatencyReport(swapChain.Raw, &report), "GetLatencyReport");
         return report;
     }
 }

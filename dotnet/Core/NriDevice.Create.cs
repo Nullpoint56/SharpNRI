@@ -14,7 +14,7 @@ public sealed unsafe partial class NriDevice
     public NriFence CreateFence(in FenceDesc desc)
     {
         Fence* handle = null;
-        fixed (FenceDesc* p = &desc) Check(Core.CreateFence(Raw, p, &handle), "CreateFence");
+        fixed (FenceDesc* p = &desc) NriException.Check(Core.CreateFence(Raw, p, &handle), "CreateFence");
         return new NriFence(this, handle);
     }
 
@@ -43,7 +43,7 @@ public sealed unsafe partial class NriDevice
     public NriDescriptorPool CreateDescriptorPool(in DescriptorPoolDesc desc)
     {
         DescriptorPool* handle = null;
-        fixed (DescriptorPoolDesc* p = &desc) Check(Core.CreateDescriptorPool(Raw, p, &handle), "CreateDescriptorPool");
+        fixed (DescriptorPoolDesc* p = &desc) NriException.Check(Core.CreateDescriptorPool(Raw, p, &handle), "CreateDescriptorPool");
         return new NriDescriptorPool(this, handle);
     }
 
@@ -61,7 +61,7 @@ public sealed unsafe partial class NriDevice
         fixed (byte* p = data)
         {
             var desc = new PipelineCacheDesc { data = p, size = (ulong)data.Length };
-            Check(Core.CreatePipelineCache(Raw, &desc, &handle), "CreatePipelineCache");
+            NriException.Check(Core.CreatePipelineCache(Raw, &desc, &handle), "CreatePipelineCache");
         }
         return new NriPipelineCache(this, handle);
     }
@@ -70,14 +70,14 @@ public sealed unsafe partial class NriDevice
     {
         QueryPool* handle = null;
         var desc = new QueryPoolDesc { queryType = type, capacity = capacity };
-        Check(Core.CreateQueryPool(Raw, &desc, &handle), "CreateQueryPool");
+        NriException.Check(Core.CreateQueryPool(Raw, &desc, &handle), "CreateQueryPool");
         return new NriQueryPool(this, handle, type, capacity);
     }
 
     public NriDescriptor CreateSampler(in SamplerDesc desc)
     {
         Descriptor* handle = null;
-        fixed (SamplerDesc* p = &desc) Check(Core.CreateSampler(Raw, p, &handle), "CreateSampler");
+        fixed (SamplerDesc* p = &desc) NriException.Check(Core.CreateSampler(Raw, p, &handle), "CreateSampler");
         return new NriDescriptor(this, handle, NriDescriptorKind.Sampler);
     }
 
@@ -86,23 +86,23 @@ public sealed unsafe partial class NriDevice
     public NriMemory AllocateMemory(in AllocateMemoryDesc desc)
     {
         Memory* handle = null;
-        fixed (AllocateMemoryDesc* p = &desc) Check(Core.AllocateMemory(Raw, p, &handle), "AllocateMemory");
+        fixed (AllocateMemoryDesc* p = &desc) NriException.Check(Core.AllocateMemory(Raw, p, &handle), "AllocateMemory");
         return new NriMemory(this, handle);
     }
 
-    /// <summary>An unbound buffer. Bind it with <see cref="BindBufferMemory"/> before use.</summary>
+    /// <summary>An unbound buffer. Bind it with <see cref="BindBufferMemory(NriBuffer, NriMemory, ulong)"/> before use.</summary>
     public NriBuffer CreateBuffer(in BufferDesc desc)
     {
         Buffer* handle = null;
-        fixed (BufferDesc* p = &desc) Check(Core.CreateBuffer(Raw, p, &handle), "CreateBuffer");
+        fixed (BufferDesc* p = &desc) NriException.Check(Core.CreateBuffer(Raw, p, &handle), "CreateBuffer");
         return new NriBuffer(this, handle);
     }
 
-    /// <summary>An unbound texture. Bind it with <see cref="BindTextureMemory"/> before use.</summary>
+    /// <summary>An unbound texture. Bind it with <see cref="BindTextureMemory(NriTexture, NriMemory, ulong)"/> before use.</summary>
     public NriTexture CreateTexture(in TextureDesc desc)
     {
         Texture* handle = null;
-        fixed (TextureDesc* p = &desc) Check(Core.CreateTexture(Raw, p, &handle), "CreateTexture");
+        fixed (TextureDesc* p = &desc) NriException.Check(Core.CreateTexture(Raw, p, &handle), "CreateTexture");
         return new NriTexture(this, handle);
     }
 
@@ -111,7 +111,7 @@ public sealed unsafe partial class NriDevice
     {
         var native = stackalloc BindBufferMemoryDesc[bindings.Length];
         for (var i = 0; i < bindings.Length; i++) native[i] = bindings[i].ToNative();
-        Check(Core.BindBufferMemory(native, (uint)bindings.Length), "BindBufferMemory");
+        NriException.Check(Core.BindBufferMemory(native, (uint)bindings.Length), "BindBufferMemory");
         foreach (ref readonly var binding in bindings) binding.Buffer.BoundTo(binding.Memory);
     }
 
@@ -124,7 +124,7 @@ public sealed unsafe partial class NriDevice
     {
         var native = stackalloc BindTextureMemoryDesc[bindings.Length];
         for (var i = 0; i < bindings.Length; i++) native[i] = bindings[i].ToNative();
-        Check(Core.BindTextureMemory(native, (uint)bindings.Length), "BindTextureMemory");
+        NriException.Check(Core.BindTextureMemory(native, (uint)bindings.Length), "BindTextureMemory");
         foreach (ref readonly var binding in bindings) binding.Texture.BoundTo(binding.Memory);
     }
 
@@ -154,7 +154,7 @@ public sealed unsafe partial class NriDevice
     public NriBuffer CreateCommittedBuffer(MemoryLocation location, in BufferDesc desc, float priority = 0)
     {
         Buffer* handle = null;
-        fixed (BufferDesc* p = &desc) Check(Core.CreateCommittedBuffer(Raw, location, priority, p, &handle), "CreateCommittedBuffer");
+        fixed (BufferDesc* p = &desc) NriException.Check(Core.CreateCommittedBuffer(Raw, location, priority, p, &handle), "CreateCommittedBuffer");
         return new NriBuffer(this, handle);
     }
 
@@ -162,7 +162,7 @@ public sealed unsafe partial class NriDevice
     public NriTexture CreateCommittedTexture(MemoryLocation location, in TextureDesc desc, float priority = 0)
     {
         Texture* handle = null;
-        fixed (TextureDesc* p = &desc) Check(Core.CreateCommittedTexture(Raw, location, priority, p, &handle), "CreateCommittedTexture");
+        fixed (TextureDesc* p = &desc) NriException.Check(Core.CreateCommittedTexture(Raw, location, priority, p, &handle), "CreateCommittedTexture");
         return new NriTexture(this, handle);
     }
 
@@ -199,7 +199,7 @@ public sealed unsafe partial class NriDevice
     public NriBuffer CreatePlacedBuffer(NriMemory memory, ulong offset, in BufferDesc desc)
     {
         Buffer* handle = null;
-        fixed (BufferDesc* p = &desc) Check(Core.CreatePlacedBuffer(Raw, memory.Raw, offset, p, &handle), "CreatePlacedBuffer");
+        fixed (BufferDesc* p = &desc) NriException.Check(Core.CreatePlacedBuffer(Raw, memory.Raw, offset, p, &handle), "CreatePlacedBuffer");
         var buffer = new NriBuffer(this, handle);
         buffer.BoundTo(memory);
         return buffer;
@@ -209,7 +209,7 @@ public sealed unsafe partial class NriDevice
     public NriTexture CreatePlacedTexture(NriMemory memory, ulong offset, in TextureDesc desc)
     {
         Texture* handle = null;
-        fixed (TextureDesc* p = &desc) Check(Core.CreatePlacedTexture(Raw, memory.Raw, offset, p, &handle), "CreatePlacedTexture");
+        fixed (TextureDesc* p = &desc) NriException.Check(Core.CreatePlacedTexture(Raw, memory.Raw, offset, p, &handle), "CreatePlacedTexture");
         var texture = new NriTexture(this, handle);
         texture.BoundTo(memory);
         return texture;
@@ -245,7 +245,7 @@ public sealed unsafe partial class NriDevice
 
         var count = Helper.CalculateAllocationNumber(Raw, &desc);
         var handles = stackalloc Memory*[checked((int)count)];
-        Check(Helper.AllocateAndBindMemory(Raw, &desc, handles), "AllocateAndBindMemory");
+        NriException.Check(Helper.AllocateAndBindMemory(Raw, &desc, handles), "AllocateAndBindMemory");
 
         // The allocations share one count, so each resource of the call holds every one of them.
         var result = new NriMemory[count];
@@ -261,7 +261,7 @@ public sealed unsafe partial class NriDevice
     public VideoMemoryInfo QueryVideoMemoryInfo(MemoryLocation location)
     {
         VideoMemoryInfo info;
-        Check(Helper.QueryVideoMemoryInfo(Raw, location, &info), "QueryVideoMemoryInfo");
+        NriException.Check(Helper.QueryVideoMemoryInfo(Raw, location, &info), "QueryVideoMemoryInfo");
         return info;
     }
 }

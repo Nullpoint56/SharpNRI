@@ -78,12 +78,12 @@ internal sealed class RayScene : IDisposable
     /// <summary>The BLAS desc: one triangle, buffers named at build time.</summary>
     public static NriAccelerationStructureDesc BlasDesc(AccelerationStructureBits flags = AccelerationStructureBits.PREFER_FAST_TRACE,
         BottomLevelGeometryBits geometryFlags = BottomLevelGeometryBits.OPAQUE_GEOMETRY, NriBottomLevelTrianglesMicromap? micromap = null, ulong optimizedSize = 0) => new()
-    {
-        Type = AccelerationStructureType.BOTTOM_LEVEL,
-        Geometries = [NriBottomLevelGeometry.FromTriangles(Triangles(NriBuffer.HasBuffer, micromap), geometryFlags)],
-        Flags = flags,
-        OptimizedSize = optimizedSize,
-    };
+        {
+            Type = AccelerationStructureType.BOTTOM_LEVEL,
+            Geometries = [NriBottomLevelGeometry.FromTriangles(Triangles(NriBuffer.HasBuffer, micromap), geometryFlags)],
+            Flags = flags,
+            OptimizedSize = optimizedSize,
+        };
 
     public static NriAccelerationStructureDesc TlasDesc => new()
     {

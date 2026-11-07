@@ -49,7 +49,7 @@ public sealed unsafe class NriDescriptorPool : NriObject
         ArgumentNullException.ThrowIfNull(pipelineLayout);
         if (sets.IsEmpty) return;
         var handles = stackalloc DescriptorSet*[sets.Length];
-        Device.Check(Device.Core.AllocateDescriptorSets(Raw, pipelineLayout.Raw, setIndex, handles, (uint)sets.Length, variableDescriptorNum), "AllocateDescriptorSets");
+        NriException.Check(Device.Core.AllocateDescriptorSets(Raw, pipelineLayout.Raw, setIndex, handles, (uint)sets.Length, variableDescriptorNum), "AllocateDescriptorSets");
         for (var i = 0; i < sets.Length; i++) sets[i] = new NriDescriptorSet(this, handles[i]);
     }
 
@@ -61,7 +61,7 @@ public sealed unsafe class NriDescriptorPool : NriObject
     {
         ArgumentNullException.ThrowIfNull(pipelineLayout);
         var handles = stackalloc DescriptorSet*[1];
-        Device.Check(Device.Core.AllocateDescriptorSets(Raw, pipelineLayout.Raw, setIndex, handles, 1, variableDescriptorNum), "AllocateDescriptorSets");
+        NriException.Check(Device.Core.AllocateDescriptorSets(Raw, pipelineLayout.Raw, setIndex, handles, 1, variableDescriptorNum), "AllocateDescriptorSets");
         return new NriDescriptorSet(this, handles[0]);
     }
 

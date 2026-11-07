@@ -67,7 +67,7 @@ public sealed unsafe class NriPipelineLayout : NriObject
                 };
 
                 PipelineLayout* handle = null;
-                device.Check(device.Core.CreatePipelineLayout(device.Raw, &native, &handle), "CreatePipelineLayout");
+                NriException.Check(device.Core.CreatePipelineLayout(device.Raw, &native, &handle), "CreatePipelineLayout");
                 return new NriPipelineLayout(device, handle, desc);
             }
         }

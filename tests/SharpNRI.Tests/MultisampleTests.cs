@@ -34,8 +34,8 @@ public sealed class MultisampleTests
         {
             var data = new TheoryData<Backend, ResolveOp>();
             foreach (var api in new[] { GraphicsAPI.VK, GraphicsAPI.D3D12 })
-            foreach (var op in new[] { ResolveOp.MIN, ResolveOp.MAX, ResolveOp.SAMPLE_ZERO })
-                data.Add(new Backend(api), op);
+                foreach (var op in new[] { ResolveOp.MIN, ResolveOp.MAX, ResolveOp.SAMPLE_ZERO })
+                    data.Add(new Backend(api), op);
             return data;
         }
     }
@@ -306,16 +306,16 @@ public sealed class MultisampleTests
             var (mip, layer) = subresources[s];
             var width = Size >> mip;
             for (var y = 0; y < width; y++)
-            for (var x = 0; x < width; x++)
-            {
-                var inRegion = mip == 1 && layer == 1 && x >= destination.x && x < destination.x + source.width && y >= destination.y && y < destination.y + source.height;
-                byte[] expected = inRegion
-                    ? [(byte)(4 * (source.x + x - destination.x)), (byte)(4 * (source.y + y - destination.y)), 128, 255]
-                    : [0xEE, 0xEE, 0xEE, 0xEE];
-                var i = (y * width + x) * 4;
-                if (!images[s].AsSpan(i, 4).SequenceEqual(expected))
-                    wrong.Add($"mip {mip} layer {layer} ({x},{y}) = ({string.Join(",", images[s][i..(i + 4)])}), expected ({string.Join(",", expected)})");
-            }
+                for (var x = 0; x < width; x++)
+                {
+                    var inRegion = mip == 1 && layer == 1 && x >= destination.x && x < destination.x + source.width && y >= destination.y && y < destination.y + source.height;
+                    byte[] expected = inRegion
+                        ? [(byte)(4 * (source.x + x - destination.x)), (byte)(4 * (source.y + y - destination.y)), 128, 255]
+                        : [0xEE, 0xEE, 0xEE, 0xEE];
+                    var i = (y * width + x) * 4;
+                    if (!images[s].AsSpan(i, 4).SequenceEqual(expected))
+                        wrong.Add($"mip {mip} layer {layer} ({x},{y}) = ({string.Join(",", images[s][i..(i + 4)])}), expected ({string.Join(",", expected)})");
+                }
         }
         Record($"{backend}: {wrong.Count} wrong pixel(s) in the four destination subresources");
         Assert.True(wrong.Count == 0, string.Join("; ", wrong.Take(12)));
@@ -606,32 +606,32 @@ public sealed class MultisampleTests
         int coarseTotal = 0, coarseUniform = 0, fineTotal = 0, fineUniform = 0;
         var wrong = new List<string>();
         for (var by = 0; by < size; by += 2)
-        for (var bx = 0; bx < size; bx += 2)
-        {
-            var first = pixels.AsSpan((by * size + bx) * 4, 4).ToArray();
-            var uniform = true;
-            for (var y = by; y < by + 2; y++)
-            for (var x = bx; x < bx + 2; x++)
+            for (var bx = 0; bx < size; bx += 2)
             {
-                var i = (y * size + x) * 4;
-                if (!pixels.AsSpan(i, 4).SequenceEqual(first)) uniform = false;
-                if (pixels[i + 2] != 128 || pixels[i + 3] != 255)
-                    wrong.Add($"({x},{y}) = ({string.Join(",", pixels[i..(i + 4)])}) is not a position code: not drawn");
+                var first = pixels.AsSpan((by * size + bx) * 4, 4).ToArray();
+                var uniform = true;
+                for (var y = by; y < by + 2; y++)
+                    for (var x = bx; x < bx + 2; x++)
+                    {
+                        var i = (y * size + x) * 4;
+                        if (!pixels.AsSpan(i, 4).SequenceEqual(first)) uniform = false;
+                        if (pixels[i + 2] != 128 || pixels[i + 3] != 255)
+                            wrong.Add($"({x},{y}) = ({string.Join(",", pixels[i..(i + 4)])}) is not a position code: not drawn");
+                    }
+                // MsaaPattern.hlsl codes x and y modulo 64; blocks are aligned, so a block never wraps.
+                if (uniform && (first[0] / 4 - bx % 64 is < 0 or > 1 || first[1] / 4 - by % 64 is < 0 or > 1))
+                    wrong.Add($"block at ({bx},{by}) is ({string.Join(",", first)}), the code of no pixel of the block");
+                if (half(bx))
+                {
+                    coarseTotal++;
+                    if (uniform) coarseUniform++;
+                }
+                else
+                {
+                    fineTotal++;
+                    if (uniform) fineUniform++;
+                }
             }
-            // MsaaPattern.hlsl codes x and y modulo 64; blocks are aligned, so a block never wraps.
-            if (uniform && (first[0] / 4 - bx % 64 is < 0 or > 1 || first[1] / 4 - by % 64 is < 0 or > 1))
-                wrong.Add($"block at ({bx},{by}) is ({string.Join(",", first)}), the code of no pixel of the block");
-            if (half(bx))
-            {
-                coarseTotal++;
-                if (uniform) coarseUniform++;
-            }
-            else
-            {
-                fineTotal++;
-                if (uniform) fineUniform++;
-            }
-        }
         return (new BlockCount(coarseTotal, coarseUniform), new BlockCount(fineTotal, fineUniform), wrong);
     }
 

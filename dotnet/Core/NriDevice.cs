@@ -126,7 +126,6 @@ public sealed unsafe partial class NriDevice : NriObject
                 recorder.Attach(device);
                 messages = null!;
                 allocator = null;
-                if (options.GraphicsApi == GraphicsAPI.VK && options.VkEnumeratePhysicalDevicesAfterCreation) EnumeratePhysicalDevicesVK(device);
                 return device;
             }
         }
@@ -140,53 +139,6 @@ public sealed unsafe partial class NriDevice : NriObject
         {
             foreach (var pin in pins) pin.Free();
             NriException.ClearReported(); // creation's own messages are no later call's reason
-        }
-    }
-
-    // RivaTuner's implicit Vulkan layer maps each VkPhysicalDevice to its instance from
-    // vkEnumeratePhysicalDevices and uses that map when its overlay initialises at the first
-    // vkQueuePresentKHR. NRI finds physical devices through vkEnumeratePhysicalDeviceGroups only
-    // (Creation.cpp, DeviceVK::Create), so the layer has no entry for NRI's device and the process
-    // dies at the first present. One count-then-fill call on NRI's instance, through the loader NRI
-    // loaded, results discarded. Never throws; no managed allocation for up to 32 physical devices.
-    // Not on the wrapped route: that instance is the caller's. See AGENTS.md: Device creation and
-    // callbacks.
-    private static void EnumeratePhysicalDevicesVK(NriDevice device)
-    {
-        NriWrapperVKExtension? wrapper;
-        try { wrapper = device.TryWrapperVK; }
-        catch (NriException) { return; }
-        if (wrapper is null) return;
-
-        var instance = wrapper.GetInstanceVK();
-        var getInstanceProcAddr = (delegate* unmanaged[Stdcall]<nint, byte*, nint>)wrapper.GetInstanceProcAddrVK();
-        if (instance == 0 || getInstanceProcAddr is null) return;
-
-        delegate* unmanaged[Stdcall]<nint, uint*, nint*, int> enumerate;
-        fixed (byte* name = "vkEnumeratePhysicalDevices"u8)
-        {
-            enumerate = (delegate* unmanaged[Stdcall]<nint, uint*, nint*, int>)getInstanceProcAddr(instance, name);
-        }
-        if (enumerate is null) return;
-
-        uint count = 0;
-        if (enumerate(instance, &count, null) < 0 || count == 0) return; // VkResult errors are negative
-
-        const int StackCapacity = 32;
-        if (count <= StackCapacity)
-        {
-            var physicalDevices = stackalloc nint[StackCapacity];
-            var filled = count;
-            _ = enumerate(instance, &filled, physicalDevices);
-        }
-        else
-        {
-            var physicalDevices = new nint[count];
-            fixed (nint* p = physicalDevices)
-            {
-                var filled = count;
-                _ = enumerate(instance, &filled, p);
-            }
         }
     }
 
@@ -262,14 +214,14 @@ public sealed unsafe partial class NriDevice : NriObject
         if (index < slots.Length && slots[index] is { } existing) return existing;
 
         Queue* queue = null;
-        Check(Core.GetQueue(Raw, type, index, &queue), "GetQueue");
+        NriException.Check(Core.GetQueue(Raw, type, index, &queue), "GetQueue");
         var wrapped = new NriQueue(this, queue, type, index);
         if (index < slots.Length) slots[index] = wrapped;
         return wrapped;
     }
 
     /// <summary>Blocks until every queue is idle.</summary>
-    public void WaitIdle() => Check(Core.DeviceWaitIdle(Raw), "DeviceWaitIdle");
+    public void WaitIdle() => NriException.Check(Core.DeviceWaitIdle(Raw), "DeviceWaitIdle");
 
     public FormatSupportBits GetFormatSupport(Format format) => Core.GetFormatSupport(Raw, format);
 
@@ -281,7 +233,7 @@ public sealed unsafe partial class NriDevice : NriObject
     public ReadOnlySpan<byte> ReportDeviceLostInfo()
     {
         DeviceLostDump dump = default;
-        Check(NriApi.nriReportDeviceLostInfo(Raw, &dump), "nriReportDeviceLostInfo");
+        NriException.Check(NriApi.nriReportDeviceLostInfo(Raw, &dump), "nriReportDeviceLostInfo");
         return dump.data is null ? default : new ReadOnlySpan<byte>(dump.data, checked((int)dump.size));
     }
 
@@ -294,12 +246,6 @@ public sealed unsafe partial class NriDevice : NriObject
 
     internal void ChildCreated() => Interlocked.Increment(ref _children);
     internal void ChildDestroyed() => Interlocked.Decrement(ref _children);
-
-    /// <summary>
-    /// Throws for any result other than success, with the error text reported on the calling thread
-    /// since the last check there (the failing call's own; see <see cref="NriException"/>).
-    /// </summary>
-    internal void Check(Result result, string call) => NriException.Check(result, call);
 
     /// <summary>
     /// Refuses while any object created on this device is still alive: destroying the device

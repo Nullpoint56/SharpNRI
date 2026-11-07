@@ -33,10 +33,11 @@ public sealed class NriSwapChainDesc
     public SwapChainFormat Format { get; init; }
 
     /// <summary>
-    /// <c>LATEST_READY</c> with <c>VSYNC</c> asks for FIFO_LATEST_READY on Vulkan (vblank-paced, the
-    /// newest ready image, no tearing) when <c>features.latestReadySwapChain</c> is set, and is
-    /// ignored otherwise (FIFO, or FIFO_RELAXED with <c>ALLOW_TEARING</c>). NRI never reports the
-    /// present mode it chose.
+    /// <c>LATEST_READY</c> with <c>VSYNC</c> asks for FIFO_LATEST_READY on Vulkan when
+    /// <c>features.latestReadySwapChain</c> is set: the display changes image only at vblank, without
+    /// tearing, and shows the newest ready image, dropping older ones, so rendering is not capped at
+    /// the refresh rate. Ignored otherwise (FIFO, or FIFO_RELAXED with <c>ALLOW_TEARING</c>). NRI never
+    /// reports the present mode it chose.
     /// </summary>
     public SwapChainBits Flags { get; init; }
 
@@ -98,7 +99,7 @@ public sealed unsafe class NriSwapChain : NriObject
 public sealed unsafe class NriSwapChainExtension
 {
     /// <summary>
-    /// <c>SWAPCHAIN_SEMAPHORE</c>: the special <c>initialValue</c> for <see cref="NriDevice.CreateFence"/>
+    /// <c>SWAPCHAIN_SEMAPHORE</c>: the special <c>initialValue</c> for <see cref="NriDevice.CreateFence(ulong)"/>
     /// that makes a fence usable as an acquire or release semaphore.
     /// </summary>
     public const ulong SwapChainSemaphore = NriApi.SWAPCHAIN_SEMAPHORE;
@@ -135,7 +136,7 @@ public sealed unsafe class NriSwapChainExtension
     {
         var desc = ToNative(swapChainDesc);
         SwapChain* handle = null;
-        Device.Check(_table.CreateSwapChain(Device.Raw, &desc, &handle), "CreateSwapChain");
+        NriException.Check(_table.CreateSwapChain(Device.Raw, &desc, &handle), "CreateSwapChain");
         return new NriSwapChain(this, handle, swapChainDesc.Queue);
     }
 
@@ -155,7 +156,7 @@ public sealed unsafe class NriSwapChainExtension
             swapChain = null;
             return NriSwapChainStatus.NotReady;
         }
-        Device.Check(result, "CreateSwapChain");
+        NriException.Check(result, "CreateSwapChain");
         swapChain = new NriSwapChain(this, handle, swapChainDesc.Queue);
         return NriSwapChainStatus.Ok;
     }
@@ -193,7 +194,7 @@ public sealed unsafe class NriSwapChainExtension
     public DisplayDesc GetDisplayDesc(NriSwapChain swapChain)
     {
         DisplayDesc desc;
-        Device.Check(_table.GetDisplayDesc(swapChain.Raw, &desc), "GetDisplayDesc");
+        NriException.Check(_table.GetDisplayDesc(swapChain.Raw, &desc), "GetDisplayDesc");
         return desc;
     }
 
@@ -210,7 +211,7 @@ public sealed unsafe class NriSwapChainExtension
         var result = _table.AcquireNextTexture(swapChain.Raw, acquireSemaphore.Raw, &index);
         textureIndex = index;
         if (result == Result.OUT_OF_DATE) return NriSwapChainStatus.OutOfDate;
-        Device.Check(result, "AcquireNextTexture");
+        NriException.Check(result, "AcquireNextTexture");
         return NriSwapChainStatus.Ok;
     }
 
@@ -226,7 +227,7 @@ public sealed unsafe class NriSwapChainExtension
     /// queued with a non-zero id (AGENTS.md: Extensions).
     /// </summary>
     public void WaitForPresent(NriSwapChain swapChain, ulong presentId) =>
-        Device.Check(_table.WaitForPresent(swapChain.Raw, presentId), "WaitForPresent");
+        NriException.Check(_table.WaitForPresent(swapChain.Raw, presentId), "WaitForPresent");
 
     /// <summary>
     /// Presents the acquired texture. A non-zero <paramref name="presentId"/> tracks the frame
@@ -241,7 +242,7 @@ public sealed unsafe class NriSwapChainExtension
     {
         var result = _table.QueuePresent(swapChain.Raw, releaseSemaphore.Raw, presentId);
         if (result == Result.OUT_OF_DATE) return NriSwapChainStatus.OutOfDate;
-        Device.Check(result, "QueuePresent");
+        NriException.Check(result, "QueuePresent");
         return NriSwapChainStatus.Ok;
     }
 }

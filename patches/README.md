@@ -9,9 +9,9 @@ a header changes the L0 layer and the ABI oracle measures the patched header. Bo
 that is already applied, so the submodule working tree normally sits with every patch applied and
 `git -C nri status` shows the patched files as modified. Listed and explained in `AGENTS.md` (Patches).
 
-The set for NRI main b90cfb57 on `next`: four patches, all applying in order and alone and each passing
-the scripts' `-C0` reverse check. Upstream took every other patch on 2026-11-06; master keeps them
-until v192 (`AGENTS.md`: Branches, Patches). Patches dropped
+The set for NRI main a20efc8f on `next`: six patches, all applying in order and alone and each passing
+the scripts' `-C0` reverse check. Upstream took every other patch on 2026-11-06 and 2026-11-07; master
+keeps them until v192 (`AGENTS.md`: Branches, Patches). Patches dropped
 when upstream took the fix are in git log and `docs/upstream.md`.
 
 | Patch | What | Why |
@@ -20,3 +20,5 @@ when upstream took the fix are in git log and `docs/upstream.md`.
 | `0013-vulkan-exclusive-image-no-family-indices` | `DeviceVK::FillCreateInfo` passes no queue family indices for `VK_SHARING_MODE_EXCLUSIVE` images | upstream passes every active family's index whatever the sharing mode; the Khronos best-practices checks report `BestPractices-vkCreateImage-sharing-mode-exclusive` per image (AGENTS.md: Memory and resources) |
 | `0015-vulkan-message-id-name` | the debug-utils callback forwards `pMessageIdName` as `[id] name: text` | upstream forwards the number and the text; current Khronos layers keep the name only in `pMessageIdName` (AGENTS.md: Device creation and callbacks) |
 | `0037-vulkan-swapchain-present-modes-info` | with `swapchainMaintenance1`, the Vulkan swap chain is created with `VkSwapchainPresentModesCreateInfoKHR` listing its present mode | upstream chained the present-scaling info but not this, and the Khronos best-practices checks report `BestPractices-vkCreateSwapchainKHR-no-VkSwapchainPresentModesCreateInfoKHR-provided` for every swap chain (AGENTS.md: Extensions) |
+| `0044-vulkan-disabled-logic-op-valid-value` | a pipeline without a logic op passes `VK_LOGIC_OP_COPY` for the (ignored) `logicOp` | workaround for lavapipe on Windows, which converts the disabled value and jumps to a garbage address in MSVC builds; not an NRI defect, dropped once the pinned Mesa is fixed (AGENTS.md: Lavapipe) |
+| `0049-upscaler-report-vendor-failures` | a failed vendor call in upscaler creation or dispatch reports an ERROR naming the call and its result | creation returned a bare `FAILURE` and a failed dispatch was a debug-only `NRI_CHECK`, so an upscale failed silently in release builds; filed as NRI PR #324 (AGENTS.md: Upscalers and vendor runtimes) |

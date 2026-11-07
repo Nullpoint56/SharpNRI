@@ -35,6 +35,14 @@ b90cfb57 with four patches (0007, 0013, 0015, 0037; held back, never filed): eve
 dropped patches passes on upstream's versions, no L0 drift. Windows 541 tests, 0 failed, 13 skipped
 (NVIDIA RTX 4070 SUPER). v192 waits for D3D12MA #102 (the six `[989]` warnings), per the maintainer.
 
+2026-11-07: filed against main b90cfb57, each verified there first: PRs #319 (0045), #320 (0046),
+#322 (0047), #323 (0048), #324 (0049) and issue #321 (D3D12 queue priority). The maintainer merged
+the four PRs and fixed #321 (a20efc8f) the same day; #324 is open on how to report without
+`AbortExecution`. `next` moved to main a20efc8f with six patches (0007, 0013, 0015, 0037, 0044, 0049):
+upstream's code equals 0045-0048 (each reverse-applies), no L0 drift (one header comment). Windows
+694 tests, 0 failed, 152 skipped (NVIDIA RTX 4070 SUPER, VK and D3D12; the skips are the upscaler
+cases on the Base payload), the RivaTuner test green under RTSS without the patch.
+
 2026-10-19: all six filed issues were fixed on main within the day. Main is ten commits past v190
 at 8ee40ca, still `NRI_VERSION 190`, untagged.
 The other 17 patches apply in order onto 8ee40ca and every one is recognised by the scripts'
@@ -140,6 +148,14 @@ dedicated allocations, so they need a capability check first.
 | N15 VK: pipeline statistics add the mesh counters on `features.meshShader` | bug | patched on `next` as 0042 (2026-11-05); filed 2026-11-05 as [#312](https://github.com/NVIDIA-RTX/NRI/issues/312), the fix inline; fixed 2026-11-06 in b787bd77 (our lines); dropped on `next`; measured on main 7ea93bb5 (v191 has the same code), NVIDIA with the Khronos Profiles layer reporting `meshShaderQueries = false` |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
 | N16 Validation applies the draw-parameters emulation record layout on Vulkan | bug | patched on `next` as 0043 (2026-11-05); filed 2026-11-05 as [#317](https://github.com/NVIDIA-RTX/NRI/issues/317), the fix inline; fixed 2026-11-06 by PR #318 (12891278), another contributor's copy of the inline fix; dropped on `next`; measured on main 7ea93bb5 (v191 has the same code), NVIDIA, VK; earlier recorded as a design question |
+| 0044 Vulkan pipeline without a logic op passes `VK_LOGIC_OP_MAX_ENUM` | driver workaround | not NRI's defect (legal Vulkan): lavapipe on Windows converts the disabled value and its MSVC build jumps to a garbage address (`vk_logic_op_to_pipe`, Mesa 26.2.6); patched on both branches 2026-11-06 so Windows CI runs Vulkan on lavapipe; a Mesa merge request is deferred to 2027-01-07, re-measured first (AGENTS.md: Lavapipe) |
+| 0045 Vulkan enumerates device groups, a leftover of the mGPU removal; RivaTuner's layer kills presenting processes | bug | patched on master 2026-11-06; filed 2026-11-06 against main b90cfb57 as [PR #319](https://github.com/NVIDIA-RTX/NRI/pull/319) from the fork (`vk-physical-devices`); merged 2026-11-07 (331e3971, ours); dropped on `next` at a20efc8f |
+| 0046 D3D12 micromap prebuild query passes null addresses | bug | patched on master 2026-11-07; filed 2026-11-07 against main b90cfb57 as [PR #320](https://github.com/NVIDIA-RTX/NRI/pull/320); merged 2026-11-07 (be9e6f82, ours); dropped on `next` at a20efc8f |
+| D3D12 queue priority: HIGH only above 0.5, the header says "high > 0" | bug, intent open | not patched (which is meant was the maintainer's call); filed 2026-11-07 as [#321](https://github.com/NVIDIA-RTX/NRI/issues/321); fixed 2026-11-07 in a20efc8f (HIGH above 0; the header adds "D3D12: low == normal"); `DeviceTests` holds 0.25 to HIGH on `next` |
+| 0047 Vulkan AV1 sequence without a colour description passes reserved 0 colours | bug | patched on master 2026-11-07; filed 2026-11-07 against main b90cfb57 as [PR #322](https://github.com/NVIDIA-RTX/NRI/pull/322); merged 2026-11-07 (0db7e15a, ours); dropped on `next` at a20efc8f |
+| 0048 `CreateStreamer` validation refuses the default constant-buffer location without a constant buffer | bug | patched on master 2026-11-07; filed 2026-11-07 against main b90cfb57 as [PR #323](https://github.com/NVIDIA-RTX/NRI/pull/323); merged 2026-11-07 (8f89a03c, ours); dropped on `next` at a20efc8f |
+| 0049 Failed vendor upscaler calls are not reported | bug | patched on master 2026-11-07; filed 2026-11-07 against main b90cfb57 as [PR #324](https://github.com/NVIDIA-RTX/NRI/pull/324); open: the maintainer asked how to avoid `AbortExecution` for these reports, answered the same day (`INVALID_SDK` for creation, an ERROR without abort for dispatch); carried on `next` |
+| NVIDIA Vulkan AV1 encode into a bitstream without `HOST_VISIBLE` writes nothing | driver bug | not NRI's (NRI does not choose the memory); the test puts the bitstream in `HOST_READBACK`; drafted, deferred to 2027-01-07, re-measured on the then-current driver first (AGENTS.md: Extensions) |
 
 The sections below are the drafts and the audit behind them (every claim re-verified against the
 unpatched tree). The filed ones were posted in a shorter form (Observed, Cause with line numbers,

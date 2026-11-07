@@ -28,6 +28,31 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/Nullpoint56/SharpNRI</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Nullpoint56/SharpNRI</PackageProjectUrl>
+    <!-- One package page text for all four packages, with absolute links (nuget.org shows it) -->
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!--
+      Lint: the SDK's own analyzers (CA rules) and code-style rules, configured in .editorconfig and
+      reported by every build; the CI lint job builds with warnings as errors (AGENTS.md: Lint).
+    -->
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- XML docs ship in the packages (IntelliSense) and let the build check unused usings (IDE0005); a member without a comment is not an error (CS1591), a malformed comment is -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!--
+      Debugging into the binding from an application: the package records the repository and the
+      commit it was built from, each PDB ships beside its DLL, and Source Link (in the SDK) maps the
+      PDB's documents to that commit on GitHub. The release pack adds ContinuousIntegrationBuild
+      (deterministic, repository-relative paths); local and test builds keep their real paths.
+    -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)docs/nuget/README.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
 
 </Project>

@@ -108,7 +108,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Assert.Equal((uint)Size, desc12.Height);
         Assert.Equal(VDXGI.Format.R8G8B8A8_Typeless, desc12.Format);
 
-        Assert.Equal(expected.Length, Size * Size * 4);
+        Assert.Equal(Size * Size * 4, expected.Length);
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 
@@ -181,6 +181,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Require(GraphicsAPI.VK);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
+        Assert.SkipWhen(device.Desc.features.sharedResources == 0, "features.sharedResources is false: the adapter lacks VK_KHR_external_memory_win32 or exports no image");
 
         using var texture = device.CreateSharedTexture(SharedDesc);
         var expected = RenderShared(device, texture);
@@ -311,6 +312,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Require(GraphicsAPI.VK);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
+        Assert.SkipWhen(device.Desc.features.sharedFences == 0, "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_win32 or exports no semaphore type");
         using var fence = device.CreateSharedFence(0);
 
         using var vk = SecondVulkanDevice.Create(TestDevice.AdapterFor(GraphicsAPI.VK)!);
@@ -385,6 +387,7 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         Require(GraphicsAPI.VK);
         var messages = new List<NriMessage>();
         using var device = TestDevice.Create(GraphicsAPI.VK, messages);
+        Assert.SkipWhen(device.Desc.features.sharedFences == 0, "features.sharedFences is false: the adapter lacks VK_KHR_external_semaphore_win32 or exports no semaphore type");
         using var binary = device.CreateSharedBinaryFence();
         using var fence = device.CreateFence();
 
@@ -487,17 +490,6 @@ public sealed unsafe class SharedHandleImportTests(ITestOutputHelper output)
         using var resource = new V12.ID3D12Resource(raw);
         var desc = resource.Description;
         return $"{desc.Format} ({desc.Flags}, layout {desc.Layout})";
-    }
-
-    private static List<string> D3D11Errors(V11Debug.ID3D11InfoQueue queue)
-    {
-        var errors = new List<string>();
-        for (ulong i = 0; i < queue.NumStoredMessages; i++)
-        {
-            var m = queue.GetMessage(i);
-            if (m.Severity is V11Debug.MessageSeverity.Error or V11Debug.MessageSeverity.Corruption) errors.Add($"{m.Severity} {m.Id}: {m.Description}");
-        }
-        return errors;
     }
 
     private static List<string> D3D12Errors(V12Debug.ID3D12InfoQueue queue)

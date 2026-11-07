@@ -387,7 +387,7 @@ public sealed class RenderStateTests
 
         using var layout = CreateRectLayout(device);
         using var equal = CreateRectPipeline(device, layout, format, stencil: Both(StencilTest(CompareOp.EQUAL)));
-        TextureDesc Target(TextureUsageBits usage, Format f) => new() { type = TextureType.TEXTURE_2D, usage = usage, format = f, width = Canvas.Size, height = Canvas.Size, depth = 1, mipNum = 1, layerNum = 1, sampleNum = 1 };
+        static TextureDesc Target(TextureUsageBits usage, Format f) => new() { type = TextureType.TEXTURE_2D, usage = usage, format = f, width = Canvas.Size, height = Canvas.Size, depth = 1, mipNum = 1, layerNum = 1, sampleNum = 1 };
         using var color = device.CreateCommittedTexture(MemoryLocation.DEVICE, Target(TextureUsageBits.COLOR_ATTACHMENT, Format.RGBA8_UNORM));
         using var colorView = color.CreateView(TextureView.COLOR_ATTACHMENT, Format.RGBA8_UNORM);
         using var depthStencil = device.CreateCommittedTexture(MemoryLocation.DEVICE, Target(TextureUsageBits.DEPTH_STENCIL_ATTACHMENT, format));
@@ -630,7 +630,7 @@ public sealed class RenderStateTests
 
         using var layout = CreateRectLayout(device);
         using var equal = CreateRectPipeline(device, layout, format, stencil: Both(StencilTest(CompareOp.EQUAL)));
-        TextureDesc Target(TextureUsageBits usage, Format f) => new() { type = TextureType.TEXTURE_2D, usage = usage, format = f, width = Canvas.Size, height = Canvas.Size, depth = 1, mipNum = 1, layerNum = 1, sampleNum = 1 };
+        static TextureDesc Target(TextureUsageBits usage, Format f) => new() { type = TextureType.TEXTURE_2D, usage = usage, format = f, width = Canvas.Size, height = Canvas.Size, depth = 1, mipNum = 1, layerNum = 1, sampleNum = 1 };
         using var color = device.CreateCommittedTexture(MemoryLocation.DEVICE, Target(TextureUsageBits.COLOR_ATTACHMENT, Format.RGBA8_UNORM));
         using var colorView = color.CreateView(TextureView.COLOR_ATTACHMENT, Format.RGBA8_UNORM);
         using var depthStencil = device.CreateCommittedTexture(MemoryLocation.DEVICE, Target(TextureUsageBits.DEPTH_STENCIL_ATTACHMENT, format));

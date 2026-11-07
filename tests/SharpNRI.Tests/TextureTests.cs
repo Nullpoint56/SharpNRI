@@ -16,15 +16,15 @@ public sealed class TextureTests
         {
             var data = new TheoryData<Backend, TextureUsageBits>();
             foreach (var api in new[] { GraphicsAPI.VK, GraphicsAPI.D3D12 })
-            foreach (var usage in new[]
-            {
+                foreach (var usage in new[]
+                {
                 TextureUsageBits.SHADER_RESOURCE, TextureUsageBits.SHADER_RESOURCE_STORAGE, TextureUsageBits.COLOR_ATTACHMENT,
                 TextureUsageBits.DEPTH_STENCIL_ATTACHMENT, TextureUsageBits.SHADING_RATE_ATTACHMENT, TextureUsageBits.INPUT_ATTACHMENT,
                 TextureUsageBits.HOST_TRANSFER,
             })
-            {
-                data.Add(new Backend(api), usage);
-            }
+                {
+                    data.Add(new Backend(api), usage);
+                }
             return data;
         }
     }

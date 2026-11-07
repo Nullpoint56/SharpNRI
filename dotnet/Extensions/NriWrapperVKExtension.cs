@@ -50,7 +50,7 @@ public sealed unsafe class NriWrapperVKExtension
     {
         var queue = Device.GetQueue(commandAllocatorVKDesc.queueType);
         CommandAllocator* handle = null;
-        fixed (CommandAllocatorVKDesc* p = &commandAllocatorVKDesc) Device.Check(_table.CreateCommandAllocatorVK(Device.Raw, p, &handle), "CreateCommandAllocatorVK");
+        fixed (CommandAllocatorVKDesc* p = &commandAllocatorVKDesc) NriException.Check(_table.CreateCommandAllocatorVK(Device.Raw, p, &handle), "CreateCommandAllocatorVK");
         return new NriCommandAllocator(queue, handle);
     }
 
@@ -64,7 +64,7 @@ public sealed unsafe class NriWrapperVKExtension
     {
         var desc = new CommandBufferVKDesc { vkCommandBuffer = (void*)vkCommandBuffer, queueType = queueType };
         CommandBuffer* handle = null;
-        Device.Check(_table.CreateCommandBufferVK(Device.Raw, &desc, &handle), "CreateCommandBufferVK");
+        NriException.Check(_table.CreateCommandBufferVK(Device.Raw, &desc, &handle), "CreateCommandBufferVK");
         return new NriCommandBuffer(Device, handle);
     }
 
@@ -72,7 +72,7 @@ public sealed unsafe class NriWrapperVKExtension
     public NriDescriptorPool CreateDescriptorPoolVK(in DescriptorPoolVKDesc descriptorPoolVKDesc)
     {
         DescriptorPool* handle = null;
-        fixed (DescriptorPoolVKDesc* p = &descriptorPoolVKDesc) Device.Check(_table.CreateDescriptorPoolVK(Device.Raw, p, &handle), "CreateDescriptorPoolVK");
+        fixed (DescriptorPoolVKDesc* p = &descriptorPoolVKDesc) NriException.Check(_table.CreateDescriptorPoolVK(Device.Raw, p, &handle), "CreateDescriptorPoolVK");
         return new NriDescriptorPool(Device, handle);
     }
 
@@ -96,7 +96,7 @@ public sealed unsafe class NriWrapperVKExtension
             deviceAddress = deviceAddress,
         };
         Buffer* handle = null;
-        Device.Check(_table.CreateBufferVK(Device.Raw, &desc, &handle), "CreateBufferVK");
+        NriException.Check(_table.CreateBufferVK(Device.Raw, &desc, &handle), "CreateBufferVK");
         return new NriBuffer(Device, handle);
     }
 
@@ -104,7 +104,7 @@ public sealed unsafe class NriWrapperVKExtension
     public NriTexture CreateTextureVK(in TextureVKDesc textureVKDesc)
     {
         Texture* handle = null;
-        fixed (TextureVKDesc* p = &textureVKDesc) Device.Check(_table.CreateTextureVK(Device.Raw, p, &handle), "CreateTextureVK");
+        fixed (TextureVKDesc* p = &textureVKDesc) NriException.Check(_table.CreateTextureVK(Device.Raw, p, &handle), "CreateTextureVK");
         return new NriTexture(Device, handle);
     }
 
@@ -123,7 +123,7 @@ public sealed unsafe class NriWrapperVKExtension
             memoryTypeIndex = memoryTypeIndex,
         };
         Memory* handle = null;
-        Device.Check(_table.CreateMemoryVK(Device.Raw, &desc, &handle), "CreateMemoryVK");
+        NriException.Check(_table.CreateMemoryVK(Device.Raw, &desc, &handle), "CreateMemoryVK");
         return new NriMemory(Device, handle);
     }
 
@@ -131,7 +131,7 @@ public sealed unsafe class NriWrapperVKExtension
     public NriPipeline CreatePipelineVK(in PipelineVKDesc pipelineVKDesc)
     {
         Pipeline* handle = null;
-        fixed (PipelineVKDesc* p = &pipelineVKDesc) Device.Check(_table.CreatePipelineVK(Device.Raw, p, &handle), "CreatePipelineVK");
+        fixed (PipelineVKDesc* p = &pipelineVKDesc) NriException.Check(_table.CreatePipelineVK(Device.Raw, p, &handle), "CreatePipelineVK");
         var bindPoint = pipelineVKDesc.vkPipelineBindPoint switch
         {
             0 => BindPoint.GRAPHICS,           // VK_PIPELINE_BIND_POINT_GRAPHICS
@@ -149,7 +149,7 @@ public sealed unsafe class NriWrapperVKExtension
     public NriQueryPool CreateQueryPoolVK(in QueryPoolVKDesc queryPoolVKDesc, uint capacity)
     {
         QueryPool* handle = null;
-        fixed (QueryPoolVKDesc* p = &queryPoolVKDesc) Device.Check(_table.CreateQueryPoolVK(Device.Raw, p, &handle), "CreateQueryPoolVK");
+        fixed (QueryPoolVKDesc* p = &queryPoolVKDesc) NriException.Check(_table.CreateQueryPoolVK(Device.Raw, p, &handle), "CreateQueryPoolVK");
         var type = queryPoolVKDesc.vkQueryType switch
         {
             0 => QueryType.OCCLUSION,                                  // VK_QUERY_TYPE_OCCLUSION
@@ -173,7 +173,7 @@ public sealed unsafe class NriWrapperVKExtension
     {
         var rayTracing = Device.RayTracing;
         AccelerationStructure* handle = null;
-        fixed (AccelerationStructureVKDesc* p = &accelerationStructureVKDesc) Device.Check(_table.CreateAccelerationStructureVK(Device.Raw, p, &handle), "CreateAccelerationStructureVK");
+        fixed (AccelerationStructureVKDesc* p = &accelerationStructureVKDesc) NriException.Check(_table.CreateAccelerationStructureVK(Device.Raw, p, &handle), "CreateAccelerationStructureVK");
         return new NriAccelerationStructure(rayTracing, handle, type);
     }
 
@@ -182,7 +182,7 @@ public sealed unsafe class NriWrapperVKExtension
     {
         var desc = new FenceVKDesc { vkTimelineSemaphore = vkTimelineSemaphore };
         Fence* handle = null;
-        Device.Check(_table.CreateFenceVK(Device.Raw, &desc, &handle), "CreateFenceVK");
+        NriException.Check(_table.CreateFenceVK(Device.Raw, &desc, &handle), "CreateFenceVK");
         return new NriFence(Device, handle);
     }
 

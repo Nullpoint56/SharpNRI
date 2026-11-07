@@ -87,7 +87,7 @@ public sealed class FlatExportTests
         }
 
         Record($"no DXGI format: {string.Join(", ", dxgiMissing)}");
-        Assert.All(dxgiMissing, f => Assert.True(f.ToString().StartsWith("ETC2_") || f.ToString().StartsWith("ASTC_"), $"{f} has no DXGI format"));
+        Assert.All(dxgiMissing, f => Assert.True(f.ToString().StartsWith("ETC2_", StringComparison.Ordinal) || f.ToString().StartsWith("ASTC_", StringComparison.Ordinal), $"{f} has no DXGI format"));
     }
 
     [Fact]

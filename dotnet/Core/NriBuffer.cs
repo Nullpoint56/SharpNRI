@@ -56,7 +56,7 @@ public sealed unsafe class NriBuffer : NriObject
     public Span<byte> Map(ulong offset, ulong size)
     {
         var p = Device.Core.MapBuffer(Raw, offset, size);
-        Device.Check(p is null ? Result.FAILURE : Result.SUCCESS, "MapBuffer");
+        NriException.Check(p is null ? Result.FAILURE : Result.SUCCESS, "MapBuffer");
         var length = size == NriApi.WHOLE_SIZE ? Desc.size - offset : size;
         return new Span<byte>(p, checked((int)length));
     }
@@ -77,7 +77,7 @@ public sealed unsafe class NriBuffer : NriObject
     {
         desc.buffer = Raw;
         Descriptor* view = null;
-        Device.Check(Device.Core.CreateBufferView(&desc, &view), "CreateBufferView");
+        NriException.Check(Device.Core.CreateBufferView(&desc, &view), "CreateBufferView");
         return new NriDescriptor(Device, view, NriDescriptorKind.BufferView);
     }
 
@@ -94,7 +94,7 @@ public sealed unsafe class NriBuffer : NriObject
     public NriSharedHandle GetSharedHandle()
     {
         SharedHandle h;
-        Device.Check(Device.Core.GetBufferSharedHandle(Raw, &h), "GetBufferSharedHandle");
+        NriException.Check(Device.Core.GetBufferSharedHandle(Raw, &h), "GetBufferSharedHandle");
         return NriSharedHandle.From(Device, in h);
     }
 

@@ -431,6 +431,60 @@ foreach ($u in $unexpected) {
     else { Write-Warning "not staged: $u (review whether NRI needs it at run time)" }
 }
 
+# ------------------------------------------------------------------------------- vendor runtimes
+# What this NRI was built against, for the application that ships the runtimes: each upscaler SDK
+# at NRI's pin (nri/CMakeLists.txt) and each runtime NRI's build fetched with it, by file version
+# and SHA-256. Beside native/, so the package carries it (runtimes/<rid>/upscaler-runtimes.json)
+# and it is not copied next to the application; the release notes list it (release.yml).
+if ($variantKey -ne "base") {
+    $cmake = Get-Content (Join-Path $nri "CMakeLists.txt") -Raw
+    function PinOf([string]$Pattern, [string]$What) {
+        if ($cmake -notmatch $Pattern) { throw "the $What pin was not found in nri/CMakeLists.txt" }
+        $Matches[1]
+    }
+    function RuntimesOf([string]$Pattern) {
+        @(Get-ChildItem $bin -File | Where-Object { $_.Name -match $Pattern } | Sort-Object Name | ForEach-Object {
+            $version = $_.VersionInfo.FileVersion
+            if (-not $version -and $_.Name -match '\.so\.([\d.]+)$') { $version = $Matches[1] }
+            [ordered]@{ file = $_.Name; version = "$version".Trim(); sha256 = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+        })
+    }
+    # Each SDK's release page at that version, for the release notes' links
+    function ReleasePage([string]$Repo, [string]$Version) { "https://github.com/$Repo/releases/tag/v$Version" }
+    $sdks = [System.Collections.Generic.List[object]]::new()
+    if (& $on NRI_ENABLE_NIS_SDK) {
+        $nisVersion = if ((Get-Content (Join-Path $nri "Shaders" "NIS.hlsl") -Raw) -match 'NVIDIA Image Scaling SDK\s+-\s+v([\d.]+)') { $Matches[1] } else { throw "the NIS SDK version was not found in nri/Shaders/NIS.hlsl" }
+        $sdks.Add([ordered]@{ name = "NVIDIA Image Scaling"; version = $nisVersion; url = (ReleasePage "NVIDIAGameWorks/NVIDIAImageScaling" $nisVersion); runtimes = @(); note = "compiled in" })
+    }
+    if (& $on NRI_ENABLE_FFX_SDK) {
+        $ffx = PinOf 'FidelityFX-SDK/archive/refs/tags/v([\d.]+)\.zip' "FidelityFX SDK"
+        $sdks.Add([ordered]@{ name = "AMD FidelityFX SDK"; version = $ffx; url = (ReleasePage "GPUOpen-LibrariesAndSDKs/FidelityFX-SDK" $ffx); runtimes = [object[]](RuntimesOf '^amd_fidelityfx_(loader|upscaler)_(dx12|vk)\.dll$'); note = $null })
+    }
+    if (& $on NRI_ENABLE_XESS_SDK) {
+        $xess = PinOf 'intel/xess/archive/refs/tags/v([\d.]+)\.zip' "XeSS SDK"
+        $sdks.Add([ordered]@{ name = "Intel XeSS SDK"; version = $xess; url = (ReleasePage "intel/xess" $xess); runtimes = [object[]](RuntimesOf '^libxess\.dll$'); note = $null })
+    }
+    $ngx = PinOf 'set\(NGX_VERSION "([\d.]+)"\)' "NGX"
+    if (& $on NRI_ENABLE_NGX_SDK) {
+        $sdks.Add([ordered]@{ name = "NVIDIA DLSS"; version = $ngx; url = (ReleasePage "NVIDIA/DLSS" $ngx); runtimes = [object[]](RuntimesOf '^(nvngx_dlssd?\.dll|libnvidia-ngx-dlssd?\.so\..*)$'); note = $null })
+    } else {
+        $sdks.Add([ordered]@{ name = "NVIDIA DLSS"; version = $ngx; url = (ReleasePage "NVIDIA/DLSS" $ngx); runtimes = @(); note = "not packaged" })
+    }
+    foreach ($s in $sdks) {
+        if (-not $s.note -and $s.runtimes.Count -eq 0) { throw "$($s.name): NRI's build fetched no runtime to record" }
+        foreach ($r in $s.runtimes) { if (-not $r.version) { throw "$($s.name): $($r.file) has no version" } }
+    }
+    $nriRepo = (git -C $root config -f .gitmodules submodule.nri.url) -replace '\.git$', ''
+    $manifest = [ordered]@{ nri = $NriVersion; nriUrl = "$nriRepo/releases/tag/v$NriVersion"; rid = $Rid; sdks = $sdks }
+    $manifestPath = Join-Path $root $stageRoot $Rid "upscaler-runtimes.json"
+    $manifest | ConvertTo-Json -Depth 5 | Set-Content $manifestPath -Encoding utf8NoBOM
+    Write-Host "    vendor runtimes recorded in $manifestPath"
+    foreach ($s in $sdks) {
+        $files = ($s.runtimes | ForEach-Object { "$($_.file) $($_.version)" }) -join ", "
+        Write-Host ("      {0} {1}: {2}" -f $s.name, $s.version, $(if ($files) { $files } else { $s.note }))
+    }
+}
+
 # ------------------------------------------------------------------------------------------ licences
 # Only for what is inside the staged files: compiled into NRI, linked into NRI, or shipped beside it.
 StageLicense "NRI" (Join-Path $nri "LICENSE.txt")

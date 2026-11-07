@@ -32,12 +32,13 @@ headers do not say. NRI v191.
 | `SharpNRI.Native.Upscalers` | NRI with NIS, FSR, XeSS | upscaler extension |
 
 ```xml
-<PackageReference Include="SharpNRI" Version="1.0.0-beta.1" ExcludeAssets="native" />  <!-- only with Upscalers -->
-<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.1" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.2" ExcludeAssets="native" />  <!-- only with Upscalers -->
+<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.2" />
 ```
 
-- Not on NuGet.org: the `.nupkg` files are GitHub release assets. Folder feed, `nuget.config` beside
-  the project:
+- On NuGet.org since 1.0.0-beta.2 (prereleases while in beta: `dotnet add package SharpNRI
+  --prerelease`). Each GitHub release carries the same `.nupkg` files, usable as a folder feed
+  (`nuget.config` beside the project):
 
   ```xml
   <configuration>
@@ -48,7 +49,7 @@ headers do not say. NRI v191.
   ```
 
 - The release workflow's `consume` job restores them that way (`tools/consume`) and creates NONE
-  plus a GPU device on windows, ubuntu and macos before publishing.
+  plus a GPU device on windows and ubuntu before the release and the NuGet push.
 - Base and Upscalers both contain `NRI.dll` / `libNRI.so` at the same path: take exactly one; with
   Upscalers, `ExcludeAssets="native"` on `SharpNRI`.
 - Base: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI, AGS, debug names; no upscaler SDK.
@@ -57,6 +58,11 @@ headers do not say. NRI v191.
   (`libNRI.dylib`, Base only; Vulkan and NONE) once a macOS runner has built it; put its files
   where the application loads native libraries from.
 - Windows needs the Visual C++ 2015-2022 runtime; not shipped.
+- Debugging (from 1.0.0-beta.3): the packages carry PDBs with Source Link, so with Source Link support
+  on in the debugger, stepping into SharpNRI shows its source at the package's commit. NRI's native symbols
+  (win-x64 `NRI.pdb`) are on each GitHub release as `SharpNRI-symbols-*.zip`: put `NRI.pdb` beside
+  `NRI.dll` or on the debugger's symbol path, with native debugging on, to step into NRI. Linux and macOS
+  libraries have no symbols.
 - No package ships a vendor runtime. Beside your executable, under the vendor's terms:
 
   | Upscaler | D3D12 | Vulkan |
@@ -65,7 +71,10 @@ headers do not say. NRI v191.
   | XeSS | `libxess.dll` | not offered |
   | DLSR / DLRR | `nvngx_dlss*.dll` (DLSS build only) | same |
 
-  `NriUpscalerExtension.GetRuntimeFiles(type, api)` names them for the running build.
+  `NriUpscalerExtension.GetRuntimeFiles(type, api)` names them for the running build. Which versions:
+  `SharpNRI.Native.Upscalers` carries `runtimes/<rid>/upscaler-runtimes.json`, each SDK at NRI's pin and
+  each runtime NRI's build fetched with its file version and SHA-256, and each release lists them
+  under Bound libraries. Ship those, or a later version the vendor declares compatible.
 - DLSS: `pwsh tools/build-native.ps1 -WithDlss <DLSS SDK dir>` builds an NGX-linked `NRI.dll` into
   `runtimes-upscalers-dlss/<rid>/native/`. NGX is linked statically, so that `NRI.dll` is under
   NVIDIA's RTX SDK licence: yours to ship, never packed here.
@@ -125,7 +134,6 @@ ref readonly DeviceDesc caps = ref device.Desc;
 | `ForwardAllocatorToThirdParty` | also routes VMA / D3D12MA host allocations; off by default (chatty) |
 | `D3D12AgilitySdkPath` | null: the `AgilitySDK` directory beside the assembly when present (`NriDevice.DefaultAgilitySdkPath`), else inbox. `""`: force inbox |
 | `VkBindingOffsets` | see [Descriptors and layouts](#descriptors-and-layouts) |
-| `VkEnumeratePhysicalDevicesAfterCreation` | Vulkan, default true: one `vkEnumeratePhysicalDevices` on NRI's instance right after creation, results discarded, so implicit layers that map physical devices from that call (RivaTuner's) know NRI's device; false skips it. Not on `CreateFromVulkan` (the instance is yours) |
 | `VkInstanceCreateInfoNext` | Vulkan: a pointer to your own `pNext` chain, which NRI appends to `VkInstanceCreateInfo` after its `VkDebugUtilsMessengerCreateInfoEXT` and (with `EnableGraphicsApiValidation`) `VkValidationFeaturesEXT`; do not repeat those two (patch 0038). The use is `VkLayerSettingsCreateInfoEXT`: validation-layer settings (`validate_best_practices`, `validate_sync`, ...) for this device's instance only, where `VK_KHRONOS_VALIDATION_*` environment variables apply to the whole process and, set from .NET at run time, are not seen by native code on Linux or macOS. Your memory; it must stay valid until `Create` returns. Not on `CreateFromVulkan` (the instance is yours) |
 | `Robustness`, `DeviceLostInfoLevel`, `EnableD3D12RayTracingValidation`, `EnableD3D12GpuBasedValidation` | only on `NriDevice.Create`, not on the wrapped routes (a wrapped D3D12 device has the debug layer its creator gave it, and NRI sets no break on it) |
 
@@ -176,15 +184,15 @@ Caveats:
   4). Keep the `NriAdapter` and pass it, and the device's own Vulkan instance is the process's
   second, not its third.
 - **RivaTuner Statistics Server's implicit layer** (`VK_LAYER_RTSS`) maps each physical device to
-  its instance from `vkEnumeratePhysicalDevices` and uses that map at the first present. NRI finds
-  physical devices only through `vkEnumeratePhysicalDeviceGroups`, so on NRI's device the loader
-  logged `vkEnumeratePhysicalDevices: Invalid instance` and the process failed fast at the first
-  present (exit 0xC0000409). `NriDevice.Create` therefore calls `vkEnumeratePhysicalDevices` once
-  on NRI's instance after creation (`VkEnumeratePhysicalDevicesAfterCreation`, default true), and
-  a presenting Vulkan process survives with the layer on. A device from `CreateFromVulkan` is on
-  your instance: enumerate physical devices on it with `vkEnumeratePhysicalDevices` yourself. The
-  number of instances is not the cause (measured with the device's instance the only one the
-  layer saw).
+  its instance from `vkEnumeratePhysicalDevices` and uses that map at the first present. NRI v191
+  finds physical devices only through `vkEnumeratePhysicalDeviceGroups`, so on NRI's device the
+  loader logged `vkEnumeratePhysicalDevices: Invalid instance` and the process failed fast at the
+  first present (exit 0xC0000409), with or without validation (RTSS 7.3.5). The shipped `NRI.dll`
+  carries patch 0045, which enumerates physical devices instead, so a presenting Vulkan process
+  survives with the layer on and the binding makes no call of its own. A device from
+  `CreateFromVulkan` is on your instance: enumerate physical devices on it with
+  `vkEnumeratePhysicalDevices` yourself. The number of instances is not the cause (measured with
+  the device's instance the only one the layer saw).
 - **Adapter uid** (`NriAdapter.Uid`): LUID when `high` is 0, UUID otherwise. On Linux
   `deviceLUIDValid` is false, so NRI builds it from `VkPhysicalDeviceIDProperties.deviceUUID`;
   match on the UUID there.
@@ -458,34 +466,38 @@ fence.Wait(1);
 
 ## Zero allocation
 
-The contract, measured on NONE (which does nothing per call, so any allocation is the binding's)
-after one warm-up frame, over 300 frames: 0 managed bytes for both lists below
-(`AllocationTests`, `ExtensionAllocationTests`); for the core frame also 0 host allocations,
-reallocations and frees through `NriCountingAllocator`.
+The contract: every call of the binding allocates nothing per frame, managed or through the host
+allocator, except creation and destruction and the setup calls named below. Measured on NONE (which
+does nothing per call, so any allocation is the binding's) after one warm-up frame, over 300
+frames: 0 managed bytes (`AllocationTests`, `ExtensionAllocationTests`), and for the core frames 0
+host allocations, reallocations and frees through `NriCountingAllocator`; `Map` / `Unmap` on each
+GPU backend (NONE maps nothing). The measurement is transitive: whatever a call reaches inside the
+binding is counted.
 
-- Core frame: `NriCommandAllocator.Reset`, `cmd.Begin` / `End`, `NriDescriptorPool.Reset`,
-  `AllocateDescriptorSets(layout, setIndex, span)`, `AllocateDescriptorSet`, `set.Update` /
-  `UpdateRange` / `CopyRange`, `SetDescriptorPool`, `SetPipelineLayout`, `SetPipeline`, `SetDescriptorSet`, `SetRootConstants` (span and struct overloads),
-  `Barrier` (global, buffer, texture), `SetViewports`, `SetScissors`, `BeginRendering` /
-  `EndRendering`, `Draw`, `Dispatch`, `CopyBuffer`, `queue.Submit` (spans of command buffers,
-  waits and signals, and the one-buffer `Submit(cmd, fence, value)`), `fence.Wait`, `fence.Value`, `SwapChain.AcquireNextTexture`,
-  `SwapChain.QueuePresent` (the `OutOfDate` path allocates nothing either).
-- Extension frame: `MeshShader.DrawMeshTasks` / `DrawMeshTasksIndirect`,
-  `DescriptorHeap.WriteResourceDescriptors` / `WriteSamplerDescriptors` / `SetDescriptorHeap`,
-  `Streamer.BeginStreamerCopyBatch` / `StreamBufferData` / `StreamConstantData` /
-  `CopyStreamedData` / `EndStreamerFrame`, `Upscaler.DispatchUpscale`, `Imgui.CopyImguiData` /
-  `DrawImgui`, `Video.DecodeVideo` (H.264 picture desc), `queue.Submit` with a swap chain,
-  `LowLatency.SetLatencyMarker`.
-- Not in the measured frame: `buffer.Map` / `Unmap` (NONE maps nothing; `Map` returns a span over
-  NRI's pointer and allocates nothing itself).
-- Allocate by design: object creation (`Create*`, `AllocateMemory`, `AllocateAndBindMemory`), the
-  desc forms with arrays (`NriPipelineLayoutDesc`, `NriGraphicsPipelineDesc`, ...),
-  `queue.UploadData`, the array-returning `AllocateDescriptorSets(layout, setIndex, count)`.
+- Covered, default-deny: `AllocationCoverageTests` holds every public method and computed property
+  of every public type to those frames. Every command-buffer command and overload, submission,
+  queue, fence, query-pool, descriptor-pool and descriptor-set call, the device's per-frame reads
+  (`GetQueue`, `QueryVideoMemoryInfo`, `GetFormatSupport`, the extension properties), the static
+  `Nri` helpers (format conversions, `GetFormatProps`, thread annotations), and every extension's
+  per-frame calls (streamer, upscaler, ImGui, video decode and encode with their feedback and
+  bitstream writers, ray tracing builds, copies, size queries and dispatches, low latency,
+  acquire, present and `WaitForPresent`) are measured; a call added to the binding fails that test
+  until it is.
+- Annotations (`cmd.BeginAnnotation`, `queue.Annotation`, `Nri.Annotate`, ...) encode their name on
+  the stack up to 255 UTF-8 bytes; a longer name goes through native memory, still no managed
+  allocation.
+- Allocate by design, named in `AllocationCoverageTests` with the reason: object creation
+  (`Create*`, `AllocateMemory`, `AllocateAndBindMemory`) and binding memory, memory requirements,
+  capability queries, exports (`GetSharedHandle`), debug names, adapter enumeration, the desc forms
+  with arrays (`NriPipelineLayoutDesc`, `NriGraphicsPipelineDesc`, ...), `queue.UploadData`,
+  `Nri.GetFormatName` and `Nri.GetGraphicsAPIString` (new strings; `GetFormatProps` is the per-frame
+  form), `NriPipelineCache.GetData`, and the array-returning
+  `AllocateDescriptorSets(layout, setIndex, count)`.
 - `NriDescriptorSet` is a struct so that resetting the pool and reallocating sets every frame
   allocates nothing; the span overload is the per-frame path.
 - Build the spans a frame passes (barriers, attachments, submits, writes) once, outside the frame.
+- A message the callback reports carries its text as a new string; a clean frame reports none.
 - Exceptions allocate only when thrown.
-
 ## Queries
 
 ```csharp
@@ -558,9 +570,11 @@ if (device.TryRayTracing is { } rt)
 - **Micromaps, Vulkan**: work (transparent micro-triangle hides, opaque shows). Index-less OMM
   (index type NONE, address 0) draws VUID-...-pInfos-10904 from VVL 1.4.341, apparently a false
   positive; an index buffer is clean.
-- **Micromaps, D3D12: broken in v190.** NRI's prebuild query passes no input buffer or per-OMM
-  descs (debug layer error 1162, SEH with break-on-error); without the debug layer, the BLAS build
-  that links the micromap fails `Close` with `E_INVALIDARG`.
+- **Micromaps, D3D12.** NRI v191's prebuild query passes null input-buffer and per-OMM-desc
+  addresses, which the debug layer refuses at every micromap creation (error 1162); the shipped
+  `NRI.dll` carries patch 0046, which passes dummy non-zero ones as the DXR spec describes, so
+  micromaps create cleanly with the debug layer on. (On v190 the BLAS build that links the
+  micromap also failed `Close` with `E_INVALIDARG`; fixed since.)
 - Import by native object: `WrapperVK.CreateAccelerationStructureVK(desc, type)` /
   `WrapperD3D12.CreateAccelerationStructureD3D12(desc, type)`; caller names the type; needs
   `RayTracing`. The import reports the same GPU handle, native object, buffer and scratch sizes.
@@ -664,13 +678,32 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 - `CreateUpscaler` checks `GetRuntimeFiles` first and throws `NriUnsupportedException` naming the
   missing file. Without the guard: FSR returns `FAILURE` with no message; XeSS raises an SEH
   exception (0xC06D007E, delay-load) that leaves NRI's process-wide XeSS lock held, so the next XeSS
-  creation hangs forever.
+  creation hangs forever. (The packaged `NRI.dll` delay-loads `libxess.dll` so that it loads without
+  the XeSS runtime; NRI's own build links it at load time.)
 - NRI loads vendor DLLs by bare name, which searches the executable's directory. Under
   `dotnet app.dll` that is `dotnet.exe`'s directory: FSR fails, XeSS kills the process.
   `CreateUpscaler` therefore preloads each file by full path from `AppContext.BaseDirectory`, which
   makes both hosts work. Put the files beside your app's assembly.
-- XeSS: D3D12 only. FSR: D3D12 and Vulkan. NIS: everywhere the Upscalers build runs.
+- XeSS: D3D12 only. FSR: D3D12 and Vulkan. NIS: everywhere the Upscalers build runs. DLSR and
+  DLRR (a `-WithDlss` build): NVIDIA adapters with ray tracing, both backends.
 - Raw DLSR creation without `nvngx_dlss*.dll`: clean `FAILURE` on both backends.
+- A failed vendor call reports an ERROR through your message handler (patch 0049): at creation it
+  names the missing FSR loader DLL or the NGX result, at dispatch the vendor call and its result
+  (`ffxDispatch`, `xessD3D12Execute`, NGX's evaluation). In NRI v191 itself creation returned a bare
+  `FAILURE` and a failed dispatch was compiled out of release builds. DLSS may create without its DLL
+  beside your executable: NGX also finds its feature DLLs elsewhere (measured for DLRR).
+- Measured on every type and backend (figures in [upscalers.md](upscalers.md)): a constant image
+  stays constant in every mode, at the dynamic-resolution minimum too; HDR with an exposure texture
+  and pre-exposure; a moving edge with motion vectors lands where it should; `RESET_HISTORY` drops
+  the history; NIS and FSR sharpness work. Motion vectors are `previous - current` in pixels with
+  `MvScale = (1, 1)`; the tests use R16_SFLOAT colour, R32_SFLOAT depth, RG16_SFLOAT motion.
+- **DLRR on D3D12: no R8 reactive mask.** NGX views the mask with the resource's own format, which
+  is `R8_TYPELESS` (NRI creates D3D12 textures TYPELESS): debug error [28], then the device is
+  removed. An R16_SFLOAT mask works; DLSR takes R8_UNORM.
+- DLRR on D3D12 with an input below its creation size: the debug layer reports [527] on NGX's own
+  internal resources (`nv.ngx.dlssd.resource`); the output is right. NGX's, not yours.
+- The NIS and FSR sharpness settings show on low-contrast detail; NIS leaves strong edges as they
+  are (a 0.2 to 0.6 edge measured the same at 0 and 1).
 
 ### LowLatency (Reflex)
 
@@ -682,9 +715,8 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   `ALLOW_LOW_LATENCY` and `VSYNC`. Do not mix a Vulkan Reflex swap chain with D3D12 devices in one
   process.
 - RivaTuner Statistics Server's implicit `VK_LAYER_RTSS` killed the process at the first Vulkan
-  present until the binding started enumerating NRI's physical devices after creation
-  (`NriDeviceOptions.VkEnumeratePhysicalDevicesAfterCreation`, default true; see
-  [Device creation](#device-creation)). Leave the option on when RTSS may be installed.
+  present on NRI v191, which enumerates only device groups; patch 0045 enumerates physical devices
+  (see [Device creation](#device-creation)).
 
 ### Video
 
@@ -693,9 +725,19 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   4096x4096, 16 references.
 - **H.264 encode, D3D12**: minimum 256x256; a 64x64 `GetVideoCapabilities` query draws debug error
   1312 (SEH with break-on-error). One IDR frame at QP 26 is 277 B starting `00 00 00 01 65`.
-- **H.264 encode, Vulkan: hangs.** Minimum 160x64; resolve on a GRAPHICS queue; the encode feedback
-  query never becomes available, and `ResolveVideoEncodeFeedback` (`vkCmdCopyQueryPoolResults` with
-  WAIT) never completes. Do not use Vulkan encode in v190.
+- **H.264 encode, Vulkan**: minimum 160x64; resolve the feedback with `ResolveVideoEncodeFeedback`
+  on the queue `resolvedMetadataQueueType` names (GRAPHICS on NVIDIA), then read it with
+  `GetVideoEncodeFeedback`. One IDR at QP 26 is 277 B, as on D3D12. (v190 hung in the resolve;
+  v191 reads the results on the host.) The bitstream's first barrier on another queue after the
+  encode names no stages: `VIDEO_ENCODE` is not a stage of a GRAPHICS queue.
+- **AV1 encode, Vulkan**: session parameters take a sequence without a colour description with the
+  shipped `NRI.dll` (patch 0047; v191 passed reserved colour values and NVIDIA refused them).
+  **On NVIDIA put the AV1 bitstream in host-visible memory** (`MemoryLocation.HOST_READBACK`
+  through NRI; every host-visible memory type in a raw-Vulkan reproduction): driver 617.14 fails an AV1 encode into a `DEVICE` bitstream (no byte written,
+  feedback never complete, no validation message), though that placement is valid; H.264 is
+  unaffected. Vulkan describes an AV1 frame (`GetVideoAV1EncodeDecodeInfo`) only from the encoded
+  payload passed as the header; D3D12 only without it. A picture's screen-content and
+  integer-MV flags must agree with the sequence's `seqForce*` values on Vulkan.
 - `WriteVideoAnnexBParameterSets` for H.265 returns `UNSUPPORTED` for short- and long-term reference
   sets, VUI, scaling lists and tiles. The header does not say.
 - `GetVideoAV1EncodeDecodeInfo` returns pointers into the result struct itself: keep the struct
@@ -712,8 +754,9 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 
 ### Streamer
 
-- `StreamerDesc.constantBufferMemoryLocation` is documented optional, but validation rejects its
-  default: set it (e.g. `MemoryLocation.HOST_UPLOAD`).
+- `StreamerDesc.constantBufferMemoryLocation` and `constantBufferSize` are optional: leave both at
+  their defaults for a streamer without a constant buffer (patch 0048; v191's validation refused
+  the default location even then).
 - **`StreamerDesc.queuedFrameNum` counts the frame being filled.** It is the number of per-frame
   regions in the dynamic buffer: data streamed in frame N is overwritten by frame
   N + `queuedFrameNum`, so the GPU must be done with frame N before that frame streams anything.
@@ -768,8 +811,9 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   requested size), so do not rely on either answer for a minimised window: skip frames while it
   has no client area.
 - **`SwapChainBits.LATEST_READY` with `VSYNC`** (patch 0017) asks for Vulkan's FIFO_LATEST_READY:
-  paced to the display like FIFO, no tearing, but at each vblank the newest ready image is shown
-  and older queued ones are dropped. It applies only when `device.Desc.features.latestReadySwapChain`
+  the display changes image only at vblank, without tearing, and shows the newest ready image,
+  dropping older ones. Several frames may finish per vblank, so rendering is not capped at the
+  refresh rate (`VSYNC` caps it except with this bit, as NRI's header now says). It applies only when `device.Desc.features.latestReadySwapChain`
   is set (Vulkan with `VK_EXT_present_mode_fifo_latest_ready`); otherwise, and on D3D12, the bit is
   ignored and `VSYNC` gives FIFO (FIFO_RELAXED with `ALLOW_TEARING`). Without `VSYNC` the bit does
   nothing: NRI's uncapped order is MAILBOX (or IMMEDIATE with tearing) first, and FIFO_LATEST_READY
@@ -983,7 +1027,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | One DXIL library for a D3D12 RT pipeline | `CreateRayTracingPipeline` faults | RayTracing |
 | Single `Proceed()` in a ray query | software traversal may disagree | RayTracing |
 | GPU work longer than 5 s behind `fence.Wait` | `TimeoutException` (NRI's `NRI_TIMEOUT_FENCE`); poll `fence.Value` | RayTracing |
-| D3D12 micromaps | debug error 1162 (the prebuild). A `{MICROMAP_WRITE, MICROMAP}` before side closes (NRI main 1dc13b2; patch 0030 on master); before the fix NRI added postbuild-info sync and `Close` failed | RayTracing |
+| D3D12 micromaps | debug error 1162 at creation on v191 (the prebuild; patch 0046 fixes it). A `{MICROMAP_WRITE, MICROMAP}` before side closes (NRI main 1dc13b2; patch 0030 on master); before the fix NRI added postbuild-info sync and `Close` failed | RayTracing |
 | Index-less OMM on Vulkan | VUID-...-pInfos-10904 (likely false positive) | RayTracing |
 | `features.sharedFences` 0 | lavapipe (no external semaphore fd), MoltenVK (no fd handles; `sharedResources` 0 too), any Vulkan device that exports no semaphore type | SharedHandles |
 | D3D11 opening a D3D12 shared texture | `E_INVALIDARG` (TYPELESS) | SharedHandles |
@@ -991,9 +1035,9 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | `IsUpscalerSupported` true, DLL absent | `CreateUpscaler` throws naming the file | Upscaler |
 | XeSS without the guard | lock held, next creation hangs | Upscaler |
 | Vulkan Reflex + D3D12 in one process | `D3D12CreateDevice` 0x887A0007 | LowLatency |
-| RTSS installed, `VkEnumeratePhysicalDevicesAfterCreation = false` or a wrapped device whose instance never ran `vkEnumeratePhysicalDevices` | process dies at first Vulkan present | Device creation |
+| RTSS running, a wrapped device whose instance never ran `vkEnumeratePhysicalDevices` (or an `NRI.dll` without patch 0045) | process dies at first Vulkan present | Device creation |
 | Reflex report in the first frames | all zeros | LowLatency |
-| H.264 encode on Vulkan | feedback resolve hangs | Video |
+| AV1 encode on Vulkan (NVIDIA), bitstream in `DEVICE` memory | driver fails the encode, nothing written | Video |
 | H.264 encode 64x64 on D3D12 | debug error 1312; minimum is 256x256 | Video |
 | `StreamerDesc` default memory location | validation error | Streamer |
 | Wrapped device from D3D12 without queue families | no queues | Wrappers |
@@ -1011,7 +1055,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | Vulkan loader older than the driver | crashed in `CmdSetRootConstants` on NRI v190 (fixed in NRI a4e562e) | Platform: Linux |
 | Homebrew Vulkan on macOS | not found without `DYLD_FALLBACK_LIBRARY_PATH` and `VK_DRIVER_FILES` | Platform: macOS |
 | An allocator that throws or returns null | an NRI object's creation fails with `OUT_OF_MEMORY` (NRI main 9d276c3; patch 0034 on master); inside NRI's containers, device creation's first allocation among them, still an access violation. An allocator must not fail | Device creation |
-| Queue priority between 0 and 0.5 on D3D12, or below 0 on Vulkan | D3D12 stays Normal (High only above 0.5); Vulkan treats low as normal | Device creation |
+| Queue priority below 0 | D3D12 and Vulkan treat low as normal (D3D12 is High above 0) | Device creation |
 | `NriSharedHandle` disposed twice, or never | the second `Dispose` does nothing (`Handle` 0 and `Type` `NONE` after the first); one never disposed stays open until the process exits (no finalizer); `Detach` gives it up unclosed for an import that takes ownership | SharedHandles |
 | Host-memory texture copy into a short span | `ArgumentException`: the binding refuses what NRI would write past | Memory |
 | `AllocateAndBindMemory` with a `preferredMemorySize` | packs alike in every order (NRI #305, v191); before, NRI's alignment sort left out the last buffer and the last texture, so the count could be one or two for the same three textures | Memory |

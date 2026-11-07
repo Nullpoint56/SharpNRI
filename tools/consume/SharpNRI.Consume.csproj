@@ -5,7 +5,7 @@
     through PackageReference, runtimes/<rid>/native and deps.json, not the repository's
     ProjectReference copy. Not in SharpNRI.slnx. Run by the release workflow's consume job.
 
-      dotnet run -c Release -p:SharpNRIPackageVersion=1.0.0-beta.1
+      dotnet run -c Release -p:SharpNRIPackageVersion=1.0.0-beta.2
       SHARPNRI_FEED=<dir with the .nupkg files>   (default: ../../nupkg, see nuget.config)
 
     Packages restore into obj/packages, never the global cache, so a stale SharpNRI of the same

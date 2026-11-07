@@ -32,21 +32,18 @@ submitting, every extension, and the caveats next to the API they concern.
 
 ## Install
 
-The packages are attached to each [release](https://github.com/Nullpoint56/SharpNRI/releases);
-they are not on NuGet.org. Put the `.nupkg` files in a folder and add it as a package source:
+From [NuGet.org](https://www.nuget.org/packages/SharpNRI) (a prerelease while in beta):
 
-```xml
-<!-- nuget.config beside your project -->
-<configuration>
-  <packageSources>
-    <add key="sharpnri" value="path/to/nupkg" />
-  </packageSources>
-</configuration>
+```
+dotnet add package SharpNRI --prerelease
 ```
 
 ```xml
-<PackageReference Include="SharpNRI" Version="1.0.0-beta.1" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.2" />
 ```
+
+Each [release](https://github.com/Nullpoint56/SharpNRI/releases) also carries the same `.nupkg`
+files, for a local folder feed.
 
 | Package | What it is |
 |---|---|
@@ -73,7 +70,10 @@ No package ships a vendor upscaler runtime or Microsoft's Agility SDK; the guide
 All of NRI's Core interface, the device creation and helper interfaces, and the DescriptorHeap,
 Imgui, LowLatency, MeshShader, RayTracing, Streamer, SwapChain, Upscaler, Video, WrapperD3D12 and
 WrapperVK extensions. [docs/coverage.md](docs/coverage.md) lists the bound surface and the test
-coverage at the commit it was measured on.
+coverage at the commit it was measured on. [docs/upscalers.md](docs/upscalers.md) has what the
+upscaler tests measured on a local payload with the vendor runtimes (NIS, FSR, XeSS, DLSS super
+resolution and ray reconstruction on Vulkan and D3D12): render resolutions, accuracy and GPU time
+per mode. CI cannot run those, since no package ships the vendor runtimes.
 
 Each release pins one NRI release (currently v191), built from source with a small set of
 [patches](patches/README.md): fixes not yet upstream and a few additions.

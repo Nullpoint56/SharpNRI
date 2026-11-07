@@ -1,4 +1,3 @@
-using System;
 namespace SharpNRI.Native;
 
 [NativeTypeName("uint16_t")]

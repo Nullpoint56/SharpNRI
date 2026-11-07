@@ -54,7 +54,7 @@ public sealed unsafe class NriTexture : NriObject
     {
         desc.texture = Raw;
         Descriptor* view = null;
-        Device.Check(Device.Core.CreateTextureView(&desc, &view), "CreateTextureView");
+        NriException.Check(Device.Core.CreateTextureView(&desc, &view), "CreateTextureView");
         return new NriDescriptor(Device, view, NriDescriptorKind.TextureView);
     }
 
@@ -80,7 +80,7 @@ public sealed unsafe class NriTexture : NriObject
     public NriSharedHandle GetSharedHandle()
     {
         SharedHandle h;
-        Device.Check(Device.Core.GetTextureSharedHandle(Raw, &h), "GetTextureSharedHandle");
+        NriException.Check(Device.Core.GetTextureSharedHandle(Raw, &h), "GetTextureSharedHandle");
         return NriSharedHandle.From(Device, in h);
     }
 

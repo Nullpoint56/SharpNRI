@@ -268,8 +268,8 @@ public sealed class IndirectTests
 
         var expected = new uint[slots];
         for (var y = 0; y < 2; y++)
-        for (var x = 0; x < 3; x++)
-            expected[y * 4 + x] = 4;
+            for (var x = 0; x < 3; x++)
+                expected[y * 4 + x] = 4;
         Assert.Equal(expected, counts);
         Assert.DoesNotContain(messages, m => m.IsError);
     }

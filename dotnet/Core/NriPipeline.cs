@@ -99,7 +99,7 @@ public sealed unsafe class NriPipeline : NriObject
             };
 
             Pipeline* handle = null;
-            device.Check(device.Core.CreateGraphicsPipeline(device.Raw, &native, &handle), "CreateGraphicsPipeline");
+            NriException.Check(device.Core.CreateGraphicsPipeline(device.Raw, &native, &handle), "CreateGraphicsPipeline");
             return new NriPipeline(device, handle, BindPoint.GRAPHICS);
         }
     }
@@ -119,7 +119,7 @@ public sealed unsafe class NriPipeline : NriObject
         };
 
         Pipeline* handle = null;
-        device.Check(device.Core.CreateComputePipeline(device.Raw, &native, &handle), "CreateComputePipeline");
+        NriException.Check(device.Core.CreateComputePipeline(device.Raw, &native, &handle), "CreateComputePipeline");
         return new NriPipeline(device, handle, BindPoint.COMPUTE);
     }
 
@@ -239,12 +239,12 @@ public sealed unsafe class NriPipelineCache : NriObject
     public byte[] GetData()
     {
         ulong size = 0;
-        Device.Check(Device.Core.GetPipelineCacheData(Raw, null, &size), "GetPipelineCacheData");
+        NriException.Check(Device.Core.GetPipelineCacheData(Raw, null, &size), "GetPipelineCacheData");
         var data = new byte[size];
         if (size == 0) return data;
         fixed (byte* p = data)
         {
-            Device.Check(Device.Core.GetPipelineCacheData(Raw, p, &size), "GetPipelineCacheData");
+            NriException.Check(Device.Core.GetPipelineCacheData(Raw, p, &size), "GetPipelineCacheData");
         }
         return data;
     }

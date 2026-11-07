@@ -182,8 +182,8 @@ public sealed unsafe class AllocationFailureTests
             ("CreateBuffer", () => device.CreateBuffer(new BufferDesc { size = 256, usage = BufferUsageBits.SHADER_RESOURCE })),
             ("CreateTexture", () => device.CreateTexture(texture)),
             ("AllocateMemory", () => device.AllocateMemory(new AllocateMemoryDesc { size = bufferMemory.size, type = bufferMemory.type })),
-            ("CreateCommandAllocator", () => queue.CreateCommandAllocator()),
-            ("CreateCommandBuffer", () => commandAllocator.CreateCommandBuffer()),
+            ("CreateCommandAllocator", queue.CreateCommandAllocator),
+            ("CreateCommandBuffer", commandAllocator.CreateCommandBuffer),
             ("CreateQueryPool", () => device.CreateQueryPool(QueryType.TIMESTAMP, 4)),
             ("CreateSampler", () => device.CreateSampler(samplerDesc)),
         };

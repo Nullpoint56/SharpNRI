@@ -438,7 +438,7 @@ public sealed unsafe class InteropTests
         }
         finally
         {
-            foreach (var e in events) CloseHandle(e);
+            foreach (var e in events) _ = CloseHandle(e);
         }
 
         Assert.False(new NriSharedHandle(device, 0, type, 0).IsValid);

@@ -560,9 +560,9 @@ public sealed unsafe class DebugAidTests
     /// device-local budget is non-zero and covers the usage, and a committed 64 MiB device buffer
     /// raises the device-local usage (measured: by exactly 67,108,864 bytes, VK and D3D12 on the
     /// discrete GPU and WARP, back to the start after the buffer is freed). The buffer is zero-filled
-    /// first and a quarter of it is allowed as slack because lavapipe's heap usage is the system's
-    /// (heap size minus available system memory, lvp_device.c in Mesa 25), which counts pages only once
-    /// written and moves with other processes. The host figure is recorded only: WARP is UMA and
+    /// first and a quarter of it is allowed as slack. Lavapipe's heap usage is the system's (heap size
+    /// minus available system memory, lvp_device.c in Mesa 25), which moves with every allocation on
+    /// the machine, so there the delta is not asserted (below). The host figure is recorded only: WARP is UMA and
     /// DXGI's non-local segment group reports budget 0 there.
     /// </summary>
     [Theory]
@@ -600,8 +600,15 @@ public sealed unsafe class DebugAidTests
 
         Assert.True(before.budgetSize > 0, "device-local budget 0");
         Assert.True(before.usageSize <= before.budgetSize, $"usage {before.usageSize} above budget {before.budgetSize}");
-        Assert.True(with.usageSize >= before.usageSize + size - size / 4, $"usage {before.usageSize} -> {with.usageSize} with a 64 MiB buffer written");
         Assert.DoesNotContain(messages, m => m.IsError);
+        // Lavapipe reports the machine's memory use (heap size minus available system memory,
+        // lvp_device.c) where VK_EXT_memory_budget defines "the estimated heap usage of the process",
+        // so the change follows every allocation on the machine, the parallel test classes included:
+        // 64 MiB written raised it by 41 MB on a CI runner (2026-11-06, PR #44; also PR #40). A
+        // measured defect with no capability bit (AGENTS.md: Tests and skips): the budget checks above
+        // still hold; the 64 MiB delta is not measurable there.
+        Assert.SkipWhen(TestDevice.IsLavapipeVK(backend.Api), $"{backend}: lavapipe's heap usage is system-wide, not the process's (lvp_device.c), so a 64 MiB delta is not measurable");
+        Assert.True(with.usageSize >= before.usageSize + size - size / 4, $"usage {before.usageSize} -> {with.usageSize} with a 64 MiB buffer written");
     }
 
     /// <summary>

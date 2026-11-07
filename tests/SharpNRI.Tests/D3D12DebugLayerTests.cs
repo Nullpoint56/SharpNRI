@@ -131,10 +131,10 @@ public sealed class D3D12DebugLayerTests(ITestOutputHelper output)
         {
             var data = new TheoryData<Backend, string>();
             foreach (var api in new[] { GraphicsAPI.VK, GraphicsAPI.D3D12 })
-            foreach (var name in NoAccessBarriers.Keys)
-            {
-                data.Add(new Backend(api), name);
-            }
+                foreach (var name in NoAccessBarriers.Keys)
+                {
+                    data.Add(new Backend(api), name);
+                }
             return data;
         }
     }

@@ -19,7 +19,7 @@
   <PropertyGroup>
     <RootNamespace>SharpNRI</RootNamespace>
     <PackageId>SharpNRI</PackageId>
-    <Version>1.0.0-beta.1</Version>
+    <Version>1.0.0-beta.2</Version>
     <Description>C# bindings over NRI (NVIDIA Render Interface): Vulkan and D3D12 through one API. Pure managed P/Invoke over a pinned NRI build. Windows x64, Linux x64 and macOS arm64 (Vulkan through MoltenVK). Alpha.</Description>
     <PackageTags>nri;vulkan;d3d12;rhi;graphics;rendering</PackageTags>
     <NoWarn>$(NoWarn);CS0169;CS0649;CS1591;CS8981;NU5128</NoWarn>
@@ -49,9 +49,14 @@
     <SharpNRIRid Condition="'$(SharpNRIRid)' == ''">$(NETCoreSdkPortableRuntimeIdentifier)</SharpNRIRid>
   </PropertyGroup>
 
-  <ItemGroup>
+  <!--
+    "Always" copies only when size or timestamp differ (SkipUnchangedFiles), so switching
+    SharpNRIDevPayload back and forth replaces NRI.dll beside the consumer either way; PreserveNewest
+    kept a newer library from the other payload.
+  -->
+  <ItemGroup Condition="'$(SharpNRIDevPayload)' == '' or '$(SharpNRIDevPayload)' == 'base'">
     <Content Include="$(MSBuildThisFileDirectory)..\runtimes\$(SharpNRIRid)\native\**\*"
-             CopyToOutputDirectory="PreserveNewest"
+             CopyToOutputDirectory="Always"
              Link="%(RecursiveDir)%(Filename)%(Extension)"
              Pack="true"
              PackagePath="runtimes\$(SharpNRIRid)\native\%(RecursiveDir)%(Filename)%(Extension)"
@@ -62,6 +67,34 @@
           PackagePath="runtimes\%(RecursiveDir)%(Filename)%(Extension)"
           Visible="false" />
   </ItemGroup>
+
+  <!--
+    Repository convenience only, never packed: -p:SharpNRIDevPayload=upscalers (or upscalers-dlss)
+    puts that variant's staged NRI library beside ProjectReference consumers instead of Base, plus
+    the vendor runtimes NRI's own build copied into its build tree (_build/<rid>-<variant>/bin/Release:
+    the FSR loaders and upscalers, libxess, nvngx_dlss / nvngx_dlssd). That is how the upscaler
+    tests run locally (tools/upscalers.ps1; AGENTS.md: Upscalers and vendor runtimes); CI never
+    sets it. Packing refuses it below.
+  -->
+  <PropertyGroup Condition="'$(SharpNRIDevPayload)' != '' and '$(SharpNRIDevPayload)' != 'base'">
+    <SharpNRIDevPayloadDir>$(MSBuildThisFileDirectory)..\runtimes-$(SharpNRIDevPayload)\$(SharpNRIRid)\native\</SharpNRIDevPayloadDir>
+    <SharpNRIDevVendorDir>$(MSBuildThisFileDirectory)..\_build\$(SharpNRIRid)-$(SharpNRIDevPayload)\bin\Release\</SharpNRIDevVendorDir>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(SharpNRIDevPayloadDir)' != ''">
+    <Content Include="$(SharpNRIDevPayloadDir)**\*"
+             CopyToOutputDirectory="Always"
+             Link="%(RecursiveDir)%(Filename)%(Extension)"
+             Pack="false"
+             Visible="false" />
+    <Content Include="$(SharpNRIDevVendorDir)amd_fidelityfx_*.dll;$(SharpNRIDevVendorDir)libxess*.dll;$(SharpNRIDevVendorDir)nvngx_*.dll"
+             CopyToOutputDirectory="Always"
+             Link="%(Filename)%(Extension)"
+             Pack="false"
+             Visible="false" />
+  </ItemGroup>
+  <Target Name="SharpNRIDevPayloadIsNotPacked" BeforeTargets="GenerateNuspec" Condition="'$(SharpNRIDevPayloadDir)' != ''">
+    <Error Code="SHARPNRI002" Text="SharpNRIDevPayload=$(SharpNRIDevPayload) is a local test payload and is never packed; pack without it." />
+  </Target>
 
   <!--
     Repository convenience only, never packed: when tools/build-native.ps1 has staged the Agility

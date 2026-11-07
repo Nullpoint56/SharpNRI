@@ -65,7 +65,7 @@ public sealed unsafe class NriQueue
     public NriCommandAllocator CreateCommandAllocator()
     {
         CommandAllocator* handle = null;
-        Device.Check(Device.Core.CreateCommandAllocator(_handle, &handle), "CreateCommandAllocator");
+        NriException.Check(Device.Core.CreateCommandAllocator(_handle, &handle), "CreateCommandAllocator");
         return new NriCommandAllocator(this, handle);
     }
 
@@ -104,7 +104,7 @@ public sealed unsafe class NriQueue
             swapChain = swapChain is null ? null : swapChain.Raw,
             presentId = presentId,
         };
-        Device.Check(Device.Core.QueueSubmit(_handle, &desc), "QueueSubmit");
+        NriException.Check(Device.Core.QueueSubmit(_handle, &desc), "QueueSubmit");
     }
 
     /// <summary>One command buffer, optionally signalling one fence.</summary>
@@ -124,11 +124,11 @@ public sealed unsafe class NriQueue
     /// <exception cref="ArgumentException">When <paramref name="data"/> is shorter than NRI will read.</exception>
     public void UploadHostMemoryToTexture(NriTexture texture, in TextureRegionDesc region, ReadOnlySpan<byte> data, uint rowPitch = 0, uint slicePitch = 0)
     {
-        CheckHostCopySpan(texture, region, data.Length, rowPitch, slicePitch);
+        CheckHostCopySpan(texture, region, data.Length, rowPitch, slicePitch, nameof(data));
         fixed (byte* p = data)
         {
             var desc = new UploadHostMemoryToTextureDesc { srcData = p, dstTexture = texture.Raw, dstRegion = region, srcRowPitch = rowPitch, srcSlicePitch = slicePitch };
-            Device.Check(Device.Core.UploadHostMemoryToTexture(_handle, &desc, 1), "UploadHostMemoryToTexture");
+            NriException.Check(Device.Core.UploadHostMemoryToTexture(_handle, &desc, 1), "UploadHostMemoryToTexture");
         }
     }
 
@@ -139,18 +139,18 @@ public sealed unsafe class NriQueue
     /// <exception cref="ArgumentException">When <paramref name="data"/> is shorter than NRI will write.</exception>
     public void ReadbackTextureToHostMemory(NriTexture texture, in TextureRegionDesc region, Span<byte> data, uint rowPitch = 0, uint slicePitch = 0)
     {
-        CheckHostCopySpan(texture, region, data.Length, rowPitch, slicePitch);
+        CheckHostCopySpan(texture, region, data.Length, rowPitch, slicePitch, nameof(data));
         fixed (byte* p = data)
         {
             var desc = new ReadbackTextureToHostMemoryDesc { srcTexture = texture.Raw, dstData = p, srcRegion = region, dstRowPitch = rowPitch, dstSlicePitch = slicePitch };
-            Device.Check(Device.Core.ReadbackTextureToHostMemory(_handle, &desc, 1), "ReadbackTextureToHostMemory");
+            NriException.Check(Device.Core.ReadbackTextureToHostMemory(_handle, &desc, 1), "ReadbackTextureToHostMemory");
         }
     }
 
     // NRI touches, per slice of the region, (rows - 1) row pitches plus one row of texel blocks of host
     // memory, whatever the span's length (CopyTextureData in DeviceVK.hpp / DeviceD3D12.hpp, or the
     // driver's host image copy). A pitch of 0 means tightly packed, as in NRI.
-    private static void CheckHostCopySpan(NriTexture texture, in TextureRegionDesc region, int length, uint rowPitch, uint slicePitch)
+    private static void CheckHostCopySpan(NriTexture texture, in TextureRegionDesc region, int length, uint rowPitch, uint slicePitch, string paramName)
     {
         ref readonly var desc = ref texture.Desc;
         ref readonly var props = ref Nri.GetFormatProps(desc.format);
@@ -165,7 +165,7 @@ public sealed unsafe class NriQueue
         var slices = slicePitch != 0 ? slicePitch : rows * rowNum;
         var needed = (depth - 1) * slices + (rowNum - 1) * rows + rowSize;
         if ((ulong)length < needed)
-            throw new ArgumentException($"{length} bytes for a {width}x{height}x{depth} {desc.format} region at row pitch {rows}, slice pitch {slices}; NRI touches {needed}", "data");
+            throw new ArgumentException($"{length} bytes for a {width}x{height}x{depth} {desc.format} region at row pitch {rows}, slice pitch {slices}; NRI touches {needed}", paramName);
     }
 
     /// <summary>
@@ -223,7 +223,7 @@ public sealed unsafe class NriQueue
                 nativeBuffers[i] = new BufferUploadDesc { data = data, buffer = b.Buffer.Raw, after = b.After };
             }
 
-            Device.Check(Device.Helper.UploadData(_handle, nativeTextures, (uint)textures.Length, nativeBuffers, (uint)buffers.Length), "UploadData");
+            NriException.Check(Device.Helper.UploadData(_handle, nativeTextures, (uint)textures.Length, nativeBuffers, (uint)buffers.Length), "UploadData");
         }
         finally
         {
@@ -233,7 +233,7 @@ public sealed unsafe class NriQueue
     }
 
     /// <summary>Blocks until this queue is idle.</summary>
-    public void WaitIdle() => Device.Check(Device.Core.QueueWaitIdle(_handle), "QueueWaitIdle");
+    public void WaitIdle() => NriException.Check(Device.Core.QueueWaitIdle(_handle), "QueueWaitIdle");
 
     /// <summary>GPU and CPU timestamps taken together, for correlating query results with host time.</summary>
     public (ulong Gpu, ulong Cpu) GetCalibratedTimestamps()
@@ -245,7 +245,7 @@ public sealed unsafe class NriQueue
 
     public void BeginAnnotation(string name, uint bgra = NriApi.BGRA_UNUSED)
     {
-        using var utf8 = new Interop.Utf8.Scoped(name);
+        using var utf8 = new Interop.Utf8.Scoped(name, stackalloc byte[Interop.Utf8.StackBytes]);
         Device.Core.QueueBeginAnnotation(_handle, utf8, bgra);
     }
 
@@ -253,7 +253,7 @@ public sealed unsafe class NriQueue
 
     public void Annotation(string name, uint bgra = NriApi.BGRA_UNUSED)
     {
-        using var utf8 = new Interop.Utf8.Scoped(name);
+        using var utf8 = new Interop.Utf8.Scoped(name, stackalloc byte[Interop.Utf8.StackBytes]);
         Device.Core.QueueAnnotation(_handle, utf8, bgra);
     }
 

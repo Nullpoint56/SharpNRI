@@ -312,7 +312,7 @@ public sealed unsafe class NriUpscalerExtension
         }
 
         Upscaler* handle = null;
-        Device.Check(_table.CreateUpscaler(Device.Raw, &desc, &handle), "CreateUpscaler");
+        NriException.Check(_table.CreateUpscaler(Device.Raw, &desc, &handle), "CreateUpscaler");
         return new NriUpscaler(this, handle, upscalerDesc.Type);
     }
 
