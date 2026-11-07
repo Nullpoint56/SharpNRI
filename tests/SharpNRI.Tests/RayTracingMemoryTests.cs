@@ -293,7 +293,7 @@ public sealed class RayTracingMemoryTests
     private static void TraceThrough(RayScene scene, MicromapSet set, Backend backend)
     {
         var rt = scene.RayTracing;
-        NriBottomLevelTrianglesMicromap Link(NriMicromap micromap, NriBuffer indexBuffer, ulong offset) => new(micromap, indexBuffer, offset, 0, IndexType.UINT32);
+        static NriBottomLevelTrianglesMicromap Link(NriMicromap micromap, NriBuffer indexBuffer, ulong offset) => new(micromap, indexBuffer, offset, 0, IndexType.UINT32);
         var plain = scene.Own(rt.CreateCommittedAccelerationStructure(MemoryLocation.DEVICE, RayScene.BlasDesc()));
         var linked = new List<(string Name, NriAccelerationStructure Blas, NriBottomLevelGeometry Geometry, bool Opaque)>();
         foreach (var (name, micromap) in set.All)
@@ -369,7 +369,7 @@ public sealed class RayTracingMemoryTests
 
             var boundScratch = scene.Scratch(bound.BuildScratchBufferSize);
             var placedScratch = scene.Scratch(Placed.BuildScratchBufferSize);
-            void Built(NriCommandBuffer cmd, params NriMicromap[] micromaps) =>
+            static void Built(NriCommandBuffer cmd, params NriMicromap[] micromaps) =>
                 cmd.Barrier([], [.. micromaps.Select(m => new NriBufferBarrier(m.Buffer, RayScene.MicromapWritten, RayScene.MicromapRead))], []);
 
             NriQueryPool? sizes = null;

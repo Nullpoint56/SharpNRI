@@ -77,12 +77,12 @@ public sealed class RayTracingAabbTests
         var map = scene.Read()[0];
         var expected = new uint[RayScene.Width * RayScene.Width];
         for (var y = 0; y < RayScene.Width; y++)
-        for (var x = 0; x < RayScene.Width; x++)
-        {
-            var (u, v) = RayScene.RayOrigin(x, y);
-            for (var b = 0; b < Boxes.Length; b++)
-                if (u >= Boxes[b].minX && u <= Boxes[b].maxX && v >= Boxes[b].minY && v <= Boxes[b].maxY) expected[y * RayScene.Width + x] = (uint)b + 1;
-        }
+            for (var x = 0; x < RayScene.Width; x++)
+            {
+                var (u, v) = RayScene.RayOrigin(x, y);
+                for (var b = 0; b < Boxes.Length; b++)
+                    if (u >= Boxes[b].minX && u <= Boxes[b].maxX && v >= Boxes[b].minY && v <= Boxes[b].maxY) expected[y * RayScene.Width + x] = (uint)b + 1;
+            }
         Record($"{backend}: {map.Count(v => v == 1)} rays hit box 0, {map.Count(v => v == 2)} box 1\n{RayScene.Map(map)}");
         Assert.True(map.SequenceEqual(expected), $"{backend}: the hit map is not the two boxes\n{RayScene.Map(map)}\nexpected\n{RayScene.Map(expected)}");
         Assert.Equal(32, map.Count(v => v == 1));

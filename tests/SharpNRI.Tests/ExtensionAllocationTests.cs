@@ -87,4 +87,129 @@ public sealed class ExtensionAllocationTests
         Assert.Equal(0, delta);
         Assert.DoesNotContain(messages, m => m.IsError);
     }
+
+    /// <summary>
+    /// The rest of every extension's per-frame surface, each overload once per frame: streamer
+    /// texture, host and typed constant data, encode with its feedback and bitstream writers, ray
+    /// tracing builds, copies, size queries and dispatches, low latency, and presentation waits.
+    /// </summary>
+    [Fact]
+    public void Every_other_extension_call_allocates_nothing_on_the_managed_heap()
+    {
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(GraphicsAPI.NONE, messages);
+        var queue = device.GetQueue(QueueType.GRAPHICS);
+        using var commandAllocator = queue.CreateCommandAllocator();
+        using var cmd = commandAllocator.CreateCommandBuffer();
+        var rt = device.RayTracing;
+        var video = device.Video;
+
+        using var buffer = device.CreateCommittedBuffer(MemoryLocation.DEVICE, new BufferDesc { size = 4096, usage = BufferUsageBits.ARGUMENT | BufferUsageBits.SCRATCH | BufferUsageBits.ACCELERATION_STRUCTURE_BUILD_INPUT });
+        using var texture = device.CreateCommittedTexture(MemoryLocation.DEVICE, new TextureDesc { type = TextureType.TEXTURE_2D, usage = TextureUsageBits.SHADER_RESOURCE, format = Format.RGBA8_UNORM, width = 4, height = 4 });
+        using var streamer = device.Streamer.CreateStreamer(new StreamerDesc { constantBufferMemoryLocation = MemoryLocation.HOST_UPLOAD, constantBufferSize = 4096, dynamicBufferMemoryLocation = MemoryLocation.HOST_UPLOAD, queuedFrameNum = 1, hostDataCapacity = 4096 });
+        using var swapChain = device.SwapChain.CreateSwapChain(new NriSwapChainDesc { Window = new NriWindow { Windows = new NriWindowsWindow(0x1234) }, Queue = queue, Width = 8, Height = 8, TextureNum = 2 });
+        using var session = video.CreateVideoSession(new VideoSessionDesc { type = VideoSessionType.ENCODE, codec = VideoCodec.H264, format = Format.NV12_UNORM, width = 64, height = 64 });
+        using var parameters = video.CreateVideoSessionParameters(new NriVideoSessionParametersDesc { Session = session });
+        using var source = video.CreateVideoPicture(new NriVideoPictureDesc { Texture = texture, Usage = VideoPictureUsage.ENCODE_INPUT });
+        using var layout = device.CreatePipelineLayout(new NriPipelineLayoutDesc());
+        using var blas = rt.CreateCommittedAccelerationStructure(MemoryLocation.DEVICE, new NriAccelerationStructureDesc
+        {
+            Type = AccelerationStructureType.BOTTOM_LEVEL,
+            Geometries = [NriBottomLevelGeometry.FromTriangles(new NriBottomLevelTriangles(NriBuffer.HasBuffer, 0, 3, 12, Format.RGB32_SFLOAT))],
+        });
+        using var tlas = rt.CreateCommittedAccelerationStructure(MemoryLocation.DEVICE, new NriAccelerationStructureDesc { Type = AccelerationStructureType.TOP_LEVEL, InstanceNum = 1 });
+        using var micromap = rt.CreateCommittedMicromap(MemoryLocation.DEVICE, new NriMicromapDesc { Usages = [new MicromapUsageDesc { triangleNum = 1, format = MicromapFormat.OPACITY_2_STATE }] });
+        using var sizes = device.CreateQueryPool(QueryType.ACCELERATION_STRUCTURE_SIZE, 2);
+        using var micromapSizes = device.CreateQueryPool(QueryType.MICROMAP_COMPACTED_SIZE, 1);
+        using var pipeline = rt.CreateRayTracingPipeline(new NriRayTracingPipelineDesc
+        {
+            PipelineLayout = layout,
+            Shaders = [new NriShaderDesc(StageBits.RAYGEN_SHADER, new byte[4], "rayGen")], // NONE accepts any bytecode
+            ShaderGroups = [new ShaderGroupDesc()],
+        });
+
+        // Everything passed by span or memory is built once, here.
+        var texels = new byte[64];
+        var host = new byte[16];
+        var identifiers = new byte[64];
+        var annexB = new byte[256];
+        var parameterSets = new NriVideoAnnexBParameterSetsDesc { Codec = VideoCodec.H264, H264Sps = VideoExtensionTests.Sps(), H264Pps = new VideoH264PictureParameterSetDesc() };
+        var encode = new NriVideoEncodeDesc
+        {
+            Session = session, Parameters = parameters, SrcPicture = source,
+            DstBitstream = new NriVideoBitstreamRange { Buffer = buffer, Size = 1024 },
+            PictureDesc = new VideoEncodePictureDesc { frameType = VideoFrameType.IDR },
+            H264PictureDesc = new NriVideoH264EncodePictureDesc(),
+        };
+        var av1Sequence = VideoExtensionTests.Av1Sequence();
+        var infoDesc = new NriVideoAV1EncodeDecodeInfoDesc();
+        var triangles = new NriBottomLevelTriangles(buffer, 0, 3, 12, Format.RGB32_SFLOAT);
+        NriBottomLevelGeometry[] geometries = [NriBottomLevelGeometry.FromTriangles(triangles)];
+        NriBuildBottomLevelAccelerationStructure[] blasBuilds = [new(blas, geometries, buffer, 1024)];
+        NriBuildTopLevelAccelerationStructure[] tlasBuilds = [new(tlas, 1, buffer, 0, buffer, 2048)];
+        NriBuildMicromap[] micromapBuilds = [new(micromap, buffer, 0, buffer, 256, buffer, 3072)];
+        NriAccelerationStructure[] structures = [blas, tlas];
+        NriMicromap[] micromaps = [micromap];
+        var region = new NriStridedBufferRegion(buffer, 0, 64, 64);
+        var rays = new NriDispatchRays(region, region, region, default, 4, 4);
+        ulong sink = 0;
+
+        void Frame()
+        {
+            cmd.Begin();
+            device.MeshShader.DrawMeshTasks(cmd, new DrawMeshTasksDesc { x = 1, y = 1, z = 1 });
+
+            var batch = device.Streamer.BeginStreamerCopyBatch(streamer);
+            device.Streamer.StreamTextureData(streamer, new NriStreamTextureDataDesc { Data = texels, DataRowPitch = 16, DataSlicePitch = 64, CopyBatch = batch, DstTexture = texture, DstRegion = new TextureRegionDesc { width = 4, height = 1, depth = 1 } });
+            sink += device.Streamer.StreamConstantData(streamer, in sink);
+            sink += (ulong)device.Streamer.StreamHostData(streamer, host).Length;
+            sink += device.Streamer.GetStreamerConstantBuffer(streamer)!.DeviceAddress;
+            device.Streamer.CopyStreamedData(cmd, streamer, batch);
+
+            var state = video.GetVideoPictureState(source, VideoPictureRole.ENCODE_INPUT);
+            video.EncodeVideo(cmd, encode);
+            video.ResolveVideoEncodeFeedback(cmd, session, buffer, 0);
+            var feedback = video.GetVideoEncodeFeedback(session, buffer, 0);
+            var info = new VideoAV1EncodeDecodeInfo();
+            video.GetVideoAV1EncodeDecodeInfo(session, buffer, 0, infoDesc, ref info);
+            video.ResetVideoSession(session);
+            sink += video.WriteVideoAnnexBParameterSets(parameterSets, annexB) + video.WriteVideoAnnexBEndOfStream(VideoCodec.H264, annexB)
+                + video.WriteVideoAV1ObuHeaders(av1Sequence, annexB) + feedback.encodedBitstreamWrittenBytes + (ulong)state.required.layout;
+
+            rt.BuildBottomLevelAccelerationStructures(cmd, blasBuilds);
+            rt.BuildBottomLevelAccelerationStructure(cmd, blasBuilds[0]);
+            rt.BuildTopLevelAccelerationStructures(cmd, tlasBuilds);
+            rt.BuildTopLevelAccelerationStructure(cmd, tlasBuilds[0]);
+            rt.BuildMicromaps(cmd, micromapBuilds);
+            rt.WriteAccelerationStructureSizes(cmd, structures, sizes, 0);
+            rt.WriteMicromapSizes(cmd, micromaps, micromapSizes, 0);
+            rt.CopyAccelerationStructure(cmd, blas, blas, CopyMode.CLONE);
+            rt.CopyMicromap(cmd, micromap, micromap, CopyMode.CLONE);
+            rt.WriteShaderGroupIdentifiers(pipeline, 0, 1, 32, identifiers);
+            rt.DispatchRays(cmd, rays);
+            device.RayTracing.DispatchRaysIndirect(cmd, buffer, 0);
+            sink += (ulong)NriBottomLevelGeometry.FromAabbs(new NriBottomLevelAabbs(buffer, 0, 1, 32)).Type + (ulong)NriBottomLevelGeometry.FromTriangles(triangles).Type;
+            sink += blas.GpuHandle + blas.BuildScratchBufferSize + blas.UpdateScratchBufferSize + blas.GetNativeObject() + blas.Buffer.DeviceAddress
+                + micromap.BuildScratchBufferSize + micromap.GetNativeObject() + micromap.Buffer.DeviceAddress;
+            cmd.End();
+
+            device.LowLatency.SetLatencySleepMode(swapChain, new LatencySleepMode { minIntervalUs = 0 });
+            device.LowLatency.SetLatencySleepMode(swapChain, 0, true, false);
+            device.LowLatency.LatencySleep(swapChain, 1);
+            sink += device.LowLatency.GetLatencyReport(swapChain).inputSampleTimeUs;
+            sink += (ulong)device.SwapChain.GetSwapChainTextures(swapChain).Count + (ulong)swapChain.Textures.Count;
+            device.SwapChain.WaitForPresent(swapChain, 1);
+            device.Streamer.EndStreamerFrame(streamer);
+        }
+
+        Frame(); // warm-up: JIT, static constructors, the scratch arena's first chunk, the cached buffer wrappers
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < Iterations; i++) Frame();
+        var delta = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        GpuWork.Record($"NONE: {Iterations} frames of the other extension calls: {delta} managed bytes (sink {sink})");
+        Assert.Equal(0, delta);
+        Assert.DoesNotContain(messages, m => m.IsError);
+    }
 }

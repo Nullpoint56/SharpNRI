@@ -4,6 +4,7 @@
 // returns it from nriGetGraphicsAPIString and FormatProps.name. Nothing in the generated layer
 // converts; this does.
 
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -43,13 +44,45 @@ internal static unsafe class Utf8
         return Encoding.UTF8.GetString(end < 0 ? bytes : bytes[..end]);
     }
 
+    /// <summary>Stack bytes a per-frame string (an annotation) is encoded into before native memory is used.</summary>
+    internal const int StackBytes = 256;
+
     /// <summary>Scoped allocation so call sites read as C# rather than try/finally ladders.</summary>
     internal readonly ref struct Scoped
     {
         private readonly sbyte* _p;
-        internal Scoped(string? value) => _p = Alloc(value);
+        private readonly bool _owned;
+
+        internal Scoped(string? value)
+        {
+            _p = Alloc(value);
+            _owned = true;
+        }
+
+        /// <summary>
+        /// Encodes into <paramref name="stack"/>, which must be stack memory (a <c>stackalloc</c>),
+        /// when the text and its NUL fit, and into native memory otherwise, so a per-frame string
+        /// allocates nothing.
+        /// </summary>
+        internal Scoped(string? value, Span<byte> stack)
+        {
+            if (value is null || (Encoding.UTF8.GetMaxByteCount(value.Length) >= stack.Length && Encoding.UTF8.GetByteCount(value) >= stack.Length))
+            {
+                _p = Alloc(value);
+                _owned = true;
+                return;
+            }
+            var count = Encoding.UTF8.GetBytes(value, stack);
+            stack[count] = 0;
+            _p = (sbyte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(stack));
+        }
+
         public static implicit operator sbyte*(Scoped s) => s._p;
-        public void Dispose() => Free(_p);
+
+        public void Dispose()
+        {
+            if (_owned) Free(_p);
+        }
     }
 
     /// <summary>

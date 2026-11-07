@@ -47,6 +47,8 @@ public sealed class NriPipelineLayoutDesc
 /// <param name="Bytecode">SPIR-V on Vulkan, DXIL on D3D12; see <c>DeviceDesc.shaderFeatures</c> for what the device accepts.</param>
 /// <param name="EntryPointName">Optional; NRI defaults to <c>main</c>.</param>
 /// <param name="ThreadGroupSizeX">Metal only; ignored on Vulkan and D3D12.</param>
+/// <param name="ThreadGroupSizeY">Metal only; ignored on Vulkan and D3D12.</param>
+/// <param name="ThreadGroupSizeZ">Metal only; ignored on Vulkan and D3D12.</param>
 public sealed record NriShaderDesc(
     StageBits Stage,
     byte[] Bytecode,

@@ -458,34 +458,38 @@ fence.Wait(1);
 
 ## Zero allocation
 
-The contract, measured on NONE (which does nothing per call, so any allocation is the binding's)
-after one warm-up frame, over 300 frames: 0 managed bytes for both lists below
-(`AllocationTests`, `ExtensionAllocationTests`); for the core frame also 0 host allocations,
-reallocations and frees through `NriCountingAllocator`.
+The contract: every call of the binding allocates nothing per frame, managed or through the host
+allocator, except creation and destruction and the setup calls named below. Measured on NONE (which
+does nothing per call, so any allocation is the binding's) after one warm-up frame, over 300
+frames: 0 managed bytes (`AllocationTests`, `ExtensionAllocationTests`), and for the core frames 0
+host allocations, reallocations and frees through `NriCountingAllocator`; `Map` / `Unmap` on each
+GPU backend (NONE maps nothing). The measurement is transitive: whatever a call reaches inside the
+binding is counted.
 
-- Core frame: `NriCommandAllocator.Reset`, `cmd.Begin` / `End`, `NriDescriptorPool.Reset`,
-  `AllocateDescriptorSets(layout, setIndex, span)`, `AllocateDescriptorSet`, `set.Update` /
-  `UpdateRange` / `CopyRange`, `SetDescriptorPool`, `SetPipelineLayout`, `SetPipeline`, `SetDescriptorSet`, `SetRootConstants` (span and struct overloads),
-  `Barrier` (global, buffer, texture), `SetViewports`, `SetScissors`, `BeginRendering` /
-  `EndRendering`, `Draw`, `Dispatch`, `CopyBuffer`, `queue.Submit` (spans of command buffers,
-  waits and signals, and the one-buffer `Submit(cmd, fence, value)`), `fence.Wait`, `fence.Value`, `SwapChain.AcquireNextTexture`,
-  `SwapChain.QueuePresent` (the `OutOfDate` path allocates nothing either).
-- Extension frame: `MeshShader.DrawMeshTasks` / `DrawMeshTasksIndirect`,
-  `DescriptorHeap.WriteResourceDescriptors` / `WriteSamplerDescriptors` / `SetDescriptorHeap`,
-  `Streamer.BeginStreamerCopyBatch` / `StreamBufferData` / `StreamConstantData` /
-  `CopyStreamedData` / `EndStreamerFrame`, `Upscaler.DispatchUpscale`, `Imgui.CopyImguiData` /
-  `DrawImgui`, `Video.DecodeVideo` (H.264 picture desc), `queue.Submit` with a swap chain,
-  `LowLatency.SetLatencyMarker`.
-- Not in the measured frame: `buffer.Map` / `Unmap` (NONE maps nothing; `Map` returns a span over
-  NRI's pointer and allocates nothing itself).
-- Allocate by design: object creation (`Create*`, `AllocateMemory`, `AllocateAndBindMemory`), the
-  desc forms with arrays (`NriPipelineLayoutDesc`, `NriGraphicsPipelineDesc`, ...),
-  `queue.UploadData`, the array-returning `AllocateDescriptorSets(layout, setIndex, count)`.
+- Covered, default-deny: `AllocationCoverageTests` holds every public method and computed property
+  of every public type to those frames. Every command-buffer command and overload, submission,
+  queue, fence, query-pool, descriptor-pool and descriptor-set call, the device's per-frame reads
+  (`GetQueue`, `QueryVideoMemoryInfo`, `GetFormatSupport`, the extension properties), the static
+  `Nri` helpers (format conversions, `GetFormatProps`, thread annotations), and every extension's
+  per-frame calls (streamer, upscaler, ImGui, video decode and encode with their feedback and
+  bitstream writers, ray tracing builds, copies, size queries and dispatches, low latency,
+  acquire, present and `WaitForPresent`) are measured; a call added to the binding fails that test
+  until it is.
+- Annotations (`cmd.BeginAnnotation`, `queue.Annotation`, `Nri.Annotate`, ...) encode their name on
+  the stack up to 255 UTF-8 bytes; a longer name goes through native memory, still no managed
+  allocation.
+- Allocate by design, named in `AllocationCoverageTests` with the reason: object creation
+  (`Create*`, `AllocateMemory`, `AllocateAndBindMemory`) and binding memory, memory requirements,
+  capability queries, exports (`GetSharedHandle`), debug names, adapter enumeration, the desc forms
+  with arrays (`NriPipelineLayoutDesc`, `NriGraphicsPipelineDesc`, ...), `queue.UploadData`,
+  `Nri.GetFormatName` and `Nri.GetGraphicsAPIString` (new strings; `GetFormatProps` is the per-frame
+  form), `NriPipelineCache.GetData`, and the array-returning
+  `AllocateDescriptorSets(layout, setIndex, count)`.
 - `NriDescriptorSet` is a struct so that resetting the pool and reallocating sets every frame
   allocates nothing; the span overload is the per-frame path.
 - Build the spans a frame passes (barriers, attachments, submits, writes) once, outside the frame.
+- A message the callback reports carries its text as a new string; a clean frame reports none.
 - Exceptions allocate only when thrown.
-
 ## Queries
 
 ```csharp

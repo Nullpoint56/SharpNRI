@@ -314,7 +314,7 @@ public sealed class DescriptorTests
         Assert.True(copy == sets[1]);
         Assert.Equal(sets[1].GetHashCode(), copy.GetHashCode());
         Assert.True(sets[0] != sets[1]);
-        Assert.True(default(NriDescriptorSet) != single);
+        Assert.True(default != single);
 
         foreach (var set in all) contents.WriteInto(set);
         Run(device, cmd =>

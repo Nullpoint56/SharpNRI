@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using static SharpNRI.Native.Format;
 using static SharpNRI.Native.FormatSupportBits;
-using static SharpNRI.Native.GraphicsAPI;
 
 namespace SharpNRI.Native;
 
@@ -125,7 +124,7 @@ public static unsafe partial class NriApi
     }
 
     [NativeTypeName("const Buffer *")]
-    public static Buffer* HAS_BUFFER = (Buffer*)(1);
+    public static readonly Buffer* HAS_BUFFER = (Buffer*)(1);
 
     [NativeTypeName("const uint64_t")]
     public const ulong SWAPCHAIN_SEMAPHORE = unchecked((ulong)(-1));

@@ -30,7 +30,7 @@ public sealed unsafe class NriFence : NriObject
     public NriSharedHandle GetSharedHandle()
     {
         SharedHandle h;
-        Device.Check(Device.Core.GetFenceSharedHandle(Raw, &h), "GetFenceSharedHandle");
+        NriException.Check(Device.Core.GetFenceSharedHandle(Raw, &h), "GetFenceSharedHandle");
         return NriSharedHandle.From(Device, in h);
     }
 

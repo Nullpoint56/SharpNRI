@@ -17,10 +17,10 @@ public sealed class BufferTests
         {
             var data = new TheoryData<Backend, MemoryLocation>();
             foreach (var api in new[] { GraphicsAPI.VK, GraphicsAPI.D3D12 })
-            foreach (var location in new[] { MemoryLocation.DEVICE, MemoryLocation.DEVICE_UPLOAD, MemoryLocation.HOST_UPLOAD, MemoryLocation.HOST_READBACK })
-            {
-                data.Add(new Backend(api), location);
-            }
+                foreach (var location in new[] { MemoryLocation.DEVICE, MemoryLocation.DEVICE_UPLOAD, MemoryLocation.HOST_UPLOAD, MemoryLocation.HOST_READBACK })
+                {
+                    data.Add(new Backend(api), location);
+                }
             return data;
         }
     }
@@ -204,7 +204,7 @@ public sealed class BufferTests
         using var upload = device.CreateCommittedBuffer(MemoryLocation.HOST_UPLOAD, new BufferDesc { size = 512 });
 
         var whole = upload.Map();
-        whole.Fill(0);
+        whole.Clear();
         upload.Unmap();
 
         var part = upload.Map(128, 64);

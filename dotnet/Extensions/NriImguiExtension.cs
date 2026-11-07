@@ -22,7 +22,7 @@ using SharpNRI.Native;
 namespace SharpNRI;
 
 /// <summary><c>CopyImguiDataDesc</c> with its pointer arrays as spans of native ImGui pointers.</summary>
-public ref struct NriCopyImguiDataDesc
+public readonly ref struct NriCopyImguiDataDesc
 {
     /// <summary><c>ImDrawList*</c> each: <c>ImDrawData::CmdLists.Data</c>, <c>CmdLists.Size</c> of them.</summary>
     public ReadOnlySpan<nint> DrawLists { get; init; }
@@ -83,7 +83,7 @@ public sealed unsafe class NriImguiExtension
     public NriImgui CreateImgui(in ImguiDesc imguiDesc)
     {
         Imgui* handle = null;
-        fixed (ImguiDesc* p = &imguiDesc) Device.Check(_table.CreateImgui(Device.Raw, p, &handle), "CreateImgui");
+        fixed (ImguiDesc* p = &imguiDesc) NriException.Check(_table.CreateImgui(Device.Raw, p, &handle), "CreateImgui");
         return new NriImgui(this, handle);
     }
 

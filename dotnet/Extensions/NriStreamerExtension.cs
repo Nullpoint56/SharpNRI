@@ -35,7 +35,7 @@ public readonly record struct NriBufferOffset(NriBuffer? Buffer, ulong Offset);
 /// <c>StreamBufferDataDesc</c> with its data chunks as memory and its destination as a wrapper.
 /// The chunks are concatenated in dynamic buffer memory; NRI copies them during the call.
 /// </summary>
-public ref struct NriStreamBufferDataDesc
+public readonly ref struct NriStreamBufferDataDesc
 {
     /// <summary>Data to upload, concatenated in order.</summary>
     public ReadOnlySpan<ReadOnlyMemory<byte>> DataChunks { get; init; }
@@ -53,7 +53,7 @@ public ref struct NriStreamBufferDataDesc
 }
 
 /// <summary><c>StreamTextureDataDesc</c> with its data as bytes and its destination as a wrapper.</summary>
-public ref struct NriStreamTextureDataDesc
+public readonly ref struct NriStreamTextureDataDesc
 {
     /// <summary>The texels, laid out with <see cref="DataRowPitch"/> and <see cref="DataSlicePitch"/>.</summary>
     public ReadOnlySpan<byte> Data { get; init; }
@@ -168,7 +168,7 @@ public sealed unsafe class NriStreamerExtension
     public NriStreamer CreateStreamer(in StreamerDesc streamerDesc)
     {
         Streamer* handle = null;
-        fixed (StreamerDesc* p = &streamerDesc) Device.Check(_table.CreateStreamer(Device.Raw, p, &handle), "CreateStreamer");
+        fixed (StreamerDesc* p = &streamerDesc) NriException.Check(_table.CreateStreamer(Device.Raw, p, &handle), "CreateStreamer");
         return new NriStreamer(this, handle, streamerDesc);
     }
 

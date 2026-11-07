@@ -9,7 +9,6 @@ using SharpNRI.Native;
 using Vortice.Vulkan;
 using Xunit;
 using static SharpNRI.Tests.GpuWork;
-using static Vortice.Vulkan.Vulkan;
 using V12 = Vortice.Direct3D12;
 using VDXGI = Vortice.DXGI;
 

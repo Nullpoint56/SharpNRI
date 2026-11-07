@@ -214,14 +214,14 @@ public sealed unsafe partial class NriDevice : NriObject
         if (index < slots.Length && slots[index] is { } existing) return existing;
 
         Queue* queue = null;
-        Check(Core.GetQueue(Raw, type, index, &queue), "GetQueue");
+        NriException.Check(Core.GetQueue(Raw, type, index, &queue), "GetQueue");
         var wrapped = new NriQueue(this, queue, type, index);
         if (index < slots.Length) slots[index] = wrapped;
         return wrapped;
     }
 
     /// <summary>Blocks until every queue is idle.</summary>
-    public void WaitIdle() => Check(Core.DeviceWaitIdle(Raw), "DeviceWaitIdle");
+    public void WaitIdle() => NriException.Check(Core.DeviceWaitIdle(Raw), "DeviceWaitIdle");
 
     public FormatSupportBits GetFormatSupport(Format format) => Core.GetFormatSupport(Raw, format);
 
@@ -233,7 +233,7 @@ public sealed unsafe partial class NriDevice : NriObject
     public ReadOnlySpan<byte> ReportDeviceLostInfo()
     {
         DeviceLostDump dump = default;
-        Check(NriApi.nriReportDeviceLostInfo(Raw, &dump), "nriReportDeviceLostInfo");
+        NriException.Check(NriApi.nriReportDeviceLostInfo(Raw, &dump), "nriReportDeviceLostInfo");
         return dump.data is null ? default : new ReadOnlySpan<byte>(dump.data, checked((int)dump.size));
     }
 
@@ -246,12 +246,6 @@ public sealed unsafe partial class NriDevice : NriObject
 
     internal void ChildCreated() => Interlocked.Increment(ref _children);
     internal void ChildDestroyed() => Interlocked.Decrement(ref _children);
-
-    /// <summary>
-    /// Throws for any result other than success, with the error text reported on the calling thread
-    /// since the last check there (the failing call's own; see <see cref="NriException"/>).
-    /// </summary>
-    internal void Check(Result result, string call) => NriException.Check(result, call);
 
     /// <summary>
     /// Refuses while any object created on this device is still alive: destroying the device
