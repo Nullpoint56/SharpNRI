@@ -1239,6 +1239,15 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   without `nvngx_dlssd.dll` beside the application (NGX loads its feature DLLs from outside it too);
   XeSS an `SEHException` from the delay-load stub (0xC06D007E). FSR loads `amd_fidelityfx_loader_dx12.dll` / `amd_fidelityfx_loader_vk.dll` by name
   (the VK loader then loads `amd_fidelityfx_upscaler_vk.dll`).
+- **The vendor runtimes a payload was built against** (`upscaler-runtimes.json`): `build-native.ps1`
+  writes it beside each Upscalers payload (`runtimes-upscalers/<rid>/`, outside `native/` so it is not
+  copied next to applications): each SDK at NRI's pin (FidelityFX and XeSS archive tags and `NGX_VERSION`
+  in `nri/CMakeLists.txt`, NIS from `nri/Shaders/NIS.hlsl`) and each runtime NRI's build fetched, by file
+  version and SHA-256. At v191: NIS 1.0.3 (compiled in), FidelityFX SDK 2.4.0 (loaders 2.3.0.4555 and
+  1.0.2.4555, upscalers 4.1.2.4555), XeSS SDK 3.0.2 (`libxess.dll` 2.0.2.68), NGX 310.9.16 (not built).
+  The package carries it; `release.yml` lists it under the notes' NRI line
+  (`tools/ci/upscaler-runtimes.ps1`); `NativePayloadTests` holds it to the pins and to
+  `GetRuntimeFiles`.
 - **`GetRuntimeFiles` must name what the pinned NRI loads**; check it whenever the pin moves. v190
   loaded `amd_fidelityfx_vk.dll` for FSR on Vulkan; naming that file on v191 made the guard refuse
   FSR with the right files installed (`UpscalerExtensionTests`).
