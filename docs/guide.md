@@ -33,9 +33,9 @@ headers do not say. NRI v191.
 | `SharpNRI.AgilitySDK` | build targets only: the Agility SDK runtime from Microsoft's package | D3D12 on the Agility SDK (below) |
 
 ```xml
-<PackageReference Include="SharpNRI" Version="1.0.0-beta.3" />
-<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.3" />                   <!-- instead of the Base library -->
-<PackageReference Include="SharpNRI.AgilitySDK" Version="1.0.0-beta.3" />             <!-- Windows, D3D12 -->
+<PackageReference Include="SharpNRI" Version="191.0.0-beta.4" />
+<PackageReference Include="SharpNRI.Native.Upscalers" Version="191.0.0-beta.4" />                   <!-- instead of the Base library -->
+<PackageReference Include="SharpNRI.AgilitySDK" Version="191.0.0-beta.4" />             <!-- Windows, D3D12 -->
 ```
 
 - On NuGet.org since 1.0.0-beta.2 (prereleases while in beta: `dotnet add package SharpNRI
@@ -115,7 +115,7 @@ and it copies the runtime into `AgilitySDK/`, the directory SharpNRI uses when `
 is null:
 
 ```xml
-<PackageReference Include="SharpNRI.AgilitySDK" Version="1.0.0-beta.3" />
+<PackageReference Include="SharpNRI.AgilitySDK" Version="191.0.0-beta.4" />
 ```
 
 - Another `Microsoft.Direct3D.D3D12` version (an explicit reference that overrides the dependency)

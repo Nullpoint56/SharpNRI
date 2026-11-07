@@ -39,7 +39,7 @@ dotnet add package SharpNRI --prerelease
 ```
 
 ```xml
-<PackageReference Include="SharpNRI" Version="1.0.0-beta.3" />
+<PackageReference Include="SharpNRI" Version="191.0.0-beta.4" />
 ```
 
 Each [release](https://github.com/Nullpoint56/SharpNRI/releases) also carries the same `.nupkg`
