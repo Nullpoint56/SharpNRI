@@ -1594,7 +1594,9 @@ minutes and a Windows minute about two. That shapes the runs:
 - **Branch runs are started by hand** (owner, 2026-11-06): `ci.yml` has no pull-request trigger. On
   a branch, Actions > ci > Run workflow (the branch selected). A pull request's checks leave out
   `workflow_dispatch` runs (PR #44, 2026-11-06: the run was green and linked to the pull request,
-  the required checks kept "Waiting for status to be reported"), so the `report` job posts commit statuses `gate`, `win-x64` and `linux-x64` on the tested
+  the required checks kept "Waiting for status to be reported"), so the gate's first step marks
+  `gate`, `win-x64` and `linux-x64` pending with a link to the run (the pull request shows at once
+  that a run started), and the `report` job posts them as commit statuses on the tested
   commit (skipped by the gate counts as passed, any other non-success or a failed gate as failed),
   which the required checks read: a pull request merges only after a green run of its latest
   commit. Pushes to master run by themselves. When master has moved, the branch must be

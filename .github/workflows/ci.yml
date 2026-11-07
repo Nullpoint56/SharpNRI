@@ -68,12 +68,27 @@ jobs:
       contents: read
       actions: read          # runs and caches of this repository
       pull-requests: read    # the pull request a merge commit belongs to
+      statuses: write        # a run started by hand marks the required checks pending (job report finishes them)
     outputs:
       key: ${{ steps.gate.outputs.key }}
       win: ${{ steps.gate.outputs.win }}
       linux: ${{ steps.gate.outputs.linux }}
       osx: ${{ steps.gate.outputs.osx }}
     steps:
+      # A pull request does not show a run started by hand; pending statuses linking to the run show
+      # on it at once that one started and where its progress is
+      - name: Mark the required checks pending
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          foreach ($name in 'gate', 'win-x64', 'linux-x64') {
+              gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" -f state=pending -f context=$name -f description="ci run in progress" -f target_url=$env:RUN_URL --silent
+              if ($LASTEXITCODE -ne 0) { throw "posting the pending $name status failed" }
+          }
+
       - uses: actions/checkout@v4
 
       - name: Decide
