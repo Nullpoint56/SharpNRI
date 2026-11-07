@@ -675,8 +675,11 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
 - XeSS: D3D12 only. FSR: D3D12 and Vulkan. NIS: everywhere the Upscalers build runs. DLSR and
   DLRR (a `-WithDlss` build): NVIDIA adapters with ray tracing, both backends.
 - Raw DLSR creation without `nvngx_dlss*.dll`: clean `FAILURE` on both backends.
-- A failed vendor dispatch (`ffxDispatch`, `xessD3D12Execute`, NGX's evaluation) is only an
-  `NRI_CHECK` inside NRI, gone in a release `NRI.dll`: nothing is reported. Check your output.
+- A failed vendor call reports an ERROR through your message handler (patch 0049): at creation it
+  names the missing FSR loader DLL or the NGX result, at dispatch the vendor call and its result
+  (`ffxDispatch`, `xessD3D12Execute`, NGX's evaluation). In NRI v191 itself creation returned a bare
+  `FAILURE` and a failed dispatch was compiled out of release builds. DLSS may create without its DLL
+  beside your executable: NGX also finds its feature DLLs elsewhere (measured for DLRR).
 - Measured on every type and backend (figures in [upscalers.md](upscalers.md)): a constant image
   stays constant in every mode, at the dynamic-resolution minimum too; HDR with an exposure texture
   and pre-exposure; a moving edge with motion vectors lands where it should; `RESET_HISTORY` drops
