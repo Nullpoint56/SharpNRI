@@ -1,5 +1,6 @@
 namespace SharpNRI.Native;
 
+/// <summary>"NriBit(ResolveOp)"</summary>
 [NativeTypeName("uint8_t")]
 [Flags]
 public enum ResolveOpBits : byte

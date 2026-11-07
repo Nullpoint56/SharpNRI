@@ -4,14 +4,15 @@
 // (Vulkan validation layers, D3D12 debug layer), with every message recorded. A test asserts on the
 // record: the validation layers are the party that decides whether what the code did was legal.
 //
-// Adapter choice: the software adapter (WARP, lavapipe) when SHARPNRI_TEST_SOFTWARE is set or
-// under GitHub Actions, otherwise the first adapter NRI lists. The NONE backend needs no adapter
+// Adapter choice: the software adapter (WARP, lavapipe) when SHARPNRI_TEST_SOFTWARE says so, or by
+// default under GitHub Actions, otherwise the first hardware adapter NRI lists for that API. Adapters
+// are enumerated per API, so probing Vulkan never runs NRI's D3D pass (which creates D3D12 devices). The NONE backend needs no adapter
 // and is always available; it validates nothing and allocates nothing (NRI never wraps it in its
 // validation layer), which makes it the right device for lifetime and allocation-counting tests
 // and the wrong one for anything that asks a question.
 //
 // Environment:
-//   SHARPNRI_TEST_SOFTWARE=1   prefer the software adapter
+//   SHARPNRI_TEST_SOFTWARE=1   prefer the software adapter; =0 prefer hardware, also under GitHub Actions
 //   SHARPNRI_TEST_BACKEND=VK   only this backend is available; the others report a reason
 //   SHARPNRI_TRACE=1           echo every message to stderr as it arrives, which is the only
 //                              record that survives a native crash
@@ -76,9 +77,20 @@ public sealed class NriTestDevice : IDisposable
 
     // ---------------------------------------------------------------- environment
 
+    /// <summary>
+    /// Whether the software adapter is preferred: <c>SHARPNRI_TEST_SOFTWARE</c> <c>1</c> / <c>true</c> or
+    /// <c>0</c> / <c>false</c> decides; unset, it is true under GitHub Actions (<c>GITHUB_ACTIONS=true</c>),
+    /// whose hosted runners have no GPU.
+    /// </summary>
     public static bool PreferSoftware =>
-        Environment.GetEnvironmentVariable("SHARPNRI_TEST_SOFTWARE") is "1" or "true"
-        || Environment.GetEnvironmentVariable("GITHUB_ACTIONS") is "true";
+        PreferSoftwareFrom(Environment.GetEnvironmentVariable("SHARPNRI_TEST_SOFTWARE"), Environment.GetEnvironmentVariable("GITHUB_ACTIONS"));
+
+    internal static bool PreferSoftwareFrom(string? software, string? githubActions) => software?.Trim().ToLowerInvariant() switch
+    {
+        "1" or "true" => true,
+        "0" or "false" => false,
+        _ => githubActions is "true",
+    };
 
     public static bool Trace => Environment.GetEnvironmentVariable("SHARPNRI_TRACE") is "1" or "true";
 
@@ -92,20 +104,27 @@ public sealed class NriTestDevice : IDisposable
 
     // ---------------------------------------------------------------- availability
 
-    private static readonly Lazy<IReadOnlyList<NriAdapter>> Adapters = new(() =>
-    {
-        try { return NriAdapter.Enumerate(); }
-        catch (Exception) { return []; }
-    });
+    // Per API: nriEnumerateAdapters probes only the backends asked for (a Vulkan-only enumeration
+    // creates no DXGI factory and no D3D12 device; AGENTS.md: Device creation and callbacks).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<GraphicsAPI, Lazy<IReadOnlyList<NriAdapter>>> AdaptersByApi = new();
 
-    private static readonly Lazy<Dictionary<GraphicsAPI, string?>> Availability = new(Probe);
+    private static IReadOnlyList<NriAdapter> AdaptersFor(GraphicsAPI api) =>
+        AdaptersByApi.GetOrAdd(api, a => new Lazy<IReadOnlyList<NriAdapter>>(() =>
+        {
+            try { return NriAdapter.Enumerate(a); }
+            catch (Exception) { return []; }
+        })).Value;
 
-    /// <summary>Why <paramref name="api"/> cannot be used on this machine, or null if it can.</summary>
+    // Per API and on first use: asking about Vulkan creates no D3D12 device, and the reverse.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<GraphicsAPI, Lazy<string?>> AvailabilityByApi = new();
+
+    /// <summary>Why <paramref name="api"/> cannot be used on this machine, or null if it can. Probes only <paramref name="api"/>.</summary>
     public static string? Unavailable(GraphicsAPI api)
     {
         if (OnlyBackend is { } only && !string.Equals(only, api.ToString(), StringComparison.OrdinalIgnoreCase))
             return $"SHARPNRI_TEST_BACKEND={only} excludes {api}";
-        return Availability.Value.TryGetValue(api, out var reason) ? reason : $"{api} is not a backend this fixture knows";
+        if (!Backends.Contains(api)) return $"{api} is not a backend this fixture knows";
+        return AvailabilityByApi.GetOrAdd(api, a => new Lazy<string?>(() => Probe(a))).Value;
     }
 
     public static bool IsAvailable(GraphicsAPI api) => Unavailable(api) is null;
@@ -114,7 +133,7 @@ public sealed class NriTestDevice : IDisposable
     public static NriAdapter? AdapterFor(GraphicsAPI api)
     {
         if (api == GraphicsAPI.NONE) return null;
-        var candidates = Adapters.Value.Where(a => a.Supports(api)).ToList();
+        var candidates = AdaptersFor(api).Where(a => a.Supports(api)).ToList();
         if (candidates.Count == 0) return null;
         if (PreferSoftware && candidates.FirstOrDefault(a => a.IsSoftware) is { } software) return software;
         return candidates.FirstOrDefault(a => !a.IsSoftware) ?? candidates[0];
@@ -159,32 +178,16 @@ public sealed class NriTestDevice : IDisposable
         return fixture;
     }
 
-    private static Dictionary<GraphicsAPI, string?> Probe()
+    private static string? Probe(GraphicsAPI api)
     {
-        var result = new Dictionary<GraphicsAPI, string?> { [GraphicsAPI.NONE] = ProbeOne(GraphicsAPI.NONE) };
-
-        if (Adapters.Value.Count == 0)
-        {
-            result[GraphicsAPI.VK] = "nriEnumerateAdapters found no adapters (no Vulkan loader or no D3D12 runtime?)";
-            result[GraphicsAPI.D3D12] = result[GraphicsAPI.VK];
-            return result;
-        }
-
-        foreach (var api in GpuBackends)
-        {
-            if (api == GraphicsAPI.D3D12 && !OperatingSystem.IsWindows())
-            {
-                result[api] = "D3D12 is Windows only";
-                continue;
-            }
-            if (AdapterFor(api) is null)
-            {
-                result[api] = $"no adapter supports {api}";
-                continue;
-            }
-            result[api] = ProbeOne(api);
-        }
-        return result;
+        if (api == GraphicsAPI.NONE) return ProbeOne(api);
+        if (api == GraphicsAPI.D3D12 && !OperatingSystem.IsWindows()) return "D3D12 is Windows only";
+        if (AdaptersFor(api).Count == 0)
+            return api == GraphicsAPI.VK
+                ? "nriEnumerateAdapters(VK) found no adapter (no Vulkan loader or driver?)"
+                : "nriEnumerateAdapters(D3D12) found no adapter";
+        if (AdapterFor(api) is null) return $"no adapter supports {api}";
+        return ProbeOne(api);
     }
 
     private static string? ProbeOne(GraphicsAPI api)
@@ -192,13 +195,30 @@ public sealed class NriTestDevice : IDisposable
         try
         {
             using var probe = Create(api);
-            return null;
+            return probe.Api == GraphicsAPI.VK ? StaleValidationLayer(probe.Errors) : null;
         }
         catch (Exception e)
         {
             return $"creating a validated {api} device failed: {e.Message}";
         }
     }
+
+    /// <summary>
+    /// A Khronos validation layer older than the Vulkan headers NRI was built with reports the feature
+    /// structures NRI chains into <c>vkCreateDevice</c> as unknown, an ERROR on every device, so every
+    /// Vulkan test would fail on the environment, not on the code (Ubuntu 24.04's layer 1.3.275 under
+    /// NRI v191). The probe answers that as the reason instead.
+    /// </summary>
+    internal static string? StaleValidationLayer(IEnumerable<NriMessage> errors)
+    {
+        var unknown = errors.Where(m => m.IsError).Select(m => m.Text).FirstOrDefault(t => t.Contains("unknown VkStructureType", StringComparison.Ordinal));
+        if (unknown is null) return null;
+        return "the Vulkan validation layer is older than the Vulkan headers NRI was built with: it reports NRI's structures as unknown "
+             + $"(\"{Shorten(unknown)}\"). Install a current layer (the Vulkan SDK's; SharpNRI's repository fetches one with tools/ci/fetch-vulkan-layer.sh) "
+             + "or create devices with EnableGraphicsApiValidation = false";
+    }
+
+    private static string Shorten(string text) => text.Length <= 200 ? text : text[..200] + "...";
 }
 
 /// <summary>The validation layers reported at least one error during a test.</summary>

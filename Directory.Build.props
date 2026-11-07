@@ -63,7 +63,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)docs/nuget/README.md" Pack="true" PackagePath="\" Visible="false" />
+    <!-- docs/nuget/README.md as packed: its blob/master links pointed at the release tag (Directory.Build.targets) -->
+    <None Include="$(BaseIntermediateOutputPath)nuget-readme/README.md" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 
 </Project>

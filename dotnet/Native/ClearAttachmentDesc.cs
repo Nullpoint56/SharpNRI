@@ -1,5 +1,6 @@
 namespace SharpNRI.Native;
 
+/// <summary>Clear</summary>
 public partial struct ClearAttachmentDesc
 {
     [NativeTypeName("nri::ClearValue")]

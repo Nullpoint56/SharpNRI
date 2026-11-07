@@ -170,6 +170,9 @@ foreach ($m in [regex]::Matches($t, '(?m)^using static SharpNRI\.Native\.(\w+);\
 }
 Set-Content $api $t -NoNewline
 
+# 7. NRI's header comments as XML docs on the types and members they describe (tools/generate-native-docs.ps1).
+& (Join-Path $PSScriptRoot "generate-native-docs.ps1") -Headers $traverse -Output $Output
+
 # ---------------------------------------------------------------- line endings
 # ClangSharp writes the host platform's newline. The committed layer is LF so that the CI drift
 # check compares content rather than line endings, whichever runner regenerates it.

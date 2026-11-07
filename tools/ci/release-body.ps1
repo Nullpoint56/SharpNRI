@@ -1,11 +1,12 @@
 <#
 .SYNOPSIS
-    Assembles a GitHub release body: Bound libraries, the notes, Downloads.
+    Assembles a GitHub release body: Bound libraries, the notes, API changes, Downloads.
 
 .DESCRIPTION
     Bound libraries comes from the Upscalers payload's manifest (tools/ci/upscaler-runtimes.ps1), plus
     the Agility SDK when given; the middle from docs/releases/<tag>.md (Added, Fixed, Breaking changes,
-    Verified: compact lists, what happened, no why or how), and Downloads names the NuGet.org packages
+    Verified: compact lists, what happened, no why or how), API changes from -ApiChanges (tools/ci/api-changes.ps1:
+    the public surface against the previous release, mechanical), and Downloads names the NuGet.org packages
     of the release and the zip-only macOS library. release.yml runs it; run it locally to preview or
     to rewrite a published body (gh release edit <tag> --notes-file <out>).
 
@@ -21,6 +22,7 @@ param(
     [Parameter(Mandatory)] [string]$Out,
     [string]$DescsVersion,
     [string]$AgilitySdk,
+    [string]$ApiChanges,      # tools/ci/api-changes.ps1's output (since 1.0.0-beta.3)
     [switch]$NotOnNuGet,      # a release from before NuGet.org publishing (v1.0.0-beta.1)
     [switch]$NoNativeSymbols  # a release from before the symbols zips (v1.0.0-beta.1, v1.0.0-beta.2)
 )
@@ -42,6 +44,7 @@ $nuget = if ($NotOnNuGet) { "- NuGet packages: attached below only" }
 $downloads = @("", "## Downloads", $nuget, "- osx-arm64: native library as a zip below, not in the packages")
 if (-not $NoNativeSymbols) { $downloads += "- Symbols: NRI's PDB per win-x64 payload as a zip below (``SharpNRI-symbols-*``); managed PDBs in the packages" }
 $bound = @(& (Join-Path $PSScriptRoot "upscaler-runtimes.ps1") -Manifest $Manifest -AgilitySdk $AgilitySdk)
-$body = $bound + $notes + $downloads
+$api = if ($ApiChanges) { @("") + @((Get-Content $ApiChanges -Raw).TrimEnd() -split "`r?`n") } else { @() }
+$body = $bound + $notes + $api + $downloads
 $body | Set-Content $Out -Encoding utf8NoBOM
 Get-Content $Out

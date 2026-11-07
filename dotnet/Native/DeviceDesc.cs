@@ -2,8 +2,10 @@ using System.Runtime.CompilerServices;
 
 namespace SharpNRI.Native;
 
+/// <summary>Feature support coverage: https://vulkan.gpuinfo.org/ and https://d3d12infodb.boolka.dev/</summary>
 public partial struct DeviceDesc
 {
+    /// <summary>Common "queueNum" reflects available number of queues per "QueueType"</summary>
     [NativeTypeName("nri::AdapterDesc")]
     public AdapterDesc adapterDesc;
 
@@ -13,6 +15,7 @@ public partial struct DeviceDesc
     [NativeTypeName("uint16_t")]
     public ushort nriVersion;
 
+    /// <summary>see "NriShaderModel"</summary>
     [NativeTypeName("uint16_t")]
     public ushort shaderModel;
 

@@ -1,5 +1,6 @@
 namespace SharpNRI.Native;
 
+/// <summary>Threadsafe: yes</summary>
 public unsafe partial struct WrapperD3D12Interface
 {
     [NativeTypeName("Result (*)(Device &, const CommandBufferD3D12Desc &, CommandBuffer *&) __attribute__((stdcall))")]

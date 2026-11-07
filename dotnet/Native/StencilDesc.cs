@@ -1,7 +1,9 @@
 namespace SharpNRI.Native;
 
+/// <summary>https://docs.vulkan.org/refpages/latest/refpages/source/VkStencilOpState.html https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ns-d3d12-d3d12_depth_stencil_desc</summary>
 public partial struct StencilDesc
 {
+    /// <summary>"compareOp != NONE", expects "CmdSetStencilReference"</summary>
     [NativeTypeName("nri::CompareOp")]
     public CompareOp compareOp;
 

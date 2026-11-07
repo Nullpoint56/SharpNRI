@@ -400,10 +400,10 @@ jobs:
           $agility = "${{ needs.version.outputs.agility }}"
           $reused = "${{ needs.version.outputs.descs_publish }}" -ne "true"
           $must = @{
-            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "lib/net11.0/SharpNRI.pdb", "README.md"
+            "SharpNRI"                  = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "lib/net11.0/SharpNRI.pdb", "buildTransitive/SharpNRI.targets", "licenses/win-x64/NRI/LICENSE.txt", "licenses/linux-x64/NRI/LICENSE.txt", "README.md"
             "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "lib/net11.0/SharpNRI.Descs.xml", "lib/net11.0/SharpNRI.Descs.pdb", "README.md"
             "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "lib/net11.0/SharpNRI.Testing.xml", "lib/net11.0/SharpNRI.Testing.pdb", "README.md"
-            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/win-x64/upscaler-runtimes.json", "runtimes/linux-x64/upscaler-runtimes.json", "README.md"
+            "SharpNRI.Native.Upscalers" = "runtimes/win-x64/native/NRI.dll", "runtimes/linux-x64/native/libNRI.so", "runtimes/win-x64/upscaler-runtimes.json", "runtimes/linux-x64/upscaler-runtimes.json", "buildTransitive/SharpNRI.Native.Upscalers.targets", "licenses/win-x64/NRI/LICENSE.txt", "licenses/linux-x64/NRI/LICENSE.txt", "README.md"
             "SharpNRI.AgilitySDK"       = "buildTransitive/SharpNRI.AgilitySDK.targets", "buildTransitive/SharpNRI.AgilitySDK.props", "README.md"
           }
           # Exact dependencies ([v], Directory.Build.targets): the packages are built against each other
@@ -411,6 +411,7 @@ jobs:
             "SharpNRI"            = @{ "SharpNRI.Descs" = "[$descs]" }
             "SharpNRI.Testing"    = @{ "SharpNRI" = "[$version]" }
             "SharpNRI.AgilitySDK" = @{ "Microsoft.Direct3D.D3D12" = "[$agility]" }
+            "SharpNRI.Native.Upscalers" = @{ "SharpNRI" = "[$version]" }
           }
           $failed = @()
           foreach ($id in $must.Keys | Sort-Object) {
@@ -423,6 +424,8 @@ jobs:
               Write-Host "`n==> $pkg ($([math]::Round((Get-Item $pkg).Length / 1KB)) KB)"
               $zip.Entries | Sort-Object FullName | ForEach-Object { Write-Host ("    {0,12}  {1}" -f $_.Length, $_.FullName) }
               foreach ($e in $must[$id]) { if ($entries -notcontains $e) { $failed += "$pkg lacks $e" } }
+              # nothing but libraries under runtimes/<rid>/native/: NuGet copies those flat (beta.2's licences collided)
+              foreach ($e in $entries | Where-Object { $_ -match '^runtimes/[^/]+/native/.+/' }) { $failed += "$pkg has $e in a subfolder of native/" }
               $nuspec = $zip.Entries | Where-Object { $_.FullName -like "*.nuspec" } | Select-Object -First 1
               $reader = [System.IO.StreamReader]::new($nuspec.Open()); $text = $reader.ReadToEnd(); $reader.Dispose()
               [xml]$xml = $text
@@ -449,10 +452,23 @@ jobs:
           foreach ($x in $extra) { Write-Warning "unexpected package $($x.Name)" }
           if ($failed) { throw "package check failed:`n  $($failed -join "`n  ")" }
 
+      # What changed in the packages' public API since the previous release on NuGet.org (tools/apidiff):
+      # the body's "API changes", mechanical, per package
+      - name: API changes
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-meta | Out-Null
+          ./tools/ci/api-changes.ps1 -New nupkg -Version "${{ needs.version.outputs.version }}" -Out release-meta/api-changes.md
+
       - uses: actions/upload-artifact@v4
         with:
           name: nupkg
           path: nupkg/*.nupkg
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-meta
+          path: release-meta/
           if-no-files-found: error
 
   # The packages as an outside project sees them: tools/consume restores SharpNRI and
@@ -471,7 +487,7 @@ jobs:
           - os: ubuntu-24.04
             rid: linux-x64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    timeout-minutes: 25
     env:
       SHARPNRI_FEED: ${{ github.workspace }}/nupkg
       SHARPNRI_VERSION: ${{ needs.version.outputs.version }}
@@ -514,6 +530,36 @@ jobs:
         shell: bash
         run: dotnet run --project tools/consume -c Release -r ${{ matrix.rid }} -p:SharpNRIPackageVersion="$SHARPNRI_VERSION"
 
+      # What shipping applications do: a RID-specific publish (beta.2's licences under runtimes/<rid>/native
+      # collided there) and Native AOT, each run from its publish directory.
+      - name: Publish -r ${{ matrix.rid }} and run
+        shell: bash
+        run: |
+          dotnet publish tools/consume -c Release -r ${{ matrix.rid }} -p:SharpNRIPackageVersion="$SHARPNRI_VERSION" -o "$RUNNER_TEMP/publish"
+          "$RUNNER_TEMP/publish/SharpNRI.Consume"
+
+      - name: Install the Native AOT toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y -qq --no-install-recommends clang zlib1g-dev ||
+            { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends clang zlib1g-dev; }
+
+      - name: Native AOT publish and run
+        shell: bash
+        run: |
+          dotnet publish tools/consume -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:SharpNRIPackageVersion="$SHARPNRI_VERSION" -o "$RUNNER_TEMP/aot"
+          "$RUNNER_TEMP/aot/SharpNRI.Consume"
+
+      # SharpNRI.Native.Upscalers alone (no ExcludeAssets on SharpNRI): its NRI library must be the one
+      # loaded (Program.cs checks IsUpscalerSupported(NIS)), portable and published
+      - name: Upscalers package alone
+        shell: bash
+        run: |
+          dotnet publish tools/consume -c Release -p:SharpNRIConsumeUpscalers=true -p:SharpNRIPackageVersion="$SHARPNRI_VERSION" -o "$RUNNER_TEMP/upscalers"
+          dotnet "$RUNNER_TEMP/upscalers/SharpNRI.Consume.dll"
+          dotnet publish tools/consume -c Release -r ${{ matrix.rid }} -p:SharpNRIConsumeUpscalers=true -p:SharpNRIPackageVersion="$SHARPNRI_VERSION" -o "$RUNNER_TEMP/upscalers-rid"
+          "$RUNNER_TEMP/upscalers-rid/SharpNRI.Consume"
+
       # SharpNRI.AgilitySDK turns a Microsoft.Direct3D.D3D12 of another version into a build error
       # (SHARPNRI011) instead of INVALID_SDK at run time. Last: it restores the consumer differently.
       - name: Another Agility SDK version fails the build (Windows)
@@ -550,10 +596,15 @@ jobs:
           name: runtimes-upscalers-win-x64
           path: upscalers
 
-      # Bound libraries (from the manifest), docs/releases/<tag>.md, Packages
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-meta
+          path: release-meta
+
+      # Bound libraries (from the manifest), docs/releases/<tag>.md, API changes (the pack job's), Downloads
       - name: Release body
         shell: pwsh
-        run: ./tools/ci/release-body.ps1 -Tag $env:RELEASE_TAG -Manifest upscalers/win-x64/upscaler-runtimes.json -DescsVersion "${{ needs.version.outputs.descs_version }}" -AgilitySdk "${{ needs.version.outputs.agility }}" -Out body.md
+        run: ./tools/ci/release-body.ps1 -Tag $env:RELEASE_TAG -Manifest upscalers/win-x64/upscaler-runtimes.json -DescsVersion "${{ needs.version.outputs.descs_version }}" -AgilitySdk "${{ needs.version.outputs.agility }}" -ApiChanges release-meta/api-changes.md -Out body.md
 
       - uses: actions/download-artifact@v4
         with:

@@ -5,11 +5,13 @@
 
     A packaging project: no code. Packs runtimes-upscalers/<rid>/native (staged by
     pwsh tools/build-native.ps1 -Variant Upscalers) under runtimes/<rid>/native, where NuGet copies
-    it beside the consumer's executable.
+    it beside the consumer's executable; the licences under licenses/<rid>/ (buildTransitive copies
+    them to licenses\SharpNRI.Native.Upscalers\<rid>\, as SharpNRI does).
 
-    It contains NRI.dll / libNRI.so, as the SharpNRI package does: a consumer takes exactly one of
-    the two native payloads. Reference this package and exclude SharpNRI's native assets
-    (<PackageReference Include="SharpNRI" ExcludeAssets="native" />) so the Base NRI.dll does not compete.
+    It depends on SharpNRI at exactly its version (the NRI library must be the one the binding was
+    built for) and replaces SharpNRI's Base library: buildTransitive/SharpNRI.Native.Upscalers.targets
+    drops SharpNRI's native assets, so referencing this package is enough (beta.2 needed
+    ExcludeAssets="native" on SharpNRI, and without it the Base NRI.dll silently won).
 
     It does NOT contain the vendor runtimes (amd_fidelityfx_*.dll, libxess.dll, nvngx_*.dll). The
     application ships those beside its executable, under the vendors' terms.
@@ -18,21 +20,32 @@
   <PropertyGroup>
     <PackageId>SharpNRI.Native.Upscalers</PackageId>
     <Version>$(SharpNRIVersion)</Version>
-    <Description>NRI native library for SharpNRI with the NIS, FSR and XeSS upscalers compiled in. Replaces the NRI library of the SharpNRI package (take one or the other). Vendor runtimes (FidelityFX, XeSS) are not included: the application ships them.</Description>
+    <Description>NRI native library for SharpNRI with the NIS, FSR and XeSS upscalers compiled in. Replaces the NRI library of the SharpNRI package, which it depends on at the same version: reference this package alone. Vendor runtimes (FidelityFX, XeSS) are not included: the application ships them.</Description>
     <PackageTags>nri;upscaler;fsr;xess;nis;native</PackageTags>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <IncludeSymbols>false</IncludeSymbols>
     <EnableDefaultItems>false</EnableDefaultItems>
-    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
     <NoWarn>$(NoWarn);NU5128</NoWarn>
     <SharpNRINativeStaging>$(MSBuildThisFileDirectory)..\runtimes-upscalers\</SharpNRINativeStaging>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The dependency only (exact: Directory.Build.targets); nothing of SharpNRI is built into this package -->
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\dotnet\SharpNRI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <_SharpNRIUpscalersLicense Include="$(SharpNRINativeStaging)*\native\licenses\**\*" />
     <None Include="$(SharpNRINativeStaging)**\*"
+          Exclude="$(SharpNRINativeStaging)*\native\licenses\**\*"
           Pack="true"
           PackagePath="runtimes\%(RecursiveDir)%(Filename)%(Extension)"
           Visible="false" />
+    <None Include="@(_SharpNRIUpscalersLicense)"
+          Pack="true"
+          PackagePath="licenses\$([System.String]::Copy('%(RecursiveDir)').Replace('native\licenses\', '').Replace('native/licenses/', ''))%(Filename)%(Extension)"
+          Visible="false" />
+    <None Include="buildTransitive\SharpNRI.Native.Upscalers.targets" Pack="true" PackagePath="buildTransitive\" />
   </ItemGroup>
 
   <Target Name="SharpNRIWarnIfNoStaging" BeforeTargets="GenerateNuspec" Condition="!Exists('$(SharpNRINativeStaging)')">

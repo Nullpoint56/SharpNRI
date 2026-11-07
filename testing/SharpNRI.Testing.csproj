@@ -20,11 +20,14 @@
     <Version>$(SharpNRIVersion)</Version>
     <Description>A headless, validated NRI device for tests: Vulkan, D3D12 or NRI's NONE backend with NRI validation and the backend validation layer on, messages captured, software adapters under CI, and skip reasons when a backend is absent. For projects that build on SharpNRI.</Description>
     <PackageTags>nri;vulkan;d3d12;testing;validation</PackageTags>
+    <!-- Trimming and Native AOT: declared (the trim, AOT and single-file analyzers run in every build, as errors in lint) and run by tools/consume's AOT publish -->
+    <IsAotCompatible>true</IsAotCompatible>
     <NoWarn>$(NoWarn);CS1591;NU5128</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="$(MSBuildThisFileDirectory)..\dotnet\SharpNRI.csproj" />
+    <InternalsVisibleTo Include="SharpNRI.Tests" />
   </ItemGroup>
 
 </Project>

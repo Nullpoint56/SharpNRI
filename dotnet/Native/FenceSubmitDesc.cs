@@ -1,5 +1,6 @@
 namespace SharpNRI.Native;
 
+/// <summary>Work submission</summary>
 public unsafe partial struct FenceSubmitDesc
 {
     [NativeTypeName("nri::Fence *")]

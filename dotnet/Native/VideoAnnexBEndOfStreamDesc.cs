@@ -5,6 +5,7 @@ public unsafe partial struct VideoAnnexBEndOfStreamDesc
     [NativeTypeName("nri::VideoCodec")]
     public VideoCodec codec;
 
+    /// <summary>if null, only "writtenSize" is returned</summary>
     [NativeTypeName("uint8_t *")]
     public byte* dst;
 

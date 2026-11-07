@@ -1,0 +1,31 @@
+<Project>
+
+  <!--
+    SharpNRI.Native.Upscalers replaces SharpNRI's Base NRI library. Both packages carry NRI.dll /
+    libNRI.so (and AGS) at runtimes/<rid>/native/, and NuGet's choice between two packages' same-named
+    native assets is not defined: in beta.2 the Base library won unless SharpNRI was referenced with
+    ExcludeAssets="native", and the upscalers silently did nothing. This drops every native asset of
+    the SharpNRI package after NuGet resolved them, for RID-specific builds (NativeCopyLocalItems) and
+    portable ones (RuntimeTargetsCopyLocalItems, which also feed the deps.json), so this package's
+    library is the only one. Its licences go to licenses\SharpNRI.Native.Upscalers\<rid>\.
+
+      SharpNRICopyLicenses   false copies none
+  -->
+
+  <Target Name="SharpNRIUpscalersReplaceBaseLibrary" AfterTargets="ResolvePackageAssets">
+    <ItemGroup>
+      <NativeCopyLocalItems Remove="@(NativeCopyLocalItems)" Condition="'%(NativeCopyLocalItems.NuGetPackageId)' == 'SharpNRI'" />
+      <RuntimeTargetsCopyLocalItems Remove="@(RuntimeTargetsCopyLocalItems)" Condition="'%(RuntimeTargetsCopyLocalItems.NuGetPackageId)' == 'SharpNRI' and '%(RuntimeTargetsCopyLocalItems.AssetType)' == 'native'" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup Condition="'$(SharpNRICopyLicenses)' != 'false'">
+    <None Include="$(MSBuildThisFileDirectory)..\licenses\**\*" Condition="'$(RuntimeIdentifier)' == ''"
+          Link="licenses\SharpNRI.Native.Upscalers\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)..\licenses\$(RuntimeIdentifier)\**\*" Condition="'$(RuntimeIdentifier)' != ''"
+          Link="licenses\SharpNRI.Native.Upscalers\$(RuntimeIdentifier)\%(RecursiveDir)%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Visible="false" />
+  </ItemGroup>
+
+</Project>

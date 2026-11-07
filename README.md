@@ -50,7 +50,7 @@ files, for a local folder feed.
 | `SharpNRI` | the binding and the native NRI library (Windows x64, Linux x64) |
 | `SharpNRI.Descs` | every NRI enum and desc struct, with no native code: for code that builds layouts and descs without a device. Versioned by NRI (`191.x` is NRI v191), new only when the descs change |
 | `SharpNRI.Testing` | a validated headless device per backend, for your own GPU tests |
-| `SharpNRI.Native.Upscalers` | NRI built with its upscalers (NIS, FSR, XeSS), replacing the library in `SharpNRI`: reference it with `ExcludeAssets="native"` on `SharpNRI` |
+| `SharpNRI.Native.Upscalers` | NRI built with its upscalers (NIS, FSR, XeSS), replacing the library in `SharpNRI`: reference it, nothing else |
 | `SharpNRI.AgilitySDK` | build targets that copy Microsoft's D3D12 Agility SDK runtime at NRI's version into `AgilitySDK\` and fail the build on another version; your restore takes Microsoft's package |
 
 No package ships a vendor upscaler runtime or a Microsoft file; the guide's

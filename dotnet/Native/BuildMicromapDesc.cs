@@ -11,6 +11,7 @@ public unsafe partial struct BuildMicromapDesc
     [NativeTypeName("uint64_t")]
     public ulong dataOffset;
 
+    /// <summary>contains "MicromapTriangle" entries</summary>
     [NativeTypeName("const Buffer *")]
     public Buffer* triangleBuffer;
 

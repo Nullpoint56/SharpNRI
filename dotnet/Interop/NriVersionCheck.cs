@@ -16,8 +16,8 @@ namespace SharpNRI.Interop;
 
 internal static class NriVersionCheck
 {
-    /// <summary>The NRI version SharpNRI was built for (<c>NriVersion</c> in Directory.Build.props).</summary>
-    internal static readonly int Built = Read(typeof(NriVersionCheck).Assembly);
+    /// <summary>The NRI version SharpNRI was built for: <see cref="Nri.NriVersion"/>, compiled in.</summary>
+    internal const int Built = Nri.NriVersion;
 
     /// <summary>The NRI version the loaded SharpNRI.Descs was generated from.</summary>
     internal static readonly int Descs = Read(typeof(DeviceDesc).Assembly);
@@ -33,7 +33,7 @@ internal static class NriVersionCheck
         var expected = Expected;
         if (Descs != Built)
             return new NriException(Result.INVALID_SDK, "SharpNRI.Descs",
-                $"SharpNRI is built for NRI v{Built}, the loaded SharpNRI.Descs ({typeof(DeviceDesc).Assembly.Location}) for v{Descs}: reference the SharpNRI.Descs version SharpNRI depends on");
+                $"SharpNRI is built for NRI v{Built}, the loaded SharpNRI.Descs ({typeof(DeviceDesc).Assembly.GetName().Version}) for v{Descs}: reference the SharpNRI.Descs version SharpNRI depends on");
         if (native != expected)
             return new NriException(Result.INVALID_SDK, "nriCreateDevice",
                 $"SharpNRI is built for NRI v{expected}, the loaded native library ({LoadedLibrary() ?? "path unknown"}) reports v{native}: a stale or foreign NRI library is on the load path");

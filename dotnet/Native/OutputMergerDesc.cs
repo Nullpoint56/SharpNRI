@@ -17,12 +17,15 @@ public unsafe partial struct OutputMergerDesc
     [NativeTypeName("nri::Format")]
     public Format depthStencilFormat;
 
+    /// <summary>requires "features.logicOp"</summary>
     [NativeTypeName("nri::LogicOp")]
     public LogicOp logicOp;
 
+    /// <summary>if non-0, requires "viewMaxNum &gt; 1"</summary>
     [NativeTypeName("uint32_t")]
     public uint viewMask;
 
+    /// <summary>if "viewMask != 0", requires "features.(xxx)Multiview"</summary>
     [NativeTypeName("nri::Multiview")]
     public Multiview multiview;
 }

@@ -163,8 +163,30 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   (`AgilityPathTests`). Microsoft's own targets are in `build/native`, which SDK-style .NET projects
   never import. No Microsoft file in the package: the licence point under Decisions stands.
 - Base and Upscalers both put `NRI.dll` at the same package path, and NuGet's choice between two
-  packages' same-named assets is not to be relied on: a consumer takes one (`ExcludeAssets="native"`
-  on `SharpNRI` with Upscalers). `NriApi` imports library `NRI` for both.
+  packages' same-named assets is not to be relied on (beta.2: without `ExcludeAssets="native"` on
+  `SharpNRI` the Base library won and the upscalers silently did nothing, reported downstream). From
+  1.0.0-beta.3 `SharpNRI.Native.Upscalers` depends on `SharpNRI` `[v]` and its
+  `buildTransitive/SharpNRI.Native.Upscalers.targets` removes the `SharpNRI` package's native assets
+  after `ResolvePackageAssets` (`NativeCopyLocalItems` for RID builds, `RuntimeTargetsCopyLocalItems`
+  for portable ones and the deps.json), so referencing it alone is enough; `ExcludeAssets` still works.
+  `tools/consume -p:SharpNRIConsumeUpscalers=true` holds it to that (`IsUpscalerSupported(NIS)` on
+  each GPU device, portable and published). `NriApi` imports library `NRI` for both.
+- **Licences outside `runtimes/<rid>/native/`** (from 1.0.0-beta.3). NuGet treats every file under
+  `native/` as a native library and a RID-specific build or publish copies them flat: beta.2's
+  `licenses/<lib>/LICENSE.txt` collided (`dotnet publish -r` failed with NETSDK1152) or overwrote each
+  other and the application's own `LICENSE.txt` (reported downstream). Staging keeps
+  `runtimes/<rid>/native/licenses/`; the packages carry them as `licenses/<rid>/...`, and each
+  package's `buildTransitive` targets copy them to `licenses/<PackageId>/<rid>/` beside the
+  application, folders kept (`SharpNRICopyLicenses=false` copies none). `release.yml`'s pack check
+  refuses any subfolder under `runtimes/<rid>/native/`; the consume job publishes `-r` and Native AOT
+  and checks the layout (`tools/consume`).
+- **A missing NRI library** (`Interop/NativeLibraryHint.cs`, from 1.0.0-beta.3): a
+  `ResolvingUnmanagedDll` handler, which runs only after default probing failed and leaves the
+  assembly's single `DllImport` resolver to applications, throws `DllNotFoundException` naming the
+  file, the RID, the directories looked in and where that platform's library comes from.
+- **Trimming and Native AOT** declared (`IsAotCompatible` on `SharpNRI`, `SharpNRI.Descs`,
+  `SharpNRI.Testing`; the analyzers run in every build, lint fails on a finding) and run by the
+  consume job's AOT publish.
 - In-repo, `dotnet/SharpNRI.csproj` copies `runtimes/<rid>/native` (or, with
   `-p:SharpNRIDevPayload=upscalers` / `upscalers-dlss`, that variant and its vendor runtimes, local
   only and never packed: Upscalers and vendor runtimes) beside `ProjectReference`
@@ -400,7 +422,13 @@ Needs the Xcode command-line tools, CMake 3.30+, Ninja, pwsh 7 and the .NET 11 S
   `global.json` has `"test": { "runner": "Microsoft.Testing.Platform" }` (a `dotnet.config` did
   nothing on 11.0.100-rc.1), the test project is an `Exe`, no `Microsoft.NET.Test.Sdk`,
   serialization in `xunit.runner.json`.
-- `SHARPNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) prefers WARP / lavapipe;
+- `SHARPNRI_TEST_SOFTWARE=1` prefers WARP / lavapipe, `=0` hardware; unset it follows
+  `GITHUB_ACTIONS=true` (from 1.0.0-beta.3; before, `0` could not override GitHub). `NriTestDevice`
+  enumerates adapters and probes availability per API on first use: asking about Vulkan creates no
+  D3D12 device (`AdapterEnumerationTests`, child `adapters-testing-vk-probe`), and a Vulkan probe whose
+  layer reports NRI's structures as "unknown VkStructureType" (a layer older than NRI's headers) answers
+  that as the unavailability reason instead of failing every test (downstream Linux CI on Ubuntu's
+  layer);
   `SHARPNRI_TEST_BACKEND=VK` restricts; `SHARPNRI_TRACE=1` prints messages live (the only record
   that survives a native crash).
 - `SHARPNRI_TEST_CHILD=<name>` makes the test executable run one scenario from a
@@ -580,7 +608,11 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   it for the process, CA2211): made `static readonly`. ClangSharp's redundant `using System;` (two
   helper attributes; both projects use implicit usings) and its unused `using static` of
   `GraphicsAPI` in `NriApi.cs` (the one candidate, `ALL` in a default value, resolves to `NriApi`'s
-  own constant) are dropped, so the layer is clean under the lint rules (Lint). All in
+  own constant) are dropped, so the layer is clean under the lint rules (Lint). NRI's header comments
+  become `/// <summary>` on the types and members they describe (`tools/generate-native-docs.ps1`,
+  step 7; from 1.0.0-beta.3; at v191 115 types and 926 of 927 member comments), matched by NRI's names:
+  the comment block above a declaration plus its trailing `//`, whitespace folded, the format table's
+  glyph rows and column legend left out; anonymous unions' members get none. All in
   `tools/generate-native.ps1` only.
 - NRI's headers have no C++ default member initializers (`NriDefault` unused), so generator-dropped
   defaults cannot happen. C `bool` is `byte` with `[NativeTypeName("bool")]`.
@@ -1805,7 +1837,11 @@ minutes and a Windows minute about two. That shapes the runs:
   published there. Each package carries `docs/nuget/README.md` (absolute links), which the
   `pack` job requires. `SharpNRI.Descs` is pushed only when its version is new: an unchanged published
   one is downloaded in `pack` and reused (Versions under Decisions), and `--skip-duplicate` skips it.
-  The `pack` check also holds the packages to their exact dependencies and `SharpNRI`'s description
+  `tools/ci/api-changes.ps1` (in `pack`) writes the body's "API changes": `tools/apidiff`
+  (MetadataLoadContext, not in the solution) lists each package's public types and members with
+  signatures and values against the previous SharpNRI version on NuGet.org and its SharpNRI.Descs,
+  removed / changed / added, mechanically; NRI's own changelog is not repeated (owner, 2026-11-07:
+  consumers need what changed in our API, not why). The `pack` check also holds the packages to their exact dependencies and `SharpNRI`'s description
   to the platforms packed (`SharpNRIPackageDescription`, built from the staged libraries; beta.2
   claimed macOS arm64 and said "Alpha").
 - **apt without an up-front refresh**: packages install from the runner image's lists; only an

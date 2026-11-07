@@ -1,61 +1,82 @@
 namespace SharpNRI.Native;
 
+/// <summary>https://docs.vulkan.org/refpages/latest/refpages/source/VkFormat.html https://learn.microsoft.com/en-us/windows/win32/api/dxgiformat/ne-dxgiformat-dxgi_format left -&gt; right : low -&gt; high bits Expected (but not guaranteed) "FormatSupportBits" are provided, but "GetFormatSupport" should be used for querying real HW support To demote sRGB use the previous format, i.e. "format - 1"</summary>
 [NativeTypeName("uint8_t")]
 public enum Format : byte
 {
     UNKNOWN,
+    /// <summary>Plain: 8 bits per channel</summary>
     R8_UNORM,
     R8_SNORM,
+    /// <summary>"SHADING_RATE_ATTACHMENT" compatible, see "NRI_SHADING_RATE" macro</summary>
     R8_UINT,
     R8_SINT,
+    /// <summary>"AccelerationStructure" compatible (requires "tiers.rayTracing &gt;= 2")</summary>
     RG8_UNORM,
+    /// <summary>"AccelerationStructure" compatible (requires "tiers.rayTracing &gt;= 2")</summary>
     RG8_SNORM,
     RG8_UINT,
     RG8_SINT,
     BGRA8_UNORM,
     BGRA8_SRGB,
+    /// <summary>"AccelerationStructure" compatible (requires "tiers.rayTracing &gt;= 2")</summary>
     RGBA8_UNORM,
     RGBA8_SRGB,
+    /// <summary>"AccelerationStructure" compatible (requires "tiers.rayTracing &gt;= 2")</summary>
     RGBA8_SNORM,
     RGBA8_UINT,
     RGBA8_SINT,
+    /// <summary>Plain: 16 bits per channel</summary>
     R16_UNORM,
     R16_SNORM,
     R16_UINT,
     R16_SINT,
     R16_SFLOAT,
+    /// <summary>"AccelerationStructure" compatible (requires "tiers.rayTracing &gt;= 2")</summary>
     RG16_UNORM,
+    /// <summary>"AccelerationStructure" compatible</summary>
     RG16_SNORM,
     RG16_UINT,
     RG16_SINT,
+    /// <summary>"AccelerationStructure" compatible</summary>
     RG16_SFLOAT,
+    /// <summary>"AccelerationStructure" compatible (requires "tiers.rayTracing &gt;= 2")</summary>
     RGBA16_UNORM,
+    /// <summary>"AccelerationStructure" compatible</summary>
     RGBA16_SNORM,
     RGBA16_UINT,
     RGBA16_SINT,
+    /// <summary>"AccelerationStructure" compatible</summary>
     RGBA16_SFLOAT,
+    /// <summary>Plain: 32 bits per channel</summary>
     R32_UINT,
     R32_SINT,
     R32_SFLOAT,
     RG32_UINT,
     RG32_SINT,
+    /// <summary>"AccelerationStructure" compatible</summary>
     RG32_SFLOAT,
     RGB32_UINT,
     RGB32_SINT,
+    /// <summary>"AccelerationStructure" compatible</summary>
     RGB32_SFLOAT,
     RGBA32_UINT,
     RGBA32_SINT,
     RGBA32_SFLOAT,
+    /// <summary>Packed: 16 bits per pixel</summary>
     B5_G6_R5_UNORM,
     B5_G5_R5_A1_UNORM,
     B4_G4_R4_A4_UNORM,
+    /// <summary>Packed: 32 bits per pixel "AccelerationStructure" compatible (requires "tiers.rayTracing &gt;= 2")</summary>
     R10_G10_B10_A2_UNORM,
     R10_G10_B10_A2_UINT,
     R11_G11_B10_UFLOAT,
     R9_G9_B9_E5_UFLOAT,
+    /// <summary>YUV 4:2:0 video formats</summary>
     NV12_UNORM,
     P010_UNORM,
     P016_UNORM,
+    /// <summary>Block-compressed (requires "features.textureCompressionBC") https://learn.microsoft.com/en-us/windows/win32/direct3d11/texture-block-compression-in-direct3d-11?source=recommendations https://registry.khronos.org/DataFormat/specs/1.4/dataformat.1.4.html#S3TC https://registry.khronos.org/DataFormat/specs/1.4/dataformat.1.4.html#RGTC https://registry.khronos.org/DataFormat/specs/1.4/dataformat.1.4.html#BPTC</summary>
     BC1_RGBA_UNORM,
     BC1_RGBA_SRGB,
     BC2_RGBA_UNORM,
@@ -70,6 +91,7 @@ public enum Format : byte
     BC6H_RGB_SFLOAT,
     BC7_RGBA_UNORM,
     BC7_RGBA_SRGB,
+    /// <summary>Block-compressed: Ericsson Texture Compression (requires "features.textureCompressionETC2") https://registry.khronos.org/DataFormat/specs/1.4/dataformat.1.4.html#ETC2</summary>
     ETC2_RGB8_UNORM,
     ETC2_RGB8_SRGB,
     ETC2_RGB8_A1_UNORM,
@@ -80,6 +102,7 @@ public enum Format : byte
     ETC2_R11_SNORM,
     ETC2_R11_G11_UNORM,
     ETC2_R11_G11_SNORM,
+    /// <summary>Block-compressed: Adaptive Scalable Texture Compression (requires "features.textureCompressionASTC") https://registry.khronos.org/DataFormat/specs/1.4/dataformat.1.4.html#ASTC</summary>
     ASTC_4X4_UNORM,
     ASTC_4X4_SRGB,
     ASTC_5X4_UNORM,
@@ -108,8 +131,10 @@ public enum Format : byte
     ASTC_12X10_SRGB,
     ASTC_12X12_UNORM,
     ASTC_12X12_SRGB,
+    /// <summary>Depth</summary>
     D16_UNORM,
     D32_SFLOAT,
+    /// <summary>Depth-stencil</summary>
     D24_UNORM_S8_UINT,
     D32_SFLOAT_S8_UINT,
     MAX_NUM,

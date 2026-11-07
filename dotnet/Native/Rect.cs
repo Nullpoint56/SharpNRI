@@ -1,5 +1,6 @@
 namespace SharpNRI.Native;
 
+/// <summary>https://docs.vulkan.org/refpages/latest/refpages/source/VkRect2D.html</summary>
 public partial struct Rect
 {
     [NativeTypeName("int16_t")]

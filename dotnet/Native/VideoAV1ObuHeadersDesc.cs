@@ -5,6 +5,7 @@ public unsafe partial struct VideoAV1ObuHeadersDesc
     [NativeTypeName("nri::VideoAV1SequenceDesc")]
     public VideoAV1SequenceDesc sequence;
 
+    /// <summary>if null, only "writtenSize" is returned</summary>
     [NativeTypeName("uint8_t *")]
     public byte* dst;
 

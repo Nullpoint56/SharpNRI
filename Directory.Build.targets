@@ -16,4 +16,16 @@
     </ItemGroup>
   </Target>
 
+  <!--
+    The package page (docs/nuget/README.md) with its repository links pinned to the release: blob/master/
+    becomes blob/v$(SharpNRIVersion)/, the tag the release workflow creates on the packed commit, so a
+    package's page shows the guide of its own version (beta.2 linked master).
+  -->
+  <Target Name="SharpNRIPackageReadme" BeforeTargets="_GetPackageFiles;GenerateNuspec" Condition="'$(IsPackable)' != 'false'">
+    <PropertyGroup>
+      <_SharpNRIReadme>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)docs/nuget/README.md').Replace('/blob/master/', '/blob/v$(SharpNRIVersion)/'))</_SharpNRIReadme>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(BaseIntermediateOutputPath)nuget-readme/README.md" Lines="$([MSBuild]::Escape($(_SharpNRIReadme)))" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+
 </Project>

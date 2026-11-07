@@ -35,6 +35,16 @@
   </ItemGroup>
 
   <!--
+    -p:SharpNRIConsumeUpscalers=true adds SharpNRI.Native.Upscalers, nothing else (no ExcludeAssets on
+    SharpNRI): its library must be the one loaded, which Program.cs checks through
+    IsUpscalerSupported(NIS) on each GPU device.
+  -->
+  <ItemGroup Condition="'$(SharpNRIConsumeUpscalers)' == 'true'">
+    <PackageReference Include="SharpNRI.Native.Upscalers" Version="$(SharpNRIPackageVersion)" />
+    <RuntimeHostConfigurationOption Include="SharpNRI.Consume.ExpectUpscalers" Value="true" />
+  </ItemGroup>
+
+  <!--
     D3D12 on the Agility SDK exactly as docs/guide.md tells an application to take it: the
     SharpNRI.AgilitySDK package, which brings Microsoft.Direct3D.D3D12 at NRI's version and copies
     its runtime into AgilitySDK/ beside the application, where SharpNRI looks by default; the debug

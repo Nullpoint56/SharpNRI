@@ -32,15 +32,19 @@ public partial struct TextureDesc
     [NativeTypeName("nri::SharingMode")]
     public SharingMode sharingMode;
 
+    /// <summary>VK: required for video textures</summary>
     [NativeTypeName("nri::VideoCodec")]
     public VideoCodec videoCodec;
 
+    /// <summary>VK: AV1 decode textures of sessions with "VideoSessionDesc::av1FilmGrain"</summary>
     [NativeTypeName("bool")]
     public byte videoAV1FilmGrain;
 
+    /// <summary>D3D12: not needed on desktop, since any HW can track many clear values</summary>
     [NativeTypeName("nri::ClearValue")]
     public ClearValue optimizedClearValue;
 
+    /// <summary>"GetTextureSharedHandle": requires "CreateCommittedTexture" in "DEVICE" memory and "features.sharedResources"</summary>
     [NativeTypeName("bool")]
     public byte shared;
 }

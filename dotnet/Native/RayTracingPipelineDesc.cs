@@ -29,6 +29,7 @@ public unsafe partial struct RayTracingPipelineDesc
     [NativeTypeName("nri::Robustness")]
     public Robustness robustness;
 
+    /// <summary>uses a cached blob on a hit and stores the result on a miss</summary>
     [NativeTypeName("const PipelineCache *")]
     public PipelineCache* cache;
 }

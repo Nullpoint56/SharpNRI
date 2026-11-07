@@ -33,8 +33,8 @@ headers do not say. NRI v191.
 | `SharpNRI.AgilitySDK` | build targets only: the Agility SDK runtime from Microsoft's package | D3D12 on the Agility SDK (below) |
 
 ```xml
-<PackageReference Include="SharpNRI" Version="1.0.0-beta.3" ExcludeAssets="native" />  <!-- only with Upscalers -->
-<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.3" />
+<PackageReference Include="SharpNRI" Version="1.0.0-beta.3" />
+<PackageReference Include="SharpNRI.Native.Upscalers" Version="1.0.0-beta.3" />                   <!-- instead of the Base library -->
 <PackageReference Include="SharpNRI.AgilitySDK" Version="1.0.0-beta.3" />             <!-- Windows, D3D12 -->
 ```
 
@@ -63,8 +63,18 @@ headers do not say. NRI v191.
   path fails loudly.
 - The release workflow's `consume` job restores them that way (`tools/consume`) and creates NONE
   plus a GPU device on windows and ubuntu before the release and the NuGet push.
-- Base and Upscalers both contain `NRI.dll` / `libNRI.so` at the same path: take exactly one; with
-  Upscalers, `ExcludeAssets="native"` on `SharpNRI`.
+- Base and Upscalers both contain `NRI.dll` / `libNRI.so` at the same path. `SharpNRI.Native.Upscalers`
+  depends on `SharpNRI` at its version and its build targets drop `SharpNRI`'s native library, so
+  referencing it is enough (from 1.0.0-beta.3; before, `ExcludeAssets="native"` on `SharpNRI` was needed
+  and without it the Base library silently won).
+- Licences: each package's build targets copy the notices of what its native library contains to
+  `licenses/<package>/<rid>/` beside the application (a RID-specific build or publish: its RID's; a
+  portable one: every packed RID's). `<SharpNRICopyLicenses>false</SharpNRICopyLicenses>` copies none.
+- A missing native library is a `DllNotFoundException` that names the file, the RID, where it was
+  looked for and where that platform's library comes from.
+- Trimming and Native AOT: declared (`IsAotCompatible`) and published by the release's consume job.
+- `Nri.NriVersion` is the NRI version the binding was built for (a constant), `NriHeaders.Version`
+  the one `SharpNRI.Descs` was generated from; L0's types carry NRI's header comments as XML docs.
 - Base: Vulkan, D3D12, NONE, NRI validation, ImGui, NVAPI, AGS, debug names; no upscaler SDK.
   `IsUpscalerSupported` answers nothing there.
 - osx-arm64: not in the packages. Each release gets `SharpNRI-native-base-osx-arm64-<tag>.zip`
@@ -945,7 +955,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 
 | Variable | Effect |
 |---|---|
-| `SHARPNRI_TEST_SOFTWARE=1` (implied by `GITHUB_ACTIONS=true`) | prefer WARP / lavapipe |
+| `SHARPNRI_TEST_SOFTWARE=1` / `=0` | prefer WARP / lavapipe, or hardware; unset, software under GitHub Actions (`GITHUB_ACTIONS=true`) |
 | `SHARPNRI_TEST_BACKEND=VK` | only that backend |
 | `SHARPNRI_TRACE=1` | print each message as it arrives; the only record that survives a native crash |
 
@@ -954,7 +964,8 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
   `VK_EXT_zero_initialize_device_memory`) as "unknown VkStructureType" errors, which fail
   `ThrowIfErrors`. Ubuntu 24.04 ships 1.3.275; LunarG's noble apt stops at 1.4.313; 1.4.363 is
   clean. `tools/ci/fetch-vulkan-layer.sh` extracts the layer from the SDK tarball; put it first with
-  `VK_ADD_LAYER_PATH`.
+  `VK_ADD_LAYER_PATH`. `NriTestDevice.Unavailable(VK)` answers such a layer with a reason naming the
+  message (from 1.0.0-beta.3), so Vulkan tests skip instead of failing on the environment.
 
 ## Threads
 

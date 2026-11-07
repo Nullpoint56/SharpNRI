@@ -23,12 +23,14 @@ public unsafe partial struct VideoH264DecodePictureDesc
     [NativeTypeName("int32_t")]
     public int bottomFieldOrderCount;
 
+    /// <summary>offsets to 4-byte Annex-B start codes, relative to the selected bitstream range start</summary>
     [NativeTypeName("const uint32_t *")]
     public uint* sliceOffsets;
 
     [NativeTypeName("uint32_t")]
     public uint sliceOffsetNum;
 
+    /// <summary>if false, VideoDecodeDesc::dstSlot is used</summary>
     [NativeTypeName("bool")]
     public byte hasReferenceSlot;
 
