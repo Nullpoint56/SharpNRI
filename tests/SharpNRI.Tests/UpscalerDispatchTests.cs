@@ -5,9 +5,10 @@
 // runtimes (AGENTS.md: Upscalers and vendor runtimes), so on the Base payload, as in CI, every test
 // skips naming what is missing.
 //
-// NRI checks a failed vendor dispatch (ffxDispatch, xessD3D12Execute, NGX's EvaluateFeature) only
-// with NRI_CHECK, which a release NRI.dll compiles out (UpscalerInterface.hpp), so the pixels are the
-// only oracle: every dispatch here is read back and compared with what the scene must give.
+// A failed vendor dispatch (ffxDispatch, xessD3D12Execute, NGX's EvaluateFeature) was only an
+// NRI_CHECK in NRI, compiled out of a release NRI.dll; patch 0049 reports it as an ERROR, which fails
+// these tests like any other message (UpscalerFailureTests). The pixels stay the oracle: every
+// dispatch here is read back and compared with what the scene must give.
 //
 // The scenes are drawn on the CPU and uploaded each frame: a constant colour (which every upscaler
 // must keep, whatever its mode, jitter or history), a vertical edge moving at a known speed with

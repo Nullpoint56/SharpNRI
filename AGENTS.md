@@ -48,7 +48,7 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
-- **State.** Master pins NRI v191 (46c93d79) with twenty patches; `next` pins NRI main b90cfb57
+- **State.** Master pins NRI v191 (46c93d79) with twenty-one patches; `next` pins NRI main b90cfb57
   (2026-11-06) with five, 0007, 0013, 0015, 0037 and 0044: upstream took every other one (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
@@ -414,6 +414,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0046 d3d12-micromap-prebuild-dummy-addresses | `GetMicromapPrebuildInfo` passes 256 for `InputBuffer` and `PerOmmDescs` (stride `sizeof(MicromapTriangle)`) | the prebuild query left them null; the DXR spec allows inspecting null-ness and names dummy non-zero values for this, and the debug layer refused every micromap creation ([1162]; Ray tracing) |
 | 0047 vulkan-av1-color-config-unspecified | without `COLOR_DESCRIPTION_PRESENT`, `FillVideoAV1ColorConfig` passes "unspecified" (2) for primaries, transfer and matrix | it copied the desc's values, reserved 0s included, and NVIDIA refused the session parameters (`VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR`; Extensions) |
 | 0048 validation-streamer-optional-constant-buffer-location | `CreateStreamer` validation checks `constantBufferMemoryLocation` only with a non-zero `constantBufferSize` | both are `NriOptional` and no constant buffer is created without a size, yet the defaults were refused (Extensions) |
+| 0049 upscaler-report-vendor-failures | every failed vendor call in upscaler creation (FSR loader missing or incomplete, `ffxCreateContext`, the XeSS calls, NGX initialization and feature creation) and dispatch (`ffxDispatch`, `xessSetExposureMultiplier`, `xessD3D12Execute`, NGX evaluation) reports an ERROR naming the call and its result | creation returned a bare `FAILURE` and a failed dispatch was an `NRI_CHECK`, compiled out of release builds, so an upscale silently did not happen; creation is red without the patch (`UpscalerFailureTests`), no NRI-accepted dispatch the vendors refuse was found (Upscalers and vendor runtimes) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -426,7 +427,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all twenty do; at main b90cfb57 the five, and 0045-0048 apply there too.
+  all twenty-one do; at main b90cfb57 the five, and 0045-0049 apply there too.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
   fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
@@ -1056,7 +1057,8 @@ Measured by `DebugAidTests`.
   in that one place the whole Vulkan suite runs on lavapipe for Windows. Patch 0044 passes
   `VK_LOGIC_OP_COPY` whenever the logic op is off (a value every driver ignores there); it is a
   driver workaround, the one exception to the patch rule (Rules), to be dropped when the pinned
-  Mesa converts the logic op only when enabled. Reported to Mesa by the owner.
+  Mesa converts the logic op only when enabled. Not reported to Mesa yet: revisited on 2027-01-07
+  against the then-current mesa-dist-win (owner).
 - **Lavapipe on Windows has no external handles** (`features.sharedResources` and `sharedFences` 0):
   the Win32 import proofs skip naming the bits.
 
@@ -1187,8 +1189,10 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
 ### Upscalers and vendor runtimes
 
 - `IsUpscalerSupported` answers what is compiled in, not installed. Without runtimes, raw L0 calls:
-  D3D12 and VK FSR `FAILURE` with no message; XeSS an `SEHException` from the delay-load stub
-  (0xC06D007E). FSR loads `amd_fidelityfx_loader_dx12.dll` / `amd_fidelityfx_loader_vk.dll` by name
+  D3D12 and VK FSR and DLSR `FAILURE` (with patch 0049 an ERROR naming the cause: "`'amd_fidelityfx_loader_dx12.dll'
+  can't be loaded`", "`NGX feature creation failed, result = 0xBAD0000B`"); DLRR created here even
+  without `nvngx_dlssd.dll` beside the application (NGX loads its feature DLLs from outside it too);
+  XeSS an `SEHException` from the delay-load stub (0xC06D007E). FSR loads `amd_fidelityfx_loader_dx12.dll` / `amd_fidelityfx_loader_vk.dll` by name
   (the VK loader then loads `amd_fidelityfx_upscaler_vk.dll`).
 - **`GetRuntimeFiles` must name what the pinned NRI loads**; check it whenever the pin moves. v190
   loaded `amd_fidelityfx_vk.dll` for FSR on Vulkan; naming that file on v191 made the guard refuse
@@ -1219,8 +1223,8 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   Base back and deletes the vendor files beside the tests. `UpscalerDispatchTests` (151 cases with
   `UpscalerExtensionTests`, 0 failed on NVIDIA at 9265723) dispatches every type on every backend
   that offers it and reads every output back; on Base every case skips naming the missing build or
-  file. NRI checks a failed vendor dispatch only with `NRI_CHECK` (`UpscalerInterface.hpp`), gone in
-  release builds, so the pixels are the oracle: a constant image in every mode and at the
+  file. A failed vendor dispatch was only an `NRI_CHECK` (`UpscalerInterface.hpp`), gone in release
+  builds; patch 0049 reports it as an ERROR. The pixels are the oracle: a constant image in every mode and at the
   dynamic-resolution minimum (worst 0.0078, DLRR; the others at half precision), HDR with an exposure
   texture and pre-exposure, R8 and R16 reactive masks, a moving edge with motion vectors (within
   0.33 output pixels, XeSS 1.67), `RESET_HISTORY` (DLSR and XeSS keep 30 and 39 % of the old colour
@@ -1428,6 +1432,8 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   memory works. The AV1 encode test puts the Vulkan bitstream in `HOST_READBACK` memory, and then
   Vulkan encodes a 39-byte key frame (an OBU stream, `32 A2 ...`). Caller's rule: on NVIDIA Vulkan
   give the AV1 bitstream a host-visible location. Not NRI's: NRI does not choose the memory.
+  Still present on driver 621.14 (re-measured 2026-11-07). Not reported to NVIDIA yet: revisited on
+  2027-01-07 against the then-current driver (owner).
 - **AV1 encode info per backend.** Vulkan's payload is OBUs, so NRI describes a frame only from the
   payload passed as the header (`UNSUPPORTED` without it); D3D12's is bare tile data, so the
   reverse. The described payload is the frame OBU on Vulkan (34 B at 5: frame header, then the
