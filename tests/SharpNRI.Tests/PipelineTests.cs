@@ -196,6 +196,45 @@ public sealed class PipelineTests
         Assert.Equal(0L, allocator.Live);
     }
 
+    /// <summary>
+    /// NRI's D3D12 pipeline cache on its expected paths draws no debug-layer warning (patch 0050).
+    /// Creating a pipeline looks it up in the library first, and every miss drew "[971]
+    /// ID3D12PipelineLibrary::Load*Pipeline: This library does not have a pipeline stored with name
+    /// ..." (each first creation, so every changed shader in a debug run). A library blob from another
+    /// driver or adapter is stale cache data NRI answers with OUT_OF_DATE, and drew "[963] ... intended
+    /// for a different driver version" / "[964] ... for a different adapter"; NRI already filtered
+    /// [962], the same refusal of a blob that is no library at all. The forged blobs flip one byte of a
+    /// real serialization: offsets 16-23 gave [963] and 28-59 [964] on Agility 1.620, NVIDIA
+    /// (measured 2026-11-08, one byte at a time over the first 256).
+    /// </summary>
+    [Fact]
+    public void D3D12_pipeline_cache_misses_and_stale_blobs_draw_no_debug_layer_warning()
+    {
+        var backend = new Backend(GraphicsAPI.D3D12);
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(GraphicsAPI.D3D12, messages);
+        Assert.SkipWhen(device.Desc.features.pipelineCache == 0, "D3D12: features.pipelineCache = 0; no pipeline library");
+        using var layout = device.CreatePipelineLayout(FillLayout());
+
+        messages.Clear();
+        byte[] data;
+        using (var empty = device.CreatePipelineCache())
+        using (var miss = CreateFill(device, layout, empty))
+            data = empty.GetData();
+        Assert.DoesNotContain(messages, m => m.Type != Message.INFO);
+
+        foreach (var offset in new[] { 16, 28 })
+        {
+            var stale = (byte[])data.Clone();
+            stale[offset] ^= 0xFF;
+            var e = Assert.Throws<NriException>(() => device.CreatePipelineCache(stale).Dispose());
+            Assert.Equal(Result.OUT_OF_DATE, e.Result);
+        }
+        foreach (var m in messages) Record($"D3D12: {m.Type} {m.Text}");
+        Assert.DoesNotContain(messages, m => m.Type != Message.INFO);
+    }
+
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
     public void Compute_pipeline_is_counted_and_disposed(Backend backend)

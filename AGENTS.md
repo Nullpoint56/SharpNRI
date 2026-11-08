@@ -49,7 +49,7 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
-- **State.** Master pins NRI v191 (46c93d79) with twenty-one patches; `next` pins NRI main b90cfb57
+- **State.** Master pins NRI v191 (46c93d79) with twenty-two patches; `next` pins NRI main b90cfb57
   (2026-11-06) with five, 0007, 0013, 0015, 0037 and 0044: upstream took every other one (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
@@ -516,6 +516,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0047 vulkan-av1-color-config-unspecified | without `COLOR_DESCRIPTION_PRESENT`, `FillVideoAV1ColorConfig` passes "unspecified" (2) for primaries, transfer and matrix | it copied the desc's values, reserved 0s included, and NVIDIA refused the session parameters (`VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR`; Extensions) |
 | 0048 validation-streamer-optional-constant-buffer-location | `CreateStreamer` validation checks `constantBufferMemoryLocation` only with a non-zero `constantBufferSize` | both are `NriOptional` and no constant buffer is created without a size, yet the defaults were refused (Extensions) |
 | 0049 upscaler-report-vendor-failures | every failed vendor call in upscaler creation (FSR loader missing or incomplete, `ffxCreateContext`, the XeSS calls, NGX initialization and feature creation) and dispatch (`ffxDispatch`, `xessSetExposureMultiplier`, `xessD3D12Execute`, NGX evaluation) reports an ERROR naming the call and its result | creation returned a bare `FAILURE` and a failed dispatch was an `NRI_CHECK`, compiled out of release builds, so an upscale silently did not happen; creation is red without the patch (`UpscalerFailureTests`), no NRI-accepted dispatch the vendors refuse was found (Upscalers and vendor runtimes) |
+| 0050 d3d12-pipeline-library-expected-messages | `DeviceD3D12` denies the debug-layer messages [963] `CREATEPIPELINELIBRARY_DRIVERVERSIONMISMATCH`, [964] `_ADAPTERVERSIONMISMATCH` and [971] `LOADPIPELINE_NAMENOTFOUND`, beside the [962] it already denied | NRI answers a blob from another driver or adapter with `OUT_OF_DATE` and looks every pipeline up before creating it, yet each drew a WARNING: a stale cache after a driver update, and every first creation in a debug run (reported downstream; Memory and resources) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -528,7 +529,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all twenty-one do; at main b90cfb57 the five, and 0045-0049 apply there too.
+  all twenty-two do; at main b90cfb57 the five, and 0045-0049 apply there too.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
   fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
@@ -893,6 +894,17 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   size. Stale or foreign bytes (`PipelineTests`, 4,096 random): `CreatePipelineCache` throws
   `NriException` with `OUT_OF_DATE`, hands nothing back (NRI destroys the half-made object), and the
   allocator balances. NRI never returns `OUT_OF_DATE` with a usable cache.
+  **D3D12 debug-layer warnings on the expected paths (patch 0050).** NRI creates a pipeline by
+  looking it up in the `ID3D12PipelineLibrary` first (`PipelineD3D12.hpp:447`, `:492`), so each
+  miss, every first creation, drew "[971] ID3D12PipelineLibrary::Load*Pipeline: This library does
+  not have a pipeline stored with name ...". A blob from another driver or adapter drew "[963] ...
+  intended for a different driver version" / "[964] ... for a different adapter" before NRI's
+  `OUT_OF_DATE`; NRI's deny list (`DeviceD3D12.hpp`) had only [962], the same refusal of a blob that
+  is no library. Measured 2026-11-08 (Agility 1.620, NVIDIA): one byte flipped in a real
+  serialization gave [962] (filtered) at offsets 0-15 and 24-27, [963] at 16-23, [964] at 28-59,
+  and a usable cache from 60 on. `PipelineTests.D3D12_pipeline_cache_misses_and_stale_blobs_draw_no_debug_layer_warning`:
+  red without the patch ([971]), green with it. Reported downstream; a layer warning, so not filed
+  (main a20efc8f denies only [962]).
 - **UNORM rounding**: clear `0.1` -> 25 on NVIDIA Vulkan, 26 elsewhere. `TriangleTests` clears
   `(0.2, 0.4, 0.6)` and allows +-1; VK and D3D12 differ at edges, so it logs each SHA-256.
 - **`UploadData`** (`NriQueue.UploadData`): managed records; short data throws `ArgumentException`

@@ -1,0 +1,29 @@
+D3D12: no debug-layer warning on the pipeline library's expected paths.
+
+DeviceD3D12 already denies CREATEPIPELINELIBRARY_INVALIDLIBRARYBLOB [962], since PipelineCacheD3D12
+answers a blob that is no library with "OUT_OF_DATE". A blob from another driver or adapter takes
+the same path but draws its own WARNING: [963] DRIVERVERSIONMISMATCH ("intended for a different
+driver version") and [964] ADAPTERVERSIONMISMATCH, so a cache saved before a driver update warns at
+the next start. PipelineD3D12 looks every pipeline up with LoadPipeline / LoadComputePipeline before
+creating and storing it, and each miss draws [971] LOADPIPELINE_NAMENOTFOUND ("This library does
+not have a pipeline stored with name ..."): every first creation, so every changed shader in a debug
+run. The three join the deny list. Measured on v191, Agility 1.620, NVIDIA (2026-11-08): a miss gave
+[971]; one byte flipped at offsets 16-23 of a real serialization gave [963], at 28-59 [964], each
+with "OUT_OF_DATE". Main a20efc8f denies only [962].
+
+diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
+index 11d6e542..0b95c1c2 100644
+--- a/Source/D3D12/DeviceD3D12.hpp
++++ b/Source/D3D12/DeviceD3D12.hpp
+@@ -633,6 +633,11 @@
+                 D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE,
+                 D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+                 D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_INVALIDLIBRARYBLOB,
++                // Stale data from another driver or adapter is reported as "OUT_OF_DATE"
++                D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_DRIVERVERSIONMISMATCH,
++                D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_ADAPTERVERSIONMISMATCH,
++                // A pipeline is looked up in the library before it gets created and stored
++                D3D12_MESSAGE_ID_LOADPIPELINE_NAMENOTFOUND,
+ #if NRI_ENABLE_AGILITY_SDK_SUPPORT
+                 // Barrier-only command lists are needed for layout transitions around synchronous host copies.
+                 // Replacing their synchronization scopes with NONE / NO_ACCESS triggers invalid barrier access validation after a copy.
