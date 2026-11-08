@@ -171,7 +171,9 @@ public sealed unsafe partial class NriDevice
                 };
 
                 Device* handle = null;
-                var result = NriApi.nriCreateDeviceFromVKDevice(&desc, &handle);
+                Result result;
+                try { result = NriApi.nriCreateDeviceFromVKDevice(&desc, &handle); }
+                catch (DllNotFoundException e) { throw NativeLibraryHint.Explain(e); } // the first call into NRI
                 if (result != Result.SUCCESS || handle is null)
                 {
                     throw new NriException(result, "nriCreateDeviceFromVKDevice", recorder.LastError);
@@ -248,7 +250,9 @@ public sealed unsafe partial class NriDevice
                 };
 
                 Device* handle = null;
-                var result = NriApi.nriCreateDeviceFromD3D12Device(&desc, &handle);
+                Result result;
+                try { result = NriApi.nriCreateDeviceFromD3D12Device(&desc, &handle); }
+                catch (DllNotFoundException e) { throw NativeLibraryHint.Explain(e); } // the first call into NRI
                 if (result != Result.SUCCESS || handle is null)
                 {
                     throw new NriException(result, "nriCreateDeviceFromD3D12Device", recorder.LastError);

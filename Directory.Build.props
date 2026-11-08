@@ -31,7 +31,7 @@
       where it was. tools/ci/descs-version.ps1 fails when the descs changed since the published version.
     -->
     <SharpNRIVersion>191.0.0-beta.4</SharpNRIVersion>
-    <SharpNRIDescsVersion>191.0.0-beta.1</SharpNRIDescsVersion>
+    <SharpNRIDescsVersion>191.0.0-beta.2</SharpNRIDescsVersion>
     <!-- The Agility SDK NRI's CMake pins (NRI_AGILITY_SDK_VERSION_MAJOR / _MINOR), as its Microsoft.Direct3D.D3D12 version; build-native.ps1 refuses a mismatch -->
     <AgilitySdkVersion>1.620.1</AgilitySdkVersion>
     <TargetFramework>net11.0</TargetFramework>

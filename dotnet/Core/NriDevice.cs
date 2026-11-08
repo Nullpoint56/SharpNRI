@@ -51,6 +51,7 @@ public sealed unsafe partial class NriDevice : NriObject
     {
         ArgumentNullException.ThrowIfNull(options);
         var agilitySdkPath = ResolveAgilitySdkPath(options); // may refuse: before anything needs disposing
+        RequireDebugLayer(options, agilitySdkPath);
 
         var recorder = new ErrorRecorder(options.MessageHandler);
         var messages = new MessageBridge(recorder.Handle, options.BreakOnError);
@@ -117,7 +118,9 @@ public sealed unsafe partial class NriDevice : NriObject
                 };
 
                 Device* handle = null;
-                var result = NriApi.nriCreateDevice(&desc, &handle);
+                Result result;
+                try { result = NriApi.nriCreateDevice(&desc, &handle); }
+                catch (DllNotFoundException e) { throw NativeLibraryHint.Explain(e); } // the first call into NRI
                 if (result != Result.SUCCESS || handle is null)
                 {
                     throw new NriException(result, "nriCreateDevice", recorder.LastError);
@@ -205,6 +208,21 @@ public sealed unsafe partial class NriDevice : NriObject
             "" => null,
             var explicitPath => explicitPath.EndsWith(Path.DirectorySeparatorChar) || explicitPath.EndsWith('/') ? explicitPath : explicitPath + Path.DirectorySeparatorChar,
         };
+    }
+
+    // D3D12 API validation on the Agility SDK: the SDK loads its debug layer from its own directory
+    // only, never the system's (Graphics Tools), and NRI enables the layer only if
+    // D3D12GetDebugInterface succeeds, saying nothing otherwise. Without the file the device would be
+    // created unvalidated though validation was asked for (measured 2026-11-07: no ID3D12InfoQueue).
+    internal static void RequireDebugLayer(NriDeviceOptions options, string? agilitySdkPath)
+    {
+        if (options.GraphicsApi != GraphicsAPI.D3D12 || !options.EnableGraphicsApiValidation || agilitySdkPath is null) return;
+        var layer = Path.Combine(agilitySdkPath, "d3d12SDKLayers.dll");
+        if (File.Exists(layer)) return;
+        throw new NriUnsupportedException("nriCreateDevice",
+            $"EnableGraphicsApiValidation needs the D3D12 debug layer {layer}: the Agility SDK loads it from its own directory only, " +
+            "so the device would run unvalidated. SharpNRI.AgilitySDK copies it in Debug builds; set SharpNRIAgilityDebugLayer=true " +
+            "to copy it in any configuration, or turn EnableGraphicsApiValidation off");
     }
 
     // ---------------------------------------------------------------- properties

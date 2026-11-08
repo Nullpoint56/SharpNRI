@@ -33,7 +33,7 @@ $perRid = { param($pattern) @($Rids | ForEach-Object { $pattern -f $_, $native[$
 
 $must = @{
     "SharpNRI"                  = @(& $perRid "runtimes/{0}/native/{1}") + @(& $perRid "licenses/{0}/NRI/LICENSE.txt") +
-                                  "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "lib/net11.0/SharpNRI.pdb", "buildTransitive/SharpNRI.targets", "README.md"
+                                  "lib/net11.0/SharpNRI.dll", "lib/net11.0/SharpNRI.xml", "lib/net11.0/SharpNRI.pdb", "buildTransitive/SharpNRI.targets", "buildTransitive/SharpNRI.props", "README.md"
     "SharpNRI.Descs"            = "lib/net11.0/SharpNRI.Descs.dll", "lib/net11.0/SharpNRI.Descs.xml", "lib/net11.0/SharpNRI.Descs.pdb", "README.md"
     "SharpNRI.Testing"          = "lib/net11.0/SharpNRI.Testing.dll", "lib/net11.0/SharpNRI.Testing.xml", "lib/net11.0/SharpNRI.Testing.pdb", "README.md"
     "SharpNRI.Native.Upscalers" = @(& $perRid "runtimes/{0}/native/{1}") + @(& $perRid "runtimes/{0}/upscaler-runtimes.json") + @(& $perRid "licenses/{0}/NRI/LICENSE.txt") +
@@ -76,6 +76,13 @@ foreach ($id in $must.Keys | Sort-Object) {
             $found = @($xml.package.metadata.dependencies.group.dependency | Where-Object id -eq $d.Key)
             if (-not $found) { $failed += "$pkg does not depend on $($d.Key)" }
             foreach ($f in $found) { if ($f.version -ne $d.Value) { $failed += "$pkg depends on $($d.Key) $($f.version), expected $($d.Value)" } }
+        }
+        # SharpNRI.props names the SharpNRI.Descs the build holds the restore to (SharpNRI.targets, SHARPNRI005)
+        $props = $zip.Entries | Where-Object FullName -eq "buildTransitive/SharpNRI.props" | Select-Object -First 1
+        if ($props) {
+            $reader = [System.IO.StreamReader]::new($props.Open()); $propsText = $reader.ReadToEnd(); $reader.Dispose()
+            if ($propsText -notmatch "<SharpNRIDescsDependency>$([regex]::Escape($DescsVersion))</SharpNRIDescsDependency>") { $failed += "$pkg SharpNRI.props does not name SharpNRI.Descs $DescsVersion" }
+            if ($propsText -notmatch "<SharpNRIPackedVersion>$([regex]::Escape($Version))</SharpNRIPackedVersion>") { $failed += "$pkg SharpNRI.props does not name SharpNRI $Version" }
         }
         # The description names exactly the platforms whose library is inside (SharpNRIPackageDescription)
         if ($id -eq "SharpNRI") {

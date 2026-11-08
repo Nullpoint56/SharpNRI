@@ -1,0 +1,62 @@
+D3D12: the pipeline library's expected paths draw no debug-layer warning; a refused cache says why.
+
+DeviceD3D12 already denies CREATEPIPELINELIBRARY_INVALIDLIBRARYBLOB [962], since PipelineCacheD3D12
+answers a blob that is no library with "OUT_OF_DATE". A blob from another driver or adapter takes
+the same path but draws its own WARNING: [963] DRIVERVERSIONMISMATCH ("intended for a different
+driver version") and [964] ADAPTERVERSIONMISMATCH, so a cache saved before a driver update warns at
+the next start, in debug runs only. PipelineD3D12 looks every pipeline up with LoadPipeline /
+LoadComputePipeline before creating and storing it, and each miss draws [971]
+LOADPIPELINE_NAMENOTFOUND ("This library does not have a pipeline stored with name ..."): every
+first creation, so every changed shader in a debug run. The three join the deny list.
+
+"OUT_OF_DATE" itself said nothing of the cause, which CreatePipelineLibrary's result names
+(D3D12_ERROR_DRIVER_VERSION_MISMATCH, D3D12_ERROR_ADAPTER_NOT_FOUND): PipelineCacheD3D12 now reports
+it as an INFO, in every build ("Pipeline cache data refused: made by another driver version
+(result = 0x887E0002)"), and still returns "OUT_OF_DATE".
+
+Measured on v191, Agility 1.620, NVIDIA (2026-11-08): a miss gave [971]; one byte flipped at offsets
+16-23 of a real serialization gave [963], at 28-59 [964], at 0-15 and 24-27 the denied [962], each
+with "OUT_OF_DATE". Main a20efc8f has the same code.
+
+diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
+index 11d6e542..0b95c1c2 100644
+--- a/Source/D3D12/DeviceD3D12.hpp
++++ b/Source/D3D12/DeviceD3D12.hpp
+@@ -633,6 +633,11 @@
+                 D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE,
+                 D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
+                 D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_INVALIDLIBRARYBLOB,
++                // Stale data from another driver or adapter is reported as "OUT_OF_DATE"
++                D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_DRIVERVERSIONMISMATCH,
++                D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_ADAPTERVERSIONMISMATCH,
++                // A pipeline is looked up in the library before it gets created and stored
++                D3D12_MESSAGE_ID_LOADPIPELINE_NAMENOTFOUND,
+ #if NRI_ENABLE_AGILITY_SDK_SUPPORT
+                 // Barrier-only command lists are needed for layout transitions around synchronous host copies.
+                 // Replacing their synchronization scopes with NONE / NO_ACCESS triggers invalid barrier access validation after a copy.
+diff --git a/Source/D3D12/PipelineCacheD3D12.hpp b/Source/D3D12/PipelineCacheD3D12.hpp
+index 6a3b9dbf..f6dd53dc 100644
+--- a/Source/D3D12/PipelineCacheD3D12.hpp
++++ b/Source/D3D12/PipelineCacheD3D12.hpp
+@@ -13,7 +13,20 @@
+     HRESULT hr = m_Device->CreatePipelineLibrary(m_Blob.data(), m_Blob.size(), IID_PPV_ARGS(&m_Library));
+ 
+     // If pipeline cache is supported it may fail only on stale/incompatible data, map to "OUT_OF_DATE"
+-    return FAILED(hr) ? Result::OUT_OF_DATE : Result::SUCCESS;
++    if (FAILED(hr)) {
++        const char* reason = "not a pipeline library";
++
++        if (hr == D3D12_ERROR_DRIVER_VERSION_MISMATCH)
++            reason = "made by another driver version";
++        else if (hr == D3D12_ERROR_ADAPTER_NOT_FOUND)
++            reason = "made on another adapter";
++
++        NRI_REPORT_INFO(&m_Device, "Pipeline cache data refused: %s (result = 0x%08X)", reason, (uint32_t)hr);
++
++        return Result::OUT_OF_DATE;
++    }
++
++    return Result::SUCCESS;
+ }
+ 
+ Result PipelineCacheD3D12::GetData(void* dst, uint64_t& size) const {

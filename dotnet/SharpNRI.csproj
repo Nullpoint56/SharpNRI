@@ -37,6 +37,8 @@
 
   <ItemGroup>
     <AssemblyMetadata Include="NriVersion" Value="$(NriVersion)" />
+    <!-- the SharpNRI.Descs package it depends on exactly; device creation refuses another (Interop/NriVersionCheck.cs) -->
+    <AssemblyMetadata Include="SharpNRIDescsVersion" Value="$(SharpNRIDescsVersion)" />
     <InternalsVisibleTo Include="SharpNRI.Tests" />
   </ItemGroup>
 
@@ -94,7 +96,25 @@
           PackagePath="licenses\$([System.String]::Copy('%(RecursiveDir)').Replace('native\licenses\', '').Replace('native/licenses/', ''))%(Filename)%(Extension)"
           Visible="false" />
     <None Include="$(MSBuildThisFileDirectory)buildTransitive\SharpNRI.targets" Pack="true" PackagePath="buildTransitive\" Visible="false" />
+    <None Include="$(_SharpNRIProps)" Pack="true" PackagePath="buildTransitive\" Visible="false" />
   </ItemGroup>
+
+  <!-- buildTransitive/SharpNRI.props: the SharpNRI.Descs version this package depends on, which SharpNRI.targets holds the restore to (SHARPNRI005) -->
+  <PropertyGroup>
+    <_SharpNRIProps>$(BaseIntermediateOutputPath)SharpNRI.props</_SharpNRIProps>
+  </PropertyGroup>
+  <Target Name="SharpNRIWriteProps" BeforeTargets="Build;_GetPackageFiles">
+    <ItemGroup>
+      <_SharpNRIPropsLine Include="&lt;Project&gt;" />
+      <_SharpNRIPropsLine Include="  &lt;!-- Written by SharpNRI.csproj at pack time --&gt;" />
+      <_SharpNRIPropsLine Include="  &lt;PropertyGroup&gt;" />
+      <_SharpNRIPropsLine Include="    &lt;SharpNRIPackedVersion&gt;$(Version)&lt;/SharpNRIPackedVersion&gt;" />
+      <_SharpNRIPropsLine Include="    &lt;SharpNRIDescsDependency&gt;$(SharpNRIDescsVersion)&lt;/SharpNRIDescsDependency&gt;" />
+      <_SharpNRIPropsLine Include="  &lt;/PropertyGroup&gt;" />
+      <_SharpNRIPropsLine Include="&lt;/Project&gt;" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(_SharpNRIProps)" Lines="@(_SharpNRIPropsLine)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
 
   <!--
     Repository convenience only, never packed: -p:SharpNRIDevPayload=upscalers (or upscalers-dlss)

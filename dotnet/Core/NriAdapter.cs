@@ -78,8 +78,13 @@ public sealed class NriAdapter
         // returns min(count, found).
         var descs = new AdapterDesc[32];
         var count = (uint)descs.Length;
+        Result enumerated;
         fixed (AdapterDesc* p = descs)
-            NriException.Check(NriApi.nriEnumerateAdapters(p, &count, graphicsApis), "nriEnumerateAdapters");
+        {
+            try { enumerated = NriApi.nriEnumerateAdapters(p, &count, graphicsApis); }
+            catch (DllNotFoundException e) { throw NativeLibraryHint.Explain(e); } // the first call into NRI
+        }
+        NriException.Check(enumerated, "nriEnumerateAdapters");
 
         var result = new NriAdapter[count];
         for (var i = 0; i < count; i++) result[i] = new NriAdapter(in descs[i]);

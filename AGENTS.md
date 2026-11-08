@@ -49,7 +49,7 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
-- **State.** Master pins NRI v191 (46c93d79) with twenty-one patches; `next` pins NRI main b90cfb57
+- **State.** Master pins NRI v191 (46c93d79) with twenty-two patches; `next` pins NRI main b90cfb57
   (2026-11-06) with five, 0007, 0013, 0015, 0037 and 0044: upstream took every other one (Patches).
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
@@ -160,7 +160,13 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   dependency), a missing file with `SHARPNRI012`. The targets also set the runtime switch
   `SharpNRI.RequireAgilitySdk`: with it `NriDevice.Create` throws `INVALID_SDK` when
   `AgilitySDK\D3D12Core.dll` is missing instead of falling back to the inbox runtime
-  (`AgilityPathTests`). Microsoft's own targets are in `build/native`, which SDK-style .NET projects
+  (`AgilityPathTests`). **The debug layer comes from the SDK's directory only**: without
+  `d3d12SDKLayers.dll` beside `D3D12Core.dll`, NRI's `D3D12GetDebugInterface` fails and it enables
+  nothing, without a message, also with the system's Graphics Tools layer installed (measured
+  2026-11-07: no `ID3D12InfoQueue`; reported downstream for Release builds, where the package copies no
+  layer). `NriDevice.Create` refuses D3D12 `EnableGraphicsApiValidation` on an Agility path without the
+  file (`NriUnsupportedException` naming `SharpNRIAgilityDebugLayer`, before NRI is called;
+  `AgilityPathTests`); the inbox runtime's layer is the system's and is not checked. Microsoft's own targets are in `build/native`, which SDK-style .NET projects
   never import. No Microsoft file in the package: the licence point under Decisions stands.
 - Base and Upscalers both put `NRI.dll` at the same package path, and NuGet's choice between two
   packages' same-named assets is not to be relied on (beta.2: without `ExcludeAssets="native"` on
@@ -180,10 +186,15 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   application, folders kept (`SharpNRICopyLicenses=false` copies none). `release.yml`'s pack check
   refuses any subfolder under `runtimes/<rid>/native/`; the consume job publishes `-r` and Native AOT
   and checks the layout (`tools/consume`).
-- **A missing NRI library** (`Interop/NativeLibraryHint.cs`, from 1.0.0-beta.3): a
-  `ResolvingUnmanagedDll` handler, which runs only after default probing failed and leaves the
-  assembly's single `DllImport` resolver to applications, throws `DllNotFoundException` naming the
-  file, the RID, the directories looked in and where that platform's library comes from.
+- **A missing NRI library** (`Interop/NativeLibraryHint.cs`, from 1.0.0-beta.3): device creation,
+  the two wrapped forms and adapter enumeration (the calls an application makes into NRI first)
+  catch the runtime's `DllNotFoundException` and throw one naming the file, the RID, the directories
+  looked in and where that platform's library comes from, the runtime's inside (checked with
+  `NRI.dll` deleted, 2026-11-08). The other flat exports (`Nri.*`) throw the runtime's own. SharpNRI
+  registers no `DllImport` resolver (the application's, one per assembly) and no
+  `ResolvingUnmanagedDll` handler: until 191.0.0-beta.4 a handler of ours threw for "NRI", which ends
+  the event's chain, so an application's handler registered after SharpNRI loaded never ran (reported
+  downstream; `VersionCheckTests`, red with that handler).
 - **Trimming and Native AOT** declared (`IsAotCompatible` on `SharpNRI`, `SharpNRI.Descs`,
   `SharpNRI.Testing`; the analyzers run in every build, lint fails on a finding) and run by the
   consume job's AOT publish.
@@ -216,9 +227,9 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   `<repository>` (`PublishRepositoryUrl`); Source Link (in the SDK) maps the PDB's documents to that
   commit on GitHub, the `nri` submodule's to NRI's. The release pack adds
   `ContinuousIntegrationBuild`; `release.yml`'s pack check requires the PDBs and the commit. A PDB beside
-  the DLL, not embedded: `tools/coverage/BoundSurface` reads the file. NRI's native `NRI.pdb` (12.5 MB on
-  win-x64) is not in the packages: `release.yml` attaches it per payload as
-  `SharpNRI-symbols-<base|upscalers>-win-x64-<tag>.zip` (about 3.6 MB), checked to belong to the staged
+  the DLL, not embedded: `tools/coverage/BoundSurface` reads the file. NRI's native `NRI.pdb` (25.3 MB on
+  win-x64 at 191.0.0-beta.4, with the static C runtime) is not in the packages: `release.yml` attaches it
+  per payload as `SharpNRI-symbols-<base|upscalers>-win-x64-<tag>.zip` (6.4 MB), checked to belong to the staged
   `NRI.dll` (same file, its debug directory names `NRI.pdb`). NRI ships no binaries or symbols itself,
   so a release is the only source of symbols matching its `NRI.dll`. `libNRI.so` and `libNRI.dylib` are
   built without debug info, so Linux and macOS have none; they get symbols only when someone asks
@@ -505,6 +516,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0047 vulkan-av1-color-config-unspecified | without `COLOR_DESCRIPTION_PRESENT`, `FillVideoAV1ColorConfig` passes "unspecified" (2) for primaries, transfer and matrix | it copied the desc's values, reserved 0s included, and NVIDIA refused the session parameters (`VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR`; Extensions) |
 | 0048 validation-streamer-optional-constant-buffer-location | `CreateStreamer` validation checks `constantBufferMemoryLocation` only with a non-zero `constantBufferSize` | both are `NriOptional` and no constant buffer is created without a size, yet the defaults were refused (Extensions) |
 | 0049 upscaler-report-vendor-failures | every failed vendor call in upscaler creation (FSR loader missing or incomplete, `ffxCreateContext`, the XeSS calls, NGX initialization and feature creation) and dispatch (`ffxDispatch`, `xessSetExposureMultiplier`, `xessD3D12Execute`, NGX evaluation) reports an ERROR naming the call and its result | creation returned a bare `FAILURE` and a failed dispatch was an `NRI_CHECK`, compiled out of release builds, so an upscale silently did not happen; creation is red without the patch (`UpscalerFailureTests`), no NRI-accepted dispatch the vendors refuse was found (Upscalers and vendor runtimes) |
+| 0050 d3d12-pipeline-library-expected-messages | `DeviceD3D12` denies the debug-layer messages [963] `CREATEPIPELINELIBRARY_DRIVERVERSIONMISMATCH`, [964] `_ADAPTERVERSIONMISMATCH` and [971] `LOADPIPELINE_NAMENOTFOUND`, beside the [962] it already denied; `PipelineCacheD3D12::Create` reports why it refuses data as an INFO ("Pipeline cache data refused: made by another driver version (result = 0x887E0002)"), still `OUT_OF_DATE` | NRI answers a blob from another driver or adapter with `OUT_OF_DATE` and looks every pipeline up before creating it, yet each drew a WARNING: a stale cache after a driver update, and every first creation in a debug run; `OUT_OF_DATE` named no cause (reported downstream; Memory and resources) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -517,7 +529,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all twenty-one do; at main b90cfb57 the five, and 0045-0049 apply there too.
+  all twenty-two do; at main b90cfb57 the five, and 0045-0049 apply there too.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
   fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
@@ -653,7 +665,15 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   wrapped forms) takes the new device through `Adopt`: a table `nriGetInterface` refuses by size, a
   `DeviceDesc::nriVersion` other than SharpNRI's `NriVersion` metadata, or a loaded `SharpNRI.Descs`
   whose `NriVersion` metadata differs destroys the native device (before the bridges) and throws
-  `NriException` `INVALID_SDK` naming both versions and the loaded library's path. A stale `NRI.dll`
+  `NriException` `INVALID_SDK` naming both versions and the loaded library's path. So does a loaded
+  `SharpNRI.Descs` package other than the one SharpNRI depends on (`AssemblyMetadata`
+  `SharpNRIDescsVersion` against the loaded assembly's informational version without `+<commit>`): a
+  direct reference to another version wins the restore with only `NU1608`, and within one NRI version
+  the NRI check passes. The package's `buildTransitive/SharpNRI.targets` fails that build first
+  (`SHARPNRI005`, the resolved version from `project.assets.json` against `SharpNRI.props`, written at
+  pack time; checked by hand 2026-11-07). The constants `Nri.NriVersion` and `NriHeaders.Version` are
+  compiled into callers; `Nri.BindingVersion`, `DescsVersion`, `BindingNriVersion` and
+  `DescsNriVersion` read the loaded assemblies. A stale `NRI.dll`
   of another tag on the load path otherwise misread every renumbered enum silently (v191 renumbered
   `StageBits` / `AccessBits`). Blind on `next` between tags: main keeps its `NRI_VERSION` while enums
   move (Branches). `VersionCheckTests` overrides the expected native or descs version for the
@@ -874,6 +894,20 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   size. Stale or foreign bytes (`PipelineTests`, 4,096 random): `CreatePipelineCache` throws
   `NriException` with `OUT_OF_DATE`, hands nothing back (NRI destroys the half-made object), and the
   allocator balances. NRI never returns `OUT_OF_DATE` with a usable cache.
+  **D3D12 debug-layer warnings on the expected paths (patch 0050).** NRI creates a pipeline by
+  looking it up in the `ID3D12PipelineLibrary` first (`PipelineD3D12.hpp:447`, `:492`), so each
+  miss, every first creation, drew "[971] ID3D12PipelineLibrary::Load*Pipeline: This library does
+  not have a pipeline stored with name ...". A blob from another driver or adapter drew "[963] ...
+  intended for a different driver version" / "[964] ... for a different adapter" before NRI's
+  `OUT_OF_DATE`; NRI's deny list (`DeviceD3D12.hpp`) had only [962], the same refusal of a blob that
+  is no library. Measured 2026-11-08 (Agility 1.620, NVIDIA): one byte flipped in a real
+  serialization gave [962] (filtered) at offsets 0-15 and 24-27, [963] at 16-23, [964] at 28-59,
+  and a usable cache from 60 on. `OUT_OF_DATE` named no cause though `CreatePipelineLibrary`'s result
+  does: the patch also reports it as an INFO in every build ("Pipeline cache data refused: made by
+  another driver version (result = 0x887E0002)"; 0x887E0001 another adapter, 0x80070057 no library).
+  `PipelineTests.D3D12_pipeline_cache_misses_and_stale_blobs_draw_no_debug_layer_warning`: red
+  without the patch ([971], then no INFO), green with it. Reported downstream; not filed (a layer
+  warning plus a message; main a20efc8f denies only [962] and drops the result).
 - **UNORM rounding**: clear `0.1` -> 25 on NVIDIA Vulkan, 26 elsewhere. `TriangleTests` clears
   `(0.2, 0.4, 0.6)` and allows +-1; VK and D3D12 differ at edges, so it logs each SHA-256.
 - **`UploadData`** (`NriQueue.UploadData`): managed records; short data throws `ArgumentException`

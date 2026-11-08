@@ -196,6 +196,52 @@ public sealed class PipelineTests
         Assert.Equal(0L, allocator.Live);
     }
 
+    /// <summary>
+    /// NRI's D3D12 pipeline cache on its expected paths draws no debug-layer warning, and a refused
+    /// cache says why in an INFO (patch 0050).
+    /// Creating a pipeline looks it up in the library first, and every miss drew "[971]
+    /// ID3D12PipelineLibrary::Load*Pipeline: This library does not have a pipeline stored with name
+    /// ..." (each first creation, so every changed shader in a debug run). A library blob from another
+    /// driver or adapter is stale cache data NRI answers with OUT_OF_DATE, and drew "[963] ... intended
+    /// for a different driver version" / "[964] ... for a different adapter"; NRI already filtered
+    /// [962], the same refusal of a blob that is no library at all. The forged blobs flip one byte of a
+    /// real serialization: offsets 16-23 gave [963] and 28-59 [964] on Agility 1.620, NVIDIA
+    /// (measured 2026-11-08, one byte at a time over the first 256). OUT_OF_DATE named no cause; the
+    /// INFO carries CreatePipelineLibrary's: 0x887E0002 (D3D12_ERROR_DRIVER_VERSION_MISMATCH),
+    /// 0x887E0001 (D3D12_ERROR_ADAPTER_NOT_FOUND), 0x80070057 for bytes that are no library.
+    /// </summary>
+    [Fact]
+    public void D3D12_pipeline_cache_misses_and_stale_blobs_draw_no_debug_layer_warning()
+    {
+        var backend = new Backend(GraphicsAPI.D3D12);
+        TestDevice.RequireAvailable(backend);
+        var messages = new List<NriMessage>();
+        using var device = TestDevice.Create(GraphicsAPI.D3D12, messages);
+        Assert.SkipWhen(device.Desc.features.pipelineCache == 0, "D3D12: features.pipelineCache = 0; no pipeline library");
+        using var layout = device.CreatePipelineLayout(FillLayout());
+
+        messages.Clear();
+        byte[] data;
+        using (var empty = device.CreatePipelineCache())
+        using (var miss = CreateFill(device, layout, empty))
+            data = empty.GetData();
+        Assert.DoesNotContain(messages, m => m.Type != Message.INFO);
+
+        // OUT_OF_DATE, and an INFO saying why, release builds included: D3D12's own result
+        // (D3D12_ERROR_DRIVER_VERSION_MISMATCH, D3D12_ERROR_ADAPTER_NOT_FOUND), which NRI dropped
+        foreach (var (offset, reason) in new[] { (16, "another driver version"), (28, "another adapter"), (0, "not a pipeline library") })
+        {
+            var stale = (byte[])data.Clone();
+            stale[offset] ^= 0xFF;
+            messages.Clear();
+            var e = Assert.Throws<NriException>(() => device.CreatePipelineCache(stale).Dispose());
+            foreach (var m in messages) Record($"D3D12, byte {offset} flipped: {m.Type} {m.Text}");
+            Assert.Equal(Result.OUT_OF_DATE, e.Result);
+            Assert.DoesNotContain(messages, m => m.Type != Message.INFO);
+            Assert.Contains(messages, m => m.Text.Contains("Pipeline cache data refused", StringComparison.Ordinal) && m.Text.Contains(reason, StringComparison.Ordinal));
+        }
+    }
+
     [Theory]
     [MemberData(nameof(TestDevice.GpuBackends), MemberType = typeof(TestDevice))]
     public void Compute_pipeline_is_counted_and_disposed(Backend backend)
