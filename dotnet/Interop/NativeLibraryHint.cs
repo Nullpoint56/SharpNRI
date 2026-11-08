@@ -1,29 +1,22 @@
 // L1 — a missing NRI library, explained.
 //
 // NriApi imports library "NRI". When the runtime finds no NRI.dll / libNRI.so / libNRI.dylib, the
-// bare DllNotFoundException says nothing about why or what to do. AssemblyLoadContext's
-// ResolvingUnmanagedDll event fires only after the default probing failed, for the SharpNRI assembly's
-// "NRI" here, and leaves applications free to set their own DllImport resolver (one per assembly,
-// which a resolver of ours would take). It throws DllNotFoundException with what was looked for,
-// where, and where each platform's library comes from.
+// bare DllNotFoundException says nothing about why or what to do. The calls an application makes
+// into NRI first (device creation, the wrapped forms, adapter enumeration) catch it and throw one
+// with what was looked for, where, and where each platform's library comes from, the runtime's
+// inside. SharpNRI registers no resolver and no ResolvingUnmanagedDll handler: the DllImport resolver
+// is the application's (one per assembly), and a handler of ours that answers or throws for "NRI"
+// would keep every handler registered after it from running (it threw until 191.0.0-beta.4).
 
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Runtime.Loader;
 
 namespace SharpNRI.Interop;
 
 internal static class NativeLibraryHint
 {
-    [ModuleInitializer]
-    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2255", Justification = "the handler must be in place before the first P/Invoke into NRI, whichever public call makes it")]
-    internal static void Register() => AssemblyLoadContext.Default.ResolvingUnmanagedDll += Resolve;
-
-    internal static nint Resolve(System.Reflection.Assembly assembly, string libraryName)
-    {
-        if (assembly != typeof(NativeLibraryHint).Assembly || libraryName != "NRI") return 0;
-        throw new DllNotFoundException(Describe(RuntimeInformation.RuntimeIdentifier, AppContext.BaseDirectory));
-    }
+    /// <summary>The runtime's exception for NRI's library, explained; the original inside.</summary>
+    internal static DllNotFoundException Explain(DllNotFoundException e) =>
+        new($"{Describe(RuntimeInformation.RuntimeIdentifier, AppContext.BaseDirectory)} ({e.Message})", e);
 
     internal static string Describe(string rid, string baseDirectory)
     {

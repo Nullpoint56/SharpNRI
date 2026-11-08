@@ -118,7 +118,9 @@ public sealed unsafe partial class NriDevice : NriObject
                 };
 
                 Device* handle = null;
-                var result = NriApi.nriCreateDevice(&desc, &handle);
+                Result result;
+                try { result = NriApi.nriCreateDevice(&desc, &handle); }
+                catch (DllNotFoundException e) { throw NativeLibraryHint.Explain(e); } // the first call into NRI
                 if (result != Result.SUCCESS || handle is null)
                 {
                     throw new NriException(result, "nriCreateDevice", recorder.LastError);

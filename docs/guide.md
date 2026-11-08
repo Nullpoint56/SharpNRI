@@ -74,8 +74,11 @@ headers do not say. NRI v191.
 - Licences: each package's build targets copy the notices of what its native library contains to
   `licenses/<package>/<rid>/` beside the application (a RID-specific build or publish: its RID's; a
   portable one: every packed RID's). `<SharpNRICopyLicenses>false</SharpNRICopyLicenses>` copies none.
-- A missing native library is a `DllNotFoundException` that names the file, the RID, where it was
-  looked for and where that platform's library comes from.
+- A missing native library is a `DllNotFoundException` from device creation or adapter enumeration
+  that names the file, the RID, where it was looked for and where that platform's library comes from.
+  SharpNRI leaves native library resolution to you: it sets no `DllImport` resolver and handles no
+  `ResolvingUnmanagedDll` event, so your own resolver or handler for "NRI" runs whenever it was
+  registered (up to 191.0.0-beta.4, SharpNRI's handler threw for "NRI" and ended the chain).
 - Trimming and Native AOT: declared (`IsAotCompatible`) and published by the release's consume job.
 - `Nri.NriVersion` is the NRI version the binding was built for, `NriHeaders.Version` the one
   `SharpNRI.Descs` was generated from. Both are constants, compiled into your assembly: they name what
@@ -636,10 +639,17 @@ using var buffer = device.CreateSharedBuffer(new BufferDesc { size = 4096, usage
 using var bufferHandle = buffer.GetSharedHandle();
 using var sharedFence = device.CreateSharedFence();
 using var fenceHandle = sharedFence.GetSharedHandle();
-using var binary = device.CreateSharedBinaryFence();                  // Vulkan only: binary semaphore
-using var binaryHandle = binary.GetSharedHandle();
-var ok = device.Desc.features.sharedResources != 0 && device.Desc.features.sharedFences != 0;
+// A binary semaphore exists on Vulkan only, and features.sharedFences cannot tell (D3D12 reports 1):
+// probe with the Try form, which answers false where NRI cannot export one
+if (device.TryCreateSharedBinaryFence(out var binary))
+{
+    using (binary)
+    using (var binaryHandle = binary.GetSharedHandle()) { /* hand it to the compositor */ }
+}
 ```
+
+`features.sharedResources` and `features.sharedFences` say that some resource or fence type exports,
+not which one: for a given object, the Try forms are the answer (below).
 
 The same thing through the descs: `BufferDesc.shared` / `TextureDesc.shared` set to 1 with
 `CreateCommittedBuffer` / `CreateCommittedTexture` in `MemoryLocation.DEVICE`, and
@@ -1090,6 +1100,7 @@ fixture.ThrowIfErrors();     // NriValidationException listing every error messa
 | D3D12 micromaps | debug error 1162 at creation on v191 (the prebuild; patch 0046 fixes it). A `{MICROMAP_WRITE, MICROMAP}` before side closes (NRI main 1dc13b2; patch 0030 on master); before the fix NRI added postbuild-info sync and `Close` failed | RayTracing |
 | Index-less OMM on Vulkan | VUID-...-pInfos-10904 (likely false positive) | RayTracing |
 | `features.sharedFences` 0 | lavapipe (no external semaphore fd), MoltenVK (no fd handles; `sharedResources` 0 too), any Vulkan device that exports no semaphore type | SharedHandles |
+| `CreateSharedBinaryFence` throws `NriUnsupportedException` though `features.sharedFences` is 1 | D3D12 has no binary fences; the bit means any fence type exports (also on Vulkan, one type may export and not the other): use `TryCreateSharedBinaryFence` | SharedHandles |
 | D3D11 opening a D3D12 shared texture | `E_INVALIDARG` (TYPELESS) | SharedHandles |
 | Two exports of one object | two handles: NRI exports once and duplicates per call (a raw repeated export returns the same NT handle on NVIDIA) | SharedHandles |
 | `IsUpscalerSupported` true, DLL absent | `CreateUpscaler` throws naming the file | Upscaler |

@@ -186,10 +186,15 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   application, folders kept (`SharpNRICopyLicenses=false` copies none). `release.yml`'s pack check
   refuses any subfolder under `runtimes/<rid>/native/`; the consume job publishes `-r` and Native AOT
   and checks the layout (`tools/consume`).
-- **A missing NRI library** (`Interop/NativeLibraryHint.cs`, from 1.0.0-beta.3): a
-  `ResolvingUnmanagedDll` handler, which runs only after default probing failed and leaves the
-  assembly's single `DllImport` resolver to applications, throws `DllNotFoundException` naming the
-  file, the RID, the directories looked in and where that platform's library comes from.
+- **A missing NRI library** (`Interop/NativeLibraryHint.cs`, from 1.0.0-beta.3): device creation,
+  the two wrapped forms and adapter enumeration (the calls an application makes into NRI first)
+  catch the runtime's `DllNotFoundException` and throw one naming the file, the RID, the directories
+  looked in and where that platform's library comes from, the runtime's inside (checked with
+  `NRI.dll` deleted, 2026-11-08). The other flat exports (`Nri.*`) throw the runtime's own. SharpNRI
+  registers no `DllImport` resolver (the application's, one per assembly) and no
+  `ResolvingUnmanagedDll` handler: until 191.0.0-beta.4 a handler of ours threw for "NRI", which ends
+  the event's chain, so an application's handler registered after SharpNRI loaded never ran (reported
+  downstream; `VersionCheckTests`, red with that handler).
 - **Trimming and Native AOT** declared (`IsAotCompatible` on `SharpNRI`, `SharpNRI.Descs`,
   `SharpNRI.Testing`; the analyzers run in every build, lint fails on a finding) and run by the
   consume job's AOT publish.

@@ -23,8 +23,8 @@ public sealed class VersionCheckTests
 
     /// <summary>
     /// A missing NRI library is explained (Interop/NativeLibraryHint.cs): the file, the RID, where it
-    /// was looked for and where that platform's library comes from. The handler's throw reaching the
-    /// caller was checked by an application with NRI.dll deleted (2026-11-07); one cannot be removed
+    /// was looked for and where that platform's library comes from. Device creation throwing it was
+    /// checked with NRI.dll deleted from a copy of the test output (2026-11-08); it cannot be removed
     /// from this process.
     /// </summary>
     [Theory]
@@ -41,17 +41,70 @@ public sealed class VersionCheckTests
     }
 
     /// <summary>
-    /// The handler answers only SharpNRI's own "NRI": it throws the explained DllNotFoundException
-    /// there and answers 0 (default probing's failure stands) for any other assembly or library.
+    /// An application's own ResolvingUnmanagedDll handler is asked for SharpNRI's "NRI" whenever it was
+    /// registered: SharpNRI registers no handler that could answer first, or throw and end the chain
+    /// (until 191.0.0-beta.4 its handler threw, so a handler registered after SharpNRI loaded never ran;
+    /// reported downstream). Resolution of "NRI" is forced to fail by searching System32 only, in a
+    /// child process: once NRI.dll is loaded, Windows answers the bare name with the loaded module.
     /// </summary>
     [Fact]
-    public void The_missing_library_handler_answers_only_SharpNRIs_NRI_import()
+    public void An_applications_unmanaged_library_handler_registered_after_SharpNRI_is_asked_for_NRI()
     {
-        var sharpNri = typeof(NriDevice).Assembly;
-        var e = Assert.Throws<DllNotFoundException>(() => NativeLibraryHint.Resolve(sharpNri, "NRI"));
+        if (!OperatingSystem.IsWindows()) Assert.Skip("the forced failure searches System32: Windows only");
+        var self = Environment.ProcessPath!;
+        var start = new System.Diagnostics.ProcessStartInfo(self) { RedirectStandardOutput = true, UseShellExecute = false };
+        if (Path.GetFileNameWithoutExtension(self).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
+            start.ArgumentList.Add(System.Reflection.Assembly.GetEntryAssembly()!.Location);
+        start.Environment["SHARPNRI_TEST_CHILD"] = ChildResolverChain;
+        using var child = System.Diagnostics.Process.Start(start)!;
+        var output = child.StandardOutput.ReadToEnd();
+        Assert.True(child.WaitForExit(GpuWork.GpuTimeout), "the child did not finish");
+        Assert.True(child.ExitCode == 0, $"the {ChildResolverChain} child exited with {child.ExitCode}: {output}");
+        Assert.Contains("RESULT asked for NRI", output, StringComparison.Ordinal);
+    }
+
+    private const string ChildResolverChain = "native-resolver-chain";
+
+    [System.Runtime.CompilerServices.ModuleInitializer]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "CA2255", Justification = "the child mode must run before xunit's entry point")]
+    internal static void RunResolverChainChildIfAsked()
+    {
+        if (Environment.GetEnvironmentVariable("SHARPNRI_TEST_CHILD") != ChildResolverChain) return;
+        var code = 1;
+        try
+        {
+            var sharpNri = typeof(NriDevice).Assembly;
+            _ = Nri.BindingVersion; // SharpNRI loaded, its module initializer run; NRI.dll not loaded
+            var asked = false;
+            System.Runtime.Loader.AssemblyLoadContext.Default.ResolvingUnmanagedDll += (assembly, name) =>
+            {
+                if (assembly == sharpNri && name == "NRI") asked = true;
+                return 0;
+            };
+            var loaded = System.Runtime.InteropServices.NativeLibrary.TryLoad("NRI", sharpNri, System.Runtime.InteropServices.DllImportSearchPath.System32, out _);
+            Console.WriteLine(loaded ? "FAIL NRI.dll was found in System32" : asked ? "RESULT asked for NRI" : "FAIL the later handler was not asked");
+            code = !loaded && asked ? 0 : 1;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("FAIL " + e.ToString().ReplaceLineEndings(" / "));
+        }
+        Console.Out.Flush();
+        Environment.Exit(code);
+    }
+
+    /// <summary>
+    /// A missing NRI library reaching device creation or adapter enumeration is explained there (the
+    /// file, the RID, where it was looked for, where it comes from), the runtime's exception inside.
+    /// </summary>
+    [Fact]
+    public void A_missing_NRI_library_is_explained_with_the_runtimes_exception_inside()
+    {
+        var original = new DllNotFoundException("Unable to load DLL 'NRI' or one of its dependencies");
+        var e = NativeLibraryHint.Explain(original);
         Assert.StartsWith("SharpNRI could not load the NRI native library", e.Message, StringComparison.Ordinal);
-        Assert.Equal(0, NativeLibraryHint.Resolve(typeof(VersionCheckTests).Assembly, "NRI"));
-        Assert.Equal(0, NativeLibraryHint.Resolve(sharpNri, "vulkan-1"));
+        Assert.Contains(original.Message, e.Message, StringComparison.Ordinal);
+        Assert.Same(original, e.InnerException);
     }
 
     /// <summary>A SharpNRI.Descs of another NRI version fails creation like a native library of one, naming both, and leaves nothing alive.</summary>
