@@ -516,7 +516,7 @@ upstream took the fix (git log, `docs/upstream.md`).
 | 0047 vulkan-av1-color-config-unspecified | without `COLOR_DESCRIPTION_PRESENT`, `FillVideoAV1ColorConfig` passes "unspecified" (2) for primaries, transfer and matrix | it copied the desc's values, reserved 0s included, and NVIDIA refused the session parameters (`VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR`; Extensions) |
 | 0048 validation-streamer-optional-constant-buffer-location | `CreateStreamer` validation checks `constantBufferMemoryLocation` only with a non-zero `constantBufferSize` | both are `NriOptional` and no constant buffer is created without a size, yet the defaults were refused (Extensions) |
 | 0049 upscaler-report-vendor-failures | every failed vendor call in upscaler creation (FSR loader missing or incomplete, `ffxCreateContext`, the XeSS calls, NGX initialization and feature creation) and dispatch (`ffxDispatch`, `xessSetExposureMultiplier`, `xessD3D12Execute`, NGX evaluation) reports an ERROR naming the call and its result | creation returned a bare `FAILURE` and a failed dispatch was an `NRI_CHECK`, compiled out of release builds, so an upscale silently did not happen; creation is red without the patch (`UpscalerFailureTests`), no NRI-accepted dispatch the vendors refuse was found (Upscalers and vendor runtimes) |
-| 0050 d3d12-pipeline-library-expected-messages | `DeviceD3D12` denies the debug-layer messages [963] `CREATEPIPELINELIBRARY_DRIVERVERSIONMISMATCH`, [964] `_ADAPTERVERSIONMISMATCH` and [971] `LOADPIPELINE_NAMENOTFOUND`, beside the [962] it already denied | NRI answers a blob from another driver or adapter with `OUT_OF_DATE` and looks every pipeline up before creating it, yet each drew a WARNING: a stale cache after a driver update, and every first creation in a debug run (reported downstream; Memory and resources) |
+| 0050 d3d12-pipeline-library-expected-messages | `DeviceD3D12` denies the debug-layer messages [963] `CREATEPIPELINELIBRARY_DRIVERVERSIONMISMATCH`, [964] `_ADAPTERVERSIONMISMATCH` and [971] `LOADPIPELINE_NAMENOTFOUND`, beside the [962] it already denied; `PipelineCacheD3D12::Create` reports why it refuses data as an INFO ("Pipeline cache data refused: made by another driver version (result = 0x887E0002)"), still `OUT_OF_DATE` | NRI answers a blob from another driver or adapter with `OUT_OF_DATE` and looks every pipeline up before creating it, yet each drew a WARNING: a stale cache after a driver update, and every first creation in a debug run; `OUT_OF_DATE` named no cause (reported downstream; Memory and resources) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
   patch changes L0) apply the set in name order, skipping patches already applied. That test is a
@@ -902,9 +902,12 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   `OUT_OF_DATE`; NRI's deny list (`DeviceD3D12.hpp`) had only [962], the same refusal of a blob that
   is no library. Measured 2026-11-08 (Agility 1.620, NVIDIA): one byte flipped in a real
   serialization gave [962] (filtered) at offsets 0-15 and 24-27, [963] at 16-23, [964] at 28-59,
-  and a usable cache from 60 on. `PipelineTests.D3D12_pipeline_cache_misses_and_stale_blobs_draw_no_debug_layer_warning`:
-  red without the patch ([971]), green with it. Reported downstream; a layer warning, so not filed
-  (main a20efc8f denies only [962]).
+  and a usable cache from 60 on. `OUT_OF_DATE` named no cause though `CreatePipelineLibrary`'s result
+  does: the patch also reports it as an INFO in every build ("Pipeline cache data refused: made by
+  another driver version (result = 0x887E0002)"; 0x887E0001 another adapter, 0x80070057 no library).
+  `PipelineTests.D3D12_pipeline_cache_misses_and_stale_blobs_draw_no_debug_layer_warning`: red
+  without the patch ([971], then no INFO), green with it. Reported downstream; not filed (a layer
+  warning plus a message; main a20efc8f denies only [962] and drops the result).
 - **UNORM rounding**: clear `0.1` -> 25 on NVIDIA Vulkan, 26 elsewhere. `TriangleTests` clears
   `(0.2, 0.4, 0.6)` and allows +-1; VK and D3D12 differ at edges, so it logs each SHA-256.
 - **`UploadData`** (`NriQueue.UploadData`): managed records; short data throws `ArgumentException`

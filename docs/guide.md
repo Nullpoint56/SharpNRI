@@ -335,10 +335,11 @@ queue.UploadData(
   (`samplerMipLodBias = false`, VUID-VkSamplerCreateInfo-samplerMipLodBias-04467).
 - `device.CreatePipelineCache(bytes)`: a cache rebuilt from its own bytes reports the same size.
   Stale or foreign bytes throw `NriException` with `Result.OUT_OF_DATE` and create nothing (no
-  leak, measured); catch it and create an empty cache. On D3D12 with the debug layer neither path
-  warns: a cache from another driver or adapter (a driver update) and a pipeline not yet in the cache
-  (its first creation, so any changed shader) drew debug-layer warnings [963], [964] and [971] from
-  NRI's own lookups before patch 0050.
+  leak, measured); catch it and create an empty cache. On D3D12 the message callback gets an INFO
+  with the cause: "Pipeline cache data refused: made by another driver version (result = 0x887E0002)"
+  (a driver update), "made on another adapter", or "not a pipeline library". With the debug layer,
+  neither that path nor a pipeline not yet in the cache (its first creation, so any changed shader)
+  warns; before patch 0050 they drew [963], [964] and [971] from NRI's own lookups.
 
 - An `EXCLUSIVE` texture (`TextureDesc.sharingMode`) is created with no queue family indices
   (patch 0013). Upstream passes every active family's index, one per family `GetQueue` has
