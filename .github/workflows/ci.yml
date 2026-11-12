@@ -14,8 +14,9 @@ name: ci
 #     cannot change a result skips every platform job.
 #   - The native payload is cached under a key of its inputs and rebuilt only when one of them
 #     changes. A rebuilt payload is saved before the tests run, so a red test run keeps it.
-#   - Edits that cannot change a result (Markdown, docs/, the other workflows, tools/consume, the
-#     interop generator) start no run on master. regen.yml checks the interop layer.
+#   - Edits that cannot change a result (Markdown, docs/, the other workflows, every tool no job here runs:
+#     the local, release, generator and coverage ones) start no run on master and skip every platform job
+#     on a branch; the gate warns when a tool is in neither of its lists. regen.yml checks the interop layer.
 #   - Superseded runs are cancelled. Timeouts sit a few times above the slowest measured job, so a
 #     hang costs minutes, not an hour.
 #   - macOS is opt-in (hosted macOS arm64 runners are often unavailable for long stretches): a
@@ -25,17 +26,29 @@ name: ci
 on:
   push:
     branches: [master]
-    paths-ignore:
+    paths-ignore:   # = $noResult in tools/ci/ci-gate.ps1, which checks that the two agree
       - "**.md"
       - "docs/**"
+      - ".idea/**"
       - ".github/workflows/release.yml"
       - ".github/workflows/regen.yml"
       - ".github/workflows/coverage.yml"
       - ".github/workflows/checks.yml"
       - "tools/consume/**"
       - "tools/generate-native.ps1"
+      - "tools/generate-native-docs.ps1"
       - "tools/coverage.ps1"
       - "tools/coverage/**"
+      - "tools/check.ps1"
+      - "tools/check-docs.ps1"
+      - "tools/upscalers.ps1"
+      - "tools/compile-test-shaders.ps1"
+      - "tools/apidiff/**"
+      - "tools/ci/api-changes.ps1"
+      - "tools/ci/check-packages.ps1"
+      - "tools/ci/release-body.ps1"
+      - "tools/ci/upscaler-runtimes.ps1"
+      - "tools/ci/verify-linux.sh"
   workflow_dispatch:
     inputs:
       macos:
