@@ -95,7 +95,7 @@ L0  dotnet/Native/       ClangSharp output. Never referenced above L1 except des
 - L1 does four things a generator cannot: `InterfaceTable.Acquire<T>` (size check; `UNSUPPORTED` ->
   `NriUnsupportedException`, a capability answer); `Result` -> `NriException` with the call name and
   the error text reported on the calling thread since the previous check there (`DEVICE_LOST`,
-  `UNSUPPORTED` get own types; Device creation and callbacks); `[UnmanagedCallersOnly]` thunks for
+  `UNSUPPORTED` get own types, `NriExternalException` for `EXT_ERROR`; Device creation and callbacks); `[UnmanagedCallersOnly]` thunks for
   `CallbackInterface` and `AllocationCallbacks` recovering the receiver from a `GCHandle` in
   `userArg` (no managed exception crosses a native frame: a throwing handler loses that message, a
   throwing allocator returns null; bridges outlive the native device until `nriDestroyDevice`

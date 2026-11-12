@@ -146,6 +146,11 @@ public sealed class UpscalerFailureTests(ITestOutputHelper output)
                     Console.WriteLine($"FAIL {api} {type}: {result} with no message saying why");
                     failed = true;
                 }
+                if (result == Result.EXT_ERROR && NriException.For(result, "CreateUpscaler") is not NriExternalException)
+                {
+                    Console.WriteLine($"FAIL {api} {type}: EXT_ERROR is not mapped to NriExternalException");
+                    failed = true;
+                }
                 if (result == Result.FAILURE || (type == UpscalerType.FSR && result != Result.EXT_ERROR))
                 {
                     Console.WriteLine($"FAIL {api} {type}: {result}, expected EXT_ERROR for a missing vendor library{(type == UpscalerType.FSR ? "" : " or the vendor's mapped result")}");

@@ -169,7 +169,7 @@ ref readonly DeviceDesc caps = ref device.Desc;
 |---|---|
 | `NriDeviceOptions` | mirrors `DeviceCreationDesc` field for field |
 | `QueueFamilies` | empty means one graphics queue. Request every family up front: NRI trims the device's queue counts to what was created, so `Video` is `UNSUPPORTED` unless `VIDEO_DECODE` / `VIDEO_ENCODE` were requested |
-| `MessageHandler` | receives NRI and validation-layer messages. A throwing handler loses that one message. An `NriException` (and `NriDeviceLostException`, `NriUnsupportedException`) carries the last error text reported on its own thread since the binding last checked a result there: the failing call's own, or that of a refused `Cmd*` before it (those return nothing, so nothing checks them); never another thread's, and none when nothing was reported; `device.LastError` holds the device's last error text, from any thread. A Khronos layer message arrives as `[id] name: text` (patch 0015 adds the name, e.g. `BestPractices-vkBindImageMemory-small-dedicated-allocation`; upstream forwards the number and the text, and current layers no longer embed the name in the text) |
+| `MessageHandler` | receives NRI and validation-layer messages. A throwing handler loses that one message. An `NriException` (and `NriDeviceLostException`, `NriUnsupportedException`, `NriExternalException`) carries the last error text reported on its own thread since the binding last checked a result there: the failing call's own, or that of a refused `Cmd*` before it (those return nothing, so nothing checks them); never another thread's, and none when nothing was reported; `device.LastError` holds the device's last error text, from any thread. A Khronos layer message arrives as `[id] name: text` (patch 0015 adds the name, e.g. `BestPractices-vkBindImageMemory-small-dedicated-allocation`; upstream forwards the number and the text, and current layers no longer embed the name in the text) |
 | `BreakOnError` | breaks only when a debugger is attached; otherwise errors never terminate the process. Also decides the D3D12 debug layer's own break (`SetBreakOnSeverity` for ERROR and CORRUPTION), evaluated at device creation: on only with `BreakOnError` and a debugger attached then. Otherwise a D3D12 debug-layer error arrives as an error message, `[id] text` |
 | `EnableD3D12GpuBasedValidation` | D3D12 GPU-based validation: checks descriptors and resource states while shaders run. Slow; needs `EnableGraphicsApiValidation`. Process-global and never switched off: every D3D12 device created later in the process has it |
 | `Allocator` | `INriAllocator` for NRI's own host allocations; `NriCountingAllocator` counts them. It must not fail: a null (a throwing allocator returns one) fails an NRI object's creation with `OUT_OF_MEMORY`, but NRI's containers allocate through it too and crash on one, device creation's first allocation among them |
@@ -741,9 +741,9 @@ if (up.IsUpscalerSupported(UpscalerType.FSR) && up.IsRuntimeInstalled(UpscalerTy
   makes both hosts work. Put the files beside your app's assembly.
 - XeSS: D3D12 only. FSR: D3D12 and Vulkan. NIS: everywhere the Upscalers build runs. DLSR and
   DLRR (a `-WithDlss` build): NVIDIA adapters with ray tracing, both backends.
-- A failed vendor call reports an ERROR through your message handler. A failed creation throws `NriException`
-  with `Result.EXT_ERROR` (NRI's result for a third-party failure, which never calls
-  `AbortExecution`), or `INVALID_ARGUMENT`, `UNSUPPORTED` or `OUT_OF_MEMORY` when the vendor's code
+- A failed vendor call reports an ERROR through your message handler. A failed creation throws `NriExternalException`
+  (`Result.EXT_ERROR`, NRI's result for a third-party failure, which never calls
+  `AbortExecution`; catch it to fall back), or `NriUnsupportedException` or an `NriException` with `INVALID_ARGUMENT` or `OUT_OF_MEMORY` when the vendor's code
   says so; never a bare `FAILURE`. A failed dispatch returns nothing (a command). At creation the message
   names the missing FSR loader DLL or the NGX result, at dispatch the vendor call and its result
   (`ffxDispatch`, `xessD3D12Execute`, NGX's evaluation). DLSS may create without its DLL
