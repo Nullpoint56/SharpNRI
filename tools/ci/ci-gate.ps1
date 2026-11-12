@@ -119,10 +119,32 @@ switch ($EventName) {
 }
 
 # ------------------------------------------------------------------------------ docs-only branches
-# Paths that cannot change a result; ci.yml's push trigger ignores the same list.
-$noResult = '*.md', 'docs/*', '.github/workflows/release.yml', '.github/workflows/regen.yml',
+# Paths that cannot change a result; ci.yml's push trigger ignores the same list (checked below).
+# Besides docs and the other workflows: every tool no ci.yml job runs, i.e. the local ones
+# (check.ps1, check-docs.ps1, upscalers.ps1, compile-test-shaders.ps1, whose output is committed),
+# the release's (release.yml: api-changes, check-packages, release-body, upscaler-runtimes, apidiff),
+# the generator (regen.yml) and the coverage tool (coverage.yml).
+$noResult = '*.md', 'docs/*', '.idea/*', '.github/workflows/release.yml', '.github/workflows/regen.yml',
             '.github/workflows/coverage.yml', '.github/workflows/checks.yml', 'tools/consume/*', 'tools/generate-native.ps1',
-            'tools/coverage.ps1', 'tools/coverage/*'
+            'tools/generate-native-docs.ps1', 'tools/coverage.ps1', 'tools/coverage/*', 'tools/check.ps1', 'tools/check-docs.ps1',
+            'tools/upscalers.ps1', 'tools/compile-test-shaders.ps1', 'tools/apidiff/*', 'tools/ci/api-changes.ps1',
+            'tools/ci/check-packages.ps1', 'tools/ci/release-body.ps1', 'tools/ci/upscaler-runtimes.ps1', 'tools/ci/verify-linux.sh'
+# The tools ci.yml's jobs do run (directly, or build-native.ps1's CMake include): a change runs the jobs
+$ciTools = 'tools/build-native.ps1', 'tools/cmake/*', 'tools/ci/ci-gate.ps1', 'tools/ci/apply-patches.ps1',
+           'tools/ci/descs-version.ps1', 'tools/ci/fetch-vulkan-layer.sh', 'tools/ci/fetch-vulkan-windows.ps1'
+
+# Keeping the two lists true: a tool in neither runs every job (the safe side) and is named here, and
+# ci.yml's paths-ignore must be this list
+$notes = @()
+$unclassified = @(git ls-tree -r --name-only $Sha -- tools | Where-Object { $f = $_; -not (@($noResult) + @($ciTools) | Where-Object { $f -like $_ }) })
+if ($unclassified) { $notes += "tools in neither ci-gate.ps1 list (treated as changing a result; add each to `$noResult or `$ciTools): $($unclassified -join ', ')" }
+$ciYml = git show "${Sha}:.github/workflows/ci.yml"
+$ignored = @(($ciYml -join "`n") -split "`n" | Select-String -Pattern '^\s+-\s+"([^"]+)"\s*$' | ForEach-Object { $_.Matches[0].Groups[1].Value -replace '\*\*', '*' })
+if (Compare-Object ($ignored | Sort-Object -Unique) ($noResult | Sort-Object -Unique)) {
+    $notes += "ci.yml's push paths-ignore differs from ci-gate.ps1's `$noResult: $((Compare-Object ($ignored | Sort-Object -Unique) ($noResult | Sort-Object -Unique) | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" }) -join '; ')"
+}
+foreach ($n in $notes) { Write-Warning $n; if ($env:GITHUB_ACTIONS) { Write-Host "::warning title=ci gate::$n" } }
+
 if ($EventName -eq 'workflow_dispatch' -and $Ref -and $Ref -ne 'refs/heads/master') {
     try {
         $compare = Get-Api "compare/master...$Sha"
@@ -140,7 +162,7 @@ if ($EventName -eq 'workflow_dispatch' -and $Ref -and $Ref -ne 'refs/heads/maste
 
 # ------------------------------------------------------------------------------ outputs
 $lines = @("key=$key") + @($modes.Keys | ForEach-Object { "$_=$($modes[$_])" })
-$summary = @("### ci gate", "", $reason, "", "| Job | Mode | Payload cache key |", "|---|---|---|") +
+$summary = @("### ci gate", "", $reason, "") + @($notes | ForEach-Object { "> $_" }) + @("", "| Job | Mode | Payload cache key |", "|---|---|---|") +
     @($platforms.Keys | ForEach-Object { "| $($platforms[$_]) | $($modes[$_]) | native-$($platforms[$_])-$key |" }) +
     @("", "Key inputs:", "", '```') + $ids + '```'
 if ($env:GITHUB_OUTPUT) { $lines | Add-Content -Path $env:GITHUB_OUTPUT -Encoding utf8 } else { $lines | Write-Output }
