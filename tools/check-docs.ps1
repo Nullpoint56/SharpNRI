@@ -9,7 +9,7 @@
       version (the NuGet badge, `dotnet add package ... --prerelease`) instead of naming one;
     - a user-facing page, patches/README.md or the shipped and tool code names a patch that is not
       in patches/ (a patch upstream took is NRI's behaviour now, described without the number);
-      AGENTS.md, docs/upstream.md, docs/releases/ and the tests keep that history on purpose;
+      AGENTS.md and docs/agents/, docs/upstream.md, docs/releases/ and the tests keep that history on purpose;
     - THIRD-PARTY-NOTICES.md lists another version of a component than the pinned NRI's
       CMakeLists.txt fetches, or another Agility SDK than Directory.Build.props.
 
