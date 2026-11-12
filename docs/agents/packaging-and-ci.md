@@ -259,9 +259,18 @@ minutes and a Windows minute about two. That shapes the runs:
   `ci.yml`, the same on every OS and line ending. Saved right after a build, before the tests, so a
   red run keeps it. A restored payload gets `tools/ci/apply-patches.ps1`, because `NativeAbiTests`
   compile against the patched `nri/Include`.
-- **`paths-ignore`** (push to master): Markdown, `docs/`, the other workflows, `tools/consume/`, the
-  generator, the coverage tool. A docs-only branch still needs its run started, which then skips
-  every platform job, so `gate`, `win-x64` and `linux-x64` report and the required checks pass.
+- **`paths-ignore`** (push to master) = the gate's `$noResult` (a branch run): Markdown, `docs/`,
+  `.idea/`, the other workflows, and every tool no `ci.yml` job runs: the local ones (`check.ps1`,
+  `check-docs.ps1`, `upscalers.ps1`, `compile-test-shaders.ps1`, `ci/verify-linux.sh`), the release's
+  (`ci/api-changes.ps1`, `ci/check-packages.ps1`, `ci/release-body.ps1`, `ci/upscaler-runtimes.ps1`,
+  `apidiff/`), the generator, the coverage tool, `consume/`. The tools the jobs run are the gate's
+  `$ciTools` (`build-native.ps1`, `cmake/`, `ci/ci-gate.ps1`, `ci/apply-patches.ps1`,
+  `ci/descs-version.ps1`, `ci/fetch-vulkan-*`). The gate warns (an annotation on the run) when a file
+  under `tools/` is in neither list, and treats it as changing a result, and when `ci.yml`'s list
+  differs from its own (owner, 2026-11-12: #61, docs plus a comment in `check-docs.ps1`, ran
+  everything). A new tool goes into one of the two lists in the same commit. A docs-only branch still
+  needs its run started, which then skips every platform job, so `gate`, `win-x64` and `linux-x64`
+  report and the required checks pass.
 - **Timeouts**: gate 5, Windows 25, Linux 20, macOS 15 minutes; release jobs 10 to 45 (a few times
   the slowest measured job, so a hung job cannot run for an hour).
 - **Releases are started by hand, from master only** (owner, 2026-11-06): Actions > release > Run
