@@ -11,10 +11,10 @@ graphics, compute and copy queues fetched and TextureDesc::sharingMode = EXCLUSI
 This passes the indices for VK_SHARING_MODE_CONCURRENT only.
 
 diff --git a/Source/VK/DeviceVK.hpp b/Source/VK/DeviceVK.hpp
-index bbf91bcb..e1413002 100644
+index 53f3a4d9..b041cff1 100644
 --- a/Source/VK/DeviceVK.hpp
 +++ b/Source/VK/DeviceVK.hpp
-@@ -1813,8 +1813,8 @@ void DeviceVK::FillCreateInfo(const TextureDesc& textureDesc, VkImageCreateInfo&
+@@ -1834,8 +1834,8 @@ void DeviceVK::FillCreateInfo(const TextureDesc& textureDesc, VkImageCreateInfo&
      if ((textureDesc.usage & TextureUsageBits::HOST_TRANSFER) && m_IsSupported.hostImageCopy)
          info.usage |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
      info.sharingMode = (m_NumActiveFamilyIndices <= 1 || textureDesc.sharingMode == SharingMode::EXCLUSIVE) ? VK_SHARING_MODE_EXCLUSIVE : VK_SHARING_MODE_CONCURRENT;

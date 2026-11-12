@@ -5,8 +5,8 @@ This file holds the report text for each and records what was filed, where, and 
 resolved it. The sections below the table are our drafts and the measurements behind them; the
 linked issues and pull requests hold the text as posted.
 
-**This is the live copy, on the `next` branch.** At a tag both branches carry the same copy:
-since v191 (2026-11-03) master's copy is this one as it stood at the adoption. Line numbers and
+**At a tag both branches carry the same copy** (since v192 a tag is adopted on master directly);
+between tags the live copy is `next`'s. Line numbers and
 measurements here are against the NRI commit `next` pins, and against v190 where they say so.
 
 2026-11-03: NRI v191 (46c93d79, 2026-10-30) carries every filed report: #295-#301 and #302-#306, and
@@ -14,6 +14,46 @@ PR #294 (our 0002); #302 and #306 were fixed in another shape. Master and `next`
 with eleven patches: 0001, 0007, 0012, 0013, 0015, 0017, 0018, 0019, 0024 (two lines), 0037, 0038.
 Not filed: 0007 (build option), 0013 and 0037 (layer warnings), 0015 (message format). The
 proposals (0038, 0018, 0019, 0017, 0012, 0024, 0001) go as pull requests, one feature each.
+
+2026-11-05: `next` moved to main 7ea93bb5 (two commits past v191: 3dd4cbfa adopts the Agility 1.620
+interfaces and `CheckFeatureSupport1`, fixing #307; 7ea93bb5 requires 4-byte `CmdZeroBuffer`
+ranges). All twelve patches apply unchanged; no L0 drift (only a header comment changed). 3dd4cbfa
+broke every resource creation on the inbox runtime (N13), patched as 0040. Measured: Windows 538
+tests, 0 failed, 13 skipped (NVIDIA RTX 4070 SUPER); the `[989]` warnings fell from 33 to D3D12MA's 6.
+The same day the two held read-only findings were measured and patched: N14 (0041, a crash) and
+N15 (0042, with the Khronos Profiles layer standing in for a device without mesh-shader queries).
+With 0040-0042: Windows 541 tests, 0 failed, 13 skipped.
+Filed the same day: the four bugs as issues #309-#312 (fixes inline, N12 as a fork commit); the
+seven proposals as four pull requests from the owner's fork, one commit per item: #313 (0018,
+0019, 0024, 0038), #314 (0001), #315 (0012), #316 (0017). Later the same day the draw-parameters
+question turned out to be a validation bug (N16, 0043): the flag is D3D12 and Metal only by its own
+documentation.
+
+2026-11-06: the maintainer merged PRs #313-#316 (reworking #314 in 2658d48d) and fixed #309-#312 the same
+morning; #317 was fixed by PR #318, another contributor's copy of its inline fix. `next` moved to main
+b90cfb57 with four patches (0007, 0013, 0015, 0037; held back, never filed): every test of the twelve
+dropped patches passes on upstream's versions, no L0 drift. Windows 541 tests, 0 failed, 13 skipped
+(NVIDIA RTX 4070 SUPER). v192 waits for D3D12MA #102 (the six `[989]` warnings), per the maintainer.
+
+2026-11-07: filed against main b90cfb57, each verified there first: PRs #319 (0045), #320 (0046),
+#322 (0047), #323 (0048), #324 (0049) and issue #321 (D3D12 queue priority). The maintainer merged
+the four PRs and fixed #321 (a20efc8f) the same day; #324 is open on how to report without
+`AbortExecution`. `next` moved to main a20efc8f with six patches (0007, 0013, 0015, 0037, 0044, 0049):
+upstream's code equals 0045-0048 (each reverse-applies), no L0 drift (one header comment). Windows
+694 tests, 0 failed, 152 skipped (NVIDIA RTX 4070 SUPER, VK and D3D12; the skips are the upscaler
+cases on the Base payload), the RivaTuner test green under RTSS without the patch.
+
+2026-11-12: NRI v192 (cb3ab322) tagged, carrying every filed fix: the twelve of 2026-11-06, 0045-0048,
+#321, and PR #324 (0049), which the maintainer reworked on the fork's branch into
+`Result::EXT_ERROR = -5` (a failed third-party call, reported without `AbortExecution`; vendor codes
+that mean `INVALID_ARGUMENT`, `UNSUPPORTED` or `OUT_OF_MEMORY` keep those) and merged (afc52763).
+Its dependency update (adb5b118) took D3D12MA #102: no `[989]` warning remains. v192's README links
+SharpNRI. Adopted on master directly (owner): six patches (0007, 0013, 0015, 0037, 0044 held back
+or a driver workaround; 0050 reported downstream, not filed), 0013 and 0050 re-cut for offsets.
+L0 drift: `Result::EXT_ERROR`, `SwapChainBits::LATEST_READY` and the patched desc fields under
+upstream's comments. Windows 723 tests on Vulkan and D3D12 (NVIDIA RTX 4070 SUPER): 0 failed
+after the device-lost child's `[989]` allowance went (it failed as designed) and the Upscalers
+manifest was rebuilt; FSR without its runtime returns `EXT_ERROR` with the ERROR naming the DLL.
 
 2026-10-19: all six filed issues were fixed on main within the day. Main is ten commits past v190
 at 8ee40ca, still `NRI_VERSION 190`, untagged.
@@ -91,18 +131,18 @@ dedicated allocations, so they need a capability check first.
 | 0002 shared buffers, textures and fences | proposal, PR | merged 2026-10-27 as eb4ed356, polished by the maintainer in f18c6df9 (`DestroySharedHandle`) and d0f5ce49 (export support queries, `UNSUPPORTED`, comments); dropped on `next` at b5f5c62. Offered 2026-10-16 as a [comment on the maintainer's #49](https://github.com/NVIDIA-RTX/NRI/issues/49#issuecomment-6212054525); he answered 2026-10-21: "A PR would be very welcome", preferring fields on the existing buffer, texture and fence descs; re-cut in that shape on `next` 2026-10-23 (section below); filed 2026-10-24 as [PR #294](https://github.com/NVIDIA-RTX/NRI/pull/294) from the owner's fork (`Nullpoint56:shared-handles`, main 72f5f46 + 0002), the `FenceDesc` question asked in a [comment on #49](https://github.com/NVIDIA-RTX/NRI/issues/49) that links it; reviewed 2026-10-26, four items fixed on the branch |
 | 0006 `samplerLodBiasMax` above what a portability device allows | bug | filed 2026-10-27 against main b5f5c626 as [#303](https://github.com/NVIDIA-RTX/NRI/issues/303), the fix of patch 0006 attached; fixed in v191 by 0682d020 (2026-10-28, our lines); patch dropped on both branches 2026-11-03 |
 | 0016 Validation refuses a pipeline layout with `shaderStages = ALL` | bug | filed 2026-10-27 against main b5f5c626 as [#302](https://github.com/NVIDIA-RTX/NRI/issues/302), the fix of patch 0016 attached; fixed in v191 by 9764221e (2026-10-28, another shape: `GetEffectiveShaderStages` resolves `ALL` and `ALL_SHADERS` to the layout's stages in every backend and in validation); patch dropped on both branches 2026-11-03 |
-| 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | drafted 2026-10-19; pull request planned; the uncapped order stays as it is |
-| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | drafted 2026-10-19; pull request planned; the default (break) stays |
-| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | drafted 2026-10-19; pull request planned |
-| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | drafted 2026-10-19; pull request planned; per-frame or total size is open |
-| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | drafted 2026-10-19; main took the idea in its own shape on 2026-10-22 (962615b, #286: `nriEnumerateAdapters` takes the backends to probe); `next` keeps two lines, `nriCreateDevice` with no adapter probing VK only for a VK device; pull request planned |
-| 0001 Agility SDK from a path | proposal | drafted 2026-10-19; pull request planned (related: #157); the load is process-global, as the report states |
+| 0017 `SwapChainBits::LATEST_READY`: FIFO_LATEST_READY with `VSYNC` | proposal | drafted 2026-10-19; filed 2026-11-05 as [PR #316](https://github.com/NVIDIA-RTX/NRI/pull/316), merged 2026-11-06 (425a8323; b58d706f clarified that rendering can exceed the refresh rate); dropped on `next`; the uncapped order stays as it is |
+| 0018 `disableD3D12BreakOnError`: D3D12 info-queue break as a switch | proposal | drafted 2026-10-19; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313), merged 2026-11-06 (d296386a); dropped on `next` (device creation group, with 0019, 0024, 0038), merged 2026-11-06 (d296386a); dropped on `next`; the default (break) stays |
+| 0019 `enableD3D12GpuBasedValidation`: GPU-based validation as a switch | proposal | drafted 2026-10-19; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313), merged 2026-11-06 (d296386a); dropped on `next` |
+| 0012 `StreamerDesc::dynamicBufferDesc.size` as the initial ring size | proposal | drafted 2026-10-19; filed 2026-11-05 as [PR #315](https://github.com/NVIDIA-RTX/NRI/pull/315), merged 2026-11-06 (efb158d1); dropped on `next`; per-frame or total size is open |
+| 0024 `nriEnumerateAdapters2`: adapter enumeration filtered by graphics API | proposal | drafted 2026-10-19; main took the idea in its own shape on 2026-10-22 (962615b, #286: `nriEnumerateAdapters` takes the backends to probe); `next` keeps two lines, `nriCreateDevice` with no adapter probing VK only for a VK device; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313), merged 2026-11-06 (d296386a); dropped on `next` |
+| 0001 Agility SDK from a path | proposal | drafted 2026-10-19; filed 2026-11-05 as [PR #314](https://github.com/NVIDIA-RTX/NRI/pull/314), merged 2026-11-06 (e52e46e2) with the maintainer's 2658d48d (keeps the host's debug settings, `D3D12GetInterface` at run time, a null path inherits the selection); dropped on `next`; Codex (P1) read the order rule from our over-strict comment, corrected in a second commit (0753c63d) after re-measuring the null-adapter path on main (related: #157); the load is process-global, as the report states |
 | 0007 Apple loader link should be optional | build option | not filed: a packaging option (PR 134 added the link) |
 | 0009 `OUT_OF_DATE` from acquire/present reported as an error | reporting | filed 2026-10-27 against main b5f5c626 as [#304](https://github.com/NVIDIA-RTX/NRI/issues/304), the fix of patch 0009 attached; fixed in v191 by c1261950 (2026-10-28, our lines, a third for `WaitForPresent`, and `ReportMessage` demotes an `OUT_OF_DATE` report to `WARNING`); patch dropped on both branches 2026-11-03 |
 | 0013 EXCLUSIVE images created with queue family indices | layer warning | not filed: Vulkan ignores the indices; cosmetic |
 | 0015 Khronos message id name not forwarded | reporting | not filed: message format (59d0785) |
 | 0037 Vulkan swap chain without `VkSwapchainPresentModesCreateInfoKHR` | layer warning | not filed: one present mode is what Vulkan assumes without the structure; the best-practices warning is cosmetic (drafted 2026-10-24, section below) |
-| 0038 `vkInstanceCreateInfoNext`: a caller's chain for `VkInstanceCreateInfo` | proposal | drafted 2026-10-24; pull request planned (section below) |
+| 0038 `vkInstanceCreateInfoNext`: a caller's chain for `VkInstanceCreateInfo` | proposal | drafted 2026-10-24; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313), merged 2026-11-06 (d296386a); dropped on `next` (section below) |
 | N1 Vulkan vertex attributes bind to `streamIndex`, not the stream's `bindingSlot` | bug | fixed upstream in 0593d91 (2026-10-26), dropped on next; patched on master as 0025 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#295](https://github.com/NVIDIA-RTX/NRI/issues/295); reproduced on main 2f7a49f (2026-10-22) |
 | N2 Vulkan empty vertex input makes the binding stride dynamic | bug | fixed upstream in 8a8fc2b (2026-10-26), dropped on next; patched on master as 0026 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#296](https://github.com/NVIDIA-RTX/NRI/issues/296); reproduced on main 2f7a49f (2026-10-22) |
 | N3 D3D12 `CmdClearAttachments` crashes in a stencil-only pass | bug (crash) | fixed upstream in 909a139 (2026-10-26), dropped on next; patched on master as 0027 (2026-10-22, PR #26), carried on next until 83fd010; filed 2026-10-24 against main 72f5f46, [#297](https://github.com/NVIDIA-RTX/NRI/issues/297); reproduced on main 2f7a49f (2026-10-22) |
@@ -114,11 +154,21 @@ dedicated allocations, so they need a capability check first.
 | N9 D3D12 `GetVideoAV1EncodeDecodeInfo`: silent `FAILURE` on a payload header, frame type inferred | bug, fix shape open | patched on master as 0033 (2026-10-22, PR #26); main chose another shape (57d92ff, af45e72, 9131c1b: the submitted picture descs in the desc, a key frame without references, `UNSUPPORTED` for a header on D3D12), so dropped on next (2026-10-23) and the binding follows; nothing to file: the desc carried no frame type, so the fix was an API choice; the patch proposed `VideoAV1EncodeDecodeInfoDesc::keyFrame` and D3D12 describing from the metadata whether a header is given or not; reproduced on main 2f7a49f (2026-10-22) |
 | N10 An allocator that returns null crashes NRI instead of failing the creation | bug (crash) | fixed upstream in 9d276c3 and aa23763 (2026-10-26), dropped on next; patched on master as 0034 (2026-10-22, PR #26), re-cut on next for 72f5f46's creation rollback (#292, 2026-10-23) and carried until 83fd010; filed 2026-10-24 against main 72f5f46, [#301](https://github.com/NVIDIA-RTX/NRI/issues/301); reproduced on main 2f7a49f (2026-10-22) |
 | N11 The memory helper's alignment sort leaves out the last buffer and the last texture | bug (packing) | filed 2026-10-27 against main b5f5c626 as [#305](https://github.com/NVIDIA-RTX/NRI/issues/305), the fix of patch 0035 attached; fixed in v191 by 14a61d47 (2026-10-28, our lines); patch dropped on both branches 2026-11-03 |
-| N12 VK: stage masks name shader stages the device lacks | bug | patched on master and `next` as 0039 (2026-11-04); not filed; measured on v191: MoltenVK in CI, NVIDIA with `disableVKRayTracing` |
-| `WriteShaderGroupIdentifiers` range unchecked | bug | held: read, not measured; validation checks only the stride (`PipelineVal.hpp:25`), and D3D12 indexes `m_ShaderGroupNames` without a bound (`PipelineD3D12.hpp:691`) |
+| N12 VK: stage masks name shader stages the device lacks | bug | patched on master and `next` as 0039 (2026-11-04); filed 2026-11-05 against main 7ea93bb5 as [#310](https://github.com/NVIDIA-RTX/NRI/issues/310), the fix linked as a fork commit (Nullpoint56/NRI@da79e4a8, main + 0039); fixed 2026-11-06 in 667d47de (ours, extended to explicitly named stages); dropped on `next`; measured on v191: MoltenVK in CI, NVIDIA with `disableVKRayTracing` |
+| N13 D3D12: every resource creation fails on the inbox runtime | bug (regression) | introduced on main by 3dd4cbfa (after v191; master unaffected); patched on `next` as 0040 (2026-11-05); filed 2026-11-05 as [#309](https://github.com/NVIDIA-RTX/NRI/issues/309), the fix inline; fixed 2026-11-06 in 3ac981f1 (another shape: the latest interface the runtime has, video encoders too); 0040 dropped on `next`; measured on main 7ea93bb5, Windows 11 26200 inbox runtime, NVIDIA |
+| N14 `WriteShaderGroupIdentifiers` with a group range past the pipeline's groups crashes | bug (crash) | patched on `next` as 0041 (2026-11-05); filed 2026-11-05 as [#311](https://github.com/NVIDIA-RTX/NRI/issues/311), the fix inline; fixed 2026-11-06 in 022fda45 (ours, plus checks for `shaderGroupNum` 0 and a null `dst`); dropped on `next`; measured on main 7ea93bb5 (v191 has the same code), NVIDIA, VK and D3D12 |
+| N15 VK: pipeline statistics add the mesh counters on `features.meshShader` | bug | patched on `next` as 0042 (2026-11-05); filed 2026-11-05 as [#312](https://github.com/NVIDIA-RTX/NRI/issues/312), the fix inline; fixed 2026-11-06 in b787bd77 (our lines); dropped on `next`; measured on main 7ea93bb5 (v191 has the same code), NVIDIA with the Khronos Profiles layer reporting `meshShaderQueries = false` |
 | D3D12 attachment resolve into a non-zero layer or mip | bug | not filed: fixed on main by 48d4a33 ("array layers and destination mip indexing"); v190, and so master, still has it; master carries the fix as patch 0036 (a backport of the index and the per-layer loop) until the next tag |
-| Vulkan pipeline-statistics pool adds the mesh counters on `features.meshShader` | bug | held: read in `QueryPoolVK.hpp:38`, not measured; every device here (NVIDIA, lavapipe) has both mesh shaders and mesh-shader queries |
-| Draw-parameters emulation on Vulkan | design question | not filed: validation demands `DrawBaseDesc` strides on every backend, while Vulkan reads plain records at `offset` |
+| N16 Validation applies the draw-parameters emulation record layout on Vulkan | bug | patched on `next` as 0043 (2026-11-05); filed 2026-11-05 as [#317](https://github.com/NVIDIA-RTX/NRI/issues/317), the fix inline; fixed 2026-11-06 by PR #318 (12891278), another contributor's copy of the inline fix; dropped on `next`; measured on main 7ea93bb5 (v191 has the same code), NVIDIA, VK; earlier recorded as a design question |
+| 0044 Vulkan pipeline without a logic op passes `VK_LOGIC_OP_MAX_ENUM` | driver workaround | not NRI's defect (legal Vulkan): lavapipe on Windows converts the disabled value and its MSVC build jumps to a garbage address (`vk_logic_op_to_pipe`, Mesa 26.2.6); patched on both branches 2026-11-06 so Windows CI runs Vulkan on lavapipe; a Mesa merge request is deferred to 2027-01-07, re-measured first (AGENTS.md: Lavapipe) |
+| 0045 Vulkan enumerates device groups, a leftover of the mGPU removal; RivaTuner's layer kills presenting processes | bug | patched on master 2026-11-06; filed 2026-11-06 against main b90cfb57 as [PR #319](https://github.com/NVIDIA-RTX/NRI/pull/319) from the fork (`vk-physical-devices`); merged 2026-11-07 (331e3971, ours); dropped on `next` at a20efc8f |
+| 0046 D3D12 micromap prebuild query passes null addresses | bug | patched on master 2026-11-07; filed 2026-11-07 against main b90cfb57 as [PR #320](https://github.com/NVIDIA-RTX/NRI/pull/320); merged 2026-11-07 (be9e6f82, ours); dropped on `next` at a20efc8f |
+| D3D12 queue priority: HIGH only above 0.5, the header says "high > 0" | bug, intent open | not patched (which is meant was the maintainer's call); filed 2026-11-07 as [#321](https://github.com/NVIDIA-RTX/NRI/issues/321); fixed 2026-11-07 in a20efc8f (HIGH above 0; the header adds "D3D12: low == normal"); in v192; `DeviceTests` holds 0.25 to HIGH |
+| 0047 Vulkan AV1 sequence without a colour description passes reserved 0 colours | bug | patched on master 2026-11-07; filed 2026-11-07 against main b90cfb57 as [PR #322](https://github.com/NVIDIA-RTX/NRI/pull/322); merged 2026-11-07 (0db7e15a, ours); dropped on `next` at a20efc8f |
+| 0048 `CreateStreamer` validation refuses the default constant-buffer location without a constant buffer | bug | patched on master 2026-11-07; filed 2026-11-07 against main b90cfb57 as [PR #323](https://github.com/NVIDIA-RTX/NRI/pull/323); merged 2026-11-07 (8f89a03c, ours); dropped on `next` at a20efc8f |
+| 0049 Failed vendor upscaler calls are not reported | bug | patched on master 2026-11-07; filed 2026-11-07 against main b90cfb57 as [PR #324](https://github.com/NVIDIA-RTX/NRI/pull/324); the maintainer asked how to avoid `AbortExecution` and proposed `Result::EXT_ERROR`; the fork's second commit (5e120912) applied it to every 3rd-party call, he reworked it (13e510d1, 395237f2) and merged it 2026-11-12 (afc52763), in v192; dropped at v192 |
+| 0050 D3D12 pipeline-library lookups draw debug-layer warnings [963], [964], [971]; a refused cache blob's `OUT_OF_DATE` names no cause | nitpick (layer warnings, a message) | patched on master 2026-11-08 (reported downstream); not filed, held back like 0013, 0015 and 0037; re-cut for v192 (offsets) |
+| NVIDIA Vulkan AV1 encode into a bitstream without `HOST_VISIBLE` writes nothing | driver bug | not NRI's (NRI does not choose the memory); the test puts the bitstream in `HOST_READBACK`; drafted, deferred to 2027-01-07, re-measured on the then-current driver first (AGENTS.md: Extensions) |
 
 The sections below are the drafts and the audit behind them (every claim re-verified against the
 unpatched tree). The filed ones were posted in a shorter form (Observed, Cause with line numbers,
@@ -661,7 +711,7 @@ Patch attached (`patches/0037-vulkan-swapchain-present-modes-info.patch`), eight
 
 ## 0038 — `DeviceCreationDesc::vkInstanceCreateInfoNext` (proposal)
 
-Status: proposal, drafted 2026-10-24; pull request planned.
+Status: proposal, drafted 2026-10-24; filed 2026-11-05 in [PR #313](https://github.com/NVIDIA-RTX/NRI/pull/313), merged 2026-11-06 (d296386a); dropped on `next`.
 
 **Title:** `DeviceCreationDesc`: let the caller chain structures into `VkInstanceCreateInfo`
 
@@ -979,6 +1029,82 @@ ray tracing from `rayTracingPipeline`); barriers and fence waits drop those pipe
 pipeline layout drops them from its stages, which `ALL` and `ALL_SHADERS` resolve to. In Vulkan
 terms for barriers, since `StageBits::NONE` is `0x7FFFFFFF` and cannot be masked.
 
+### N13: D3D12: every resource creation fails on the inbox runtime
+
+**Observed.** Main 7ea93bb5 built with `NRI_ENABLE_AGILITY_SDK_SUPPORT`, running on the inbox runtime
+(no Agility SDK in the process; Windows 11 26200, "Using ID3D12Device14"): every committed, bound
+and placed buffer and texture fails with `INVALID_SDK`, "D3D12MA::CreateResource3(): failed, result
+= 0x80004002" (committed) or "ID3D12Device10::CreatePlacedResource2(): failed, result = 0x80004002"
+(bound, placed). With the D3D12 debug layer on, the failed bind ends the process (0xC0000409) with
+no message. RenderDoc, which captures the inbox runtime only, runs no NRI frame. v191 creates all of
+them; with Agility 1.620 both do.
+
+**Cause.** 3dd4cbfa sets `ID3D12ResourceBest` to `ID3D12Resource3` (`BufferD3D12.h:6`,
+`TextureD3D12.h:6`). The device and command lists go through `QueryLatestInterface`, but resources
+are created with `IID_PPV_ARGS(&m_Buffer)` / `IID_PPV_ARGS(&m_Texture)` (`BufferD3D12.hpp:49`, `:98`,
+`:101`; `TextureD3D12.hpp:63`, `:118`, `:121`), i.e. for `ID3D12Resource3`, which the inbox runtime
+does not implement. NRI calls none of its additions (`GetDesc2`, `GetCastableFormatsCount`,
+`GetCastableFormats`).
+
+**Fix.** Patch 0040: `typedef ID3D12Resource2 ID3D12ResourceBest` in both headers. (Creating as
+`ID3D12Resource` and querying the latest would also do, if `Resource3` is wanted later.) The video
+encoder has the same shape (`ID3D12VideoEncoderBest` = `ID3D12VideoEncoder1`, created by IID, with
+`TODO-VIDEO: use "QueryLatestInterface"` on the line); not measured on the inbox runtime.
+
+### N14: WriteShaderGroupIdentifiers with a group range past the pipeline's groups crashes
+
+**Observed.** NRI validation on, a ray tracing pipeline with three groups,
+`WriteShaderGroupIdentifiers(pipeline, 2, 2, ...)`: D3D12 ends the process with an access violation
+(0xC0000005) and no message; Vulkan reports
+VUID-vkGetRayTracingShaderGroupHandlesKHR-firstGroup-02419 ("firstGroup (2) + groupCount (2) must be
+less than or equal to the number of shader groups in pipeline (3)") and then ends the process with
+an access violation in the NVIDIA driver. NVIDIA RTX 4070 SUPER, main 7ea93bb5.
+
+**Cause.** `PipelineVal::WriteShaderGroupIdentifiers` checks only `dstStride` (`PipelineVal.hpp:25`);
+the validation pipeline does not keep the group count (`DeviceVal::CreateRayTracingPipeline` wraps
+the pipeline with the generic `PipelineVal` constructor, `DeviceVal.hpp:1900`, so the one taking the
+`RayTracingPipelineDesc` is never used). D3D12 then reads
+`m_ShaderGroupNames[shaderGroupIndex]` without a bound (`PipelineD3D12.hpp:691`), and Vulkan passes the
+range to `vkGetRayTracingShaderGroupHandlesKHR` (`PipelineVK.hpp:707`).
+
+**Fix.** Patch 0041: the validation pipeline is created with its `RayTracingPipelineDesc`, keeps its
+`shaderGroupNum` and refuses
+`baseShaderGroupIndex + shaderGroupNum` past it with `INVALID_ARGUMENT` (64-bit sum). A wrapped
+pipeline has no known count (`PipelineVKDesc` has none) and stays unchecked.
+
+### N15: VK: pipeline statistics add the mesh counters on features.meshShader
+
+**Observed.** On a Vulkan device with mesh shaders but without `meshShaderQueries`, every
+`PIPELINE_STATISTICS` pool draws VUID-VkQueryPoolCreateInfo-meshShaderQueries-07069
+("pipelineStatistics ... contains mesh/task shader bit, but meshShaderQueries feature was not
+enabled"), and `GetQuerySize` answers 104 bytes for 11 counters. Measured on NVIDIA RTX 4070 SUPER,
+main 7ea93bb5, with the Khronos Profiles layer below the validation layer reporting
+`meshShaderQueries = false` and simulating nothing else.
+
+**Cause.** `QueryPoolVK.hpp:38` adds the task and mesh statistic bits, and `:47` and `:56` size the
+query for 13 counters, when `features.meshShader` is set (since f53490f). Those bits need
+`meshShaderQueries`, which `DeviceVK.hpp:1710` reports as `features.meshShaderPipelineStats`, the bit
+`PipelineStatisticsDesc` documents for the two fields.
+
+**Fix.** Patch 0042: the three lines test `features.meshShaderPipelineStats`.
+
+### N16: Validation applies the draw-parameters emulation record layout on Vulkan
+
+**Observed.** Vulkan, a pipeline layout with `ENABLE_DRAW_PARAMETERS_EMULATION`: `CmdDrawIndirect` with
+`DrawDesc` records at stride 16 is refused ("'stride' is too small, expected >= 24"; 28 for
+`DrawIndexedIndirect` at 20), and `DrawBaseDesc` records at stride 24 pass validation but draw nothing
+(read at `offset + 8` they draw). NVIDIA RTX 4070 SUPER, main 7ea93bb5; measured on v190 first.
+
+**Cause.** The flag is "D3D12, METAL" (`NRIDescs.h:1056`), only those backends emulate, and on
+SPIR-V `NRI.hlsl` writes plain `DrawDesc` records that the Vulkan backend reads at `offset` and
+`stride` (`CommandBufferVK.hpp:2215`). `CommandBufferVal::DrawIndirect` and `DrawIndexedIndirect`
+ask `IsDrawParametersEmulationEnabled` (`CommandBufferVal.hpp:111`), which reads the layout flag
+alone, and demand the emulated stride on every backend (`:1033`, `:1053`). `DeviceVal.hpp:638`
+already limits the setting it passes on to D3D12.
+
+**Fix.** Patch 0043: `IsDrawParametersEmulationEnabled` also asks for a D3D12 or Metal device, so
+portable code can set the flag on every backend.
+
 ### Not filed
 
 - **D3D12 attachment resolve into a non-zero layer or mip.** In v190 `EndRendering` passed
@@ -993,23 +1119,6 @@ terms for barriers, since `StageBits::NONE` is `0x7FFFFFFF` and cannot be masked
 
   Main's 48d4a33 passes `MipLevels` (`:2010`, `:2052`), so it is fixed. Master keeps the bug until
   the next tag, and the test written for it belongs on `next`.
-- **Vulkan pipeline-statistics pool.** `QueryPoolVK.hpp:38` adds the task and mesh counters when
-  `features.meshShader` is set, and the query size follows (`:47`, `:56`). NRI's own
-  `features.meshShaderPipelineStats` (`DeviceVK.hpp:1633`, from `meshShaderQueries`) is the bit that
-  allows them (VUID-VkQueryPoolCreateInfo-meshShaderQueries-07068). Since f53490f. Held: found by
-  reading, and every device here reports both bits, so nothing measures it.
-- **Draw-parameters emulation on Vulkan** (a question).
-  - Validation (`CommandBufferVal.hpp`) demands `sizeof(DrawBaseDesc)` strides for indirect draws
-    with the emulation flag on every backend.
-  - The Vulkan backend reads plain records at `offset`. Measured with the flag on Vulkan, a stride
-    of 16 is refused ("'stride' is too small, expected >= 24"), `DrawBaseDesc` records at stride 24
-    draw nothing, and at `offset + 8` they draw.
-  - The portable rule today: set the flag on D3D12 only.
-- **`WriteShaderGroupIdentifiers` group range.** Held, because it was found by reading and not
-  measured. `PipelineVal::WriteShaderGroupIdentifiers` checks only the stride (`PipelineVal.hpp:25`),
-  and the D3D12 backend reads `m_ShaderGroupNames[shaderGroupIndex]` without a bound
-  (`PipelineD3D12.hpp:691`), so a base index plus group count past the pipeline's groups is never
-  refused.
 - **Driver behaviour, not NRI.**
   - On the development machine's D3D12 driver, an H.265 decode capability query at 64x64 removes the
     device (`[233] ... DXGI_ERROR_DRIVER_INTERNAL_ERROR`), inside the decoder-heap creation of NRI's

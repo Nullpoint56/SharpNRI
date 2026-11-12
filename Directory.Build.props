@@ -18,7 +18,7 @@
   -->
 
   <PropertyGroup>
-    <NriVersion>191</NriVersion>
+    <NriVersion>192</NriVersion>
     <!--
       Package versions (AGENTS.md: Versions). Every package has the NRI version as its major,
       $(NriVersion).<binding>.<patch>[-beta.N] (owner, 2026-11-07, from 191.0.0-beta.4): NRI breaks between
@@ -30,10 +30,10 @@
       its assembly changes: a binding-only release leaves it, and with it everything built on the descs,
       where it was. tools/ci/descs-version.ps1 fails when the descs changed since the published version.
     -->
-    <SharpNRIVersion>191.0.0-beta.4</SharpNRIVersion>
-    <SharpNRIDescsVersion>191.0.0-beta.2</SharpNRIDescsVersion>
+    <SharpNRIVersion>192.0.0-beta.1</SharpNRIVersion>
+    <SharpNRIDescsVersion>192.0.0-beta.1</SharpNRIDescsVersion>
     <!-- The Agility SDK NRI's CMake pins (NRI_AGILITY_SDK_VERSION_MAJOR / _MINOR), as its Microsoft.Direct3D.D3D12 version; build-native.ps1 refuses a mismatch -->
-    <AgilitySdkVersion>1.620.1</AgilitySdkVersion>
+    <AgilitySdkVersion>1.620.2</AgilitySdkVersion>
     <TargetFramework>net11.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>

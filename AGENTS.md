@@ -6,7 +6,7 @@ it is handled. Usage and caveats for library users are in `docs/guide.md`; keep 
 when a fact changes. History (how patches were cut, carried and dropped; earlier figures) is in git
 log and `docs/upstream.md`.
 
-Measurements were taken on NRI v190 unless they name a later NRI commit or v191; source line
+Measurements were taken on NRI v190 unless they name a later NRI commit or version; source line
 numbers belong to the NRI version named. Hardware figures are NVIDIA (RTX 4070 SUPER) unless
 another adapter is named. Current test and coverage figures: `docs/coverage.md`.
 
@@ -49,17 +49,21 @@ Two long-lived branches, both here. NRI itself is only read; nothing is pushed t
 | `master` | the latest NRI tag, `v$(NriVersion)`, exact pin | every patch that tag needs | releases: tags and packages are cut from master only |
 | `next` | a commit of NRI's main, moved on purpose | the patches still needed on that commit | integration with current NRI; upstream reports written against what upstream reads |
 
-- **State.** Master pins NRI v191 (46c93d79) with twenty-two patches; `next` pins NRI main b90cfb57
-  (2026-11-06) with five, 0007, 0013, 0015, 0037 and 0044: upstream took every other one (Patches).
+- **State.** Master and `next` pin NRI v192 (cb3ab322) with six patches, 0007, 0013, 0015, 0037,
+  0044 and 0050: upstream took every other one (Patches). `next` moves to a commit of NRI's main
+  when there is NRI-side work to do.
 - **Direction.** Version-independent binding work lands on master and is merged forward into
   `next` often (`git merge master`), then L0 is regenerated on `next` rather than conflicts in
   `dotnet/Native` resolved by hand. NRI-side work (patches, re-cuts, upstream reports) starts on
   `next`; a patch reaches master only when needed before the next tag. `docs/upstream.md` on master
   describes master's tag; between tags the live copy is `next`'s.
-- **Adopting a tag.** On `next`: point `nri` at the tag, set `<NriVersion>`, drop the patches the
-  tag carries (each test must pass without its patch), re-cut the rest (Patches), regenerate, run
-  both legs (Windows, WSL) on fresh build trees (Build and test). Merge `next` into master through
-  a pull request; release from master.
+- **Adopting a tag** (owner, 2026-11-12: a tag is adopted on master directly). On a branch off
+  master: merge `next` in (its upstream notes and dropped patches), point `nri` at the tag, set
+  `<NriVersion>`, the package versions and `<AgilitySdkVersion>`, drop the patches the tag carries
+  (each test must pass without its patch), re-cut the rest (Patches), regenerate, run both legs
+  (Windows, WSL) on fresh build trees and the upscaler run (Build and test), update the docs
+  (Releases: before a release). Merge through a pull request; `next` then fast-forwards to master.
+  Release from master.
 - **Moving `next`'s NRI commit.** `git -C nri fetch origin`, `git -C nri checkout <commit>`, `git
   update-index --cacheinfo 160000,<commit>,nri` (the one sanctioned way to stage the pointer; never
   `git add nri`), apply the patches, regenerate, both legs, record the commit in `next`'s AGENTS.md.
@@ -113,10 +117,10 @@ L0  dotnet/Native/       ClangSharp output. Never referenced above L1 except des
 
 NRI shape facts behind this: flat `nri*` exports plus function-pointer table structs filled by
 `nriGetInterface(device, "Name", sizeof(Name), &table)`; no reference counts; `Create*`
-free-threaded, `Destroy*` / `Cmd*` externally synchronized; nothing implicit. v191 surface (without
+free-threaded, `Destroy*` / `Cmd*` externally synchronized; nothing implicit. v192 surface (without
 the D3D11/Metal/WebGPU wrappers): 13 tables with 233 functions plus the two caller-filled structs
 (`CallbackInterface`, `AllocationCallbacks`: 5), 238 function pointers; 19 flat exports; 95 enums
-(57 `NriEnum` + 38 `NriBits`); 4 bitfields, all in `TopLevelInstance`.
+(58 `NriEnum` + 37 `NriBits`); 4 bitfields, all in `TopLevelInstance`.
 
 ### Native packages
 
@@ -142,14 +146,14 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   the XeSS runtime). The script checks with dumpbin and throws when a listed DLL is still a
   load-time import. So `NRI.dll` loads with the system only (`KERNEL32`, `USER32`), and a process that
   never calls D3D12 or DXGI loads neither. On NRI's creation path
-  the first D3D12 call is patch 0001's `D3D12GetInterface`, so Agility still loads (`AgilityTests`).
-- **Static C runtime on Windows** (owner, 2026-11-07, from 1.0.0-beta.3): `build-native.ps1` passes
+  the first D3D12 call is the Agility path's `D3D12GetInterface`, so Agility still loads (`AgilityTests`).
+- **Static C runtime on Windows** (owner, 2026-11-07): `build-native.ps1` passes
   `CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded$<$<CONFIG:Debug>:Debug>` (and CMP0091 NEW for the
   dependencies), so no VC++ redistributable or UCRT set is imported; before, a machine without the
   redistributable failed the first call with `DllNotFoundException`. Measured at v191: Base `NRI.dll`
   1.5 -> 1.9 MB, Upscalers 2.7 -> 3.4 MB, no linker warning; NRI picks NGX's static-runtime library from
   the same variable (`-WithDlss`). Every DLL keeps its own heap; NRI frees what it allocates.
-- **`SharpNRI.AgilitySDK`** (from 1.0.0-beta.3; `agility/`): build targets only. The package depends
+- **`SharpNRI.AgilitySDK`** (`agility/`): build targets only. The package depends
   on `Microsoft.Direct3D.D3D12` at `AgilitySdkVersion` (Directory.Build.props; `build-native.ps1`
   refuses a value other than NRI's `NRI_AGILITY_SDK_VERSION_MAJOR` / `_MINOR`), so the application's
   restore takes Microsoft's package under Microsoft's licence, and its `buildTransitive` targets copy
@@ -177,7 +181,7 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   for portable ones and the deps.json), so referencing it alone is enough; `ExcludeAssets` still works.
   `tools/consume -p:SharpNRIConsumeUpscalers=true` holds it to that (`IsUpscalerSupported(NIS)` on
   each GPU device, portable and published). `NriApi` imports library `NRI` for both.
-- **Licences outside `runtimes/<rid>/native/`** (from 1.0.0-beta.3). NuGet treats every file under
+- **Licences outside `runtimes/<rid>/native/`**. NuGet treats every file under
   `native/` as a native library and a RID-specific build or publish copies them flat: beta.2's
   `licenses/<lib>/LICENSE.txt` collided (`dotnet publish -r` failed with NETSDK1152) or overwrote each
   other and the application's own `LICENSE.txt` (reported downstream). Staging keeps
@@ -186,7 +190,7 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   application, folders kept (`SharpNRICopyLicenses=false` copies none). `release.yml`'s pack check
   refuses any subfolder under `runtimes/<rid>/native/`; the consume job publishes `-r` and Native AOT
   and checks the layout (`tools/consume`).
-- **A missing NRI library** (`Interop/NativeLibraryHint.cs`, from 1.0.0-beta.3): device creation,
+- **A missing NRI library** (`Interop/NativeLibraryHint.cs`): device creation,
   the two wrapped forms and adapter enumeration (the calls an application makes into NRI first)
   catch the runtime's `DllNotFoundException` and throw one naming the file, the RID, the directories
   looked in and where that platform's library comes from, the runtime's inside (checked with
@@ -222,7 +226,7 @@ Staged by `tools/build-native.ps1`, each variant in its own CMake tree `_build/<
   tables to exact lists (load-time: `KERNEL32`, `USER32`; delay-loaded: `d3d12`, `dxgi`, plus `libxess`
   in Upscalers).
   `NativeExportTests` resolve every `NriApi` `DllImport` with `NativeLibrary.TryGetExport`.
-- **Debugging into the binding** (from 1.0.0-beta.3): `SharpNRI`, `SharpNRI.Descs` and
+- **Debugging into the binding**: `SharpNRI`, `SharpNRI.Descs` and
   `SharpNRI.Testing` carry each portable PDB beside its DLL and name the repository and commit in
   `<repository>` (`PublishRepositoryUrl`); Source Link (in the SDK) maps the PDB's documents to that
   commit on GitHub, the `nri` submodule's to NRI's. The release pack adds
@@ -274,7 +278,7 @@ Decided; not reopened as a side effect of other work.
   first) when upstream carries a fix.
 - **Third-party defects are worked around, not patched, with one exception.** A layer's or a
   driver's bug is not NRI's. RivaTuner's layer is not one of these: it broke on a leftover in NRI
-  (device-group enumeration after mGPU was dropped), which patch 0045 removes (Device creation and
+  (device-group enumeration after mGPU was dropped), which patch 0045 removed and upstream took (PR #319; Device creation and
   callbacks). The exception is patch 0044 (owner, 2026-11-06), a
   one-line value change that lets lavapipe on Windows run at all, harmless on every driver and
   dropped once the pinned Mesa is fixed (Lavapipe). It is reported to the driver, not to NRI.
@@ -434,7 +438,7 @@ Needs the Xcode command-line tools, CMake 3.30+, Ninja, pwsh 7 and the .NET 11 S
   nothing on 11.0.100-rc.1), the test project is an `Exe`, no `Microsoft.NET.Test.Sdk`,
   serialization in `xunit.runner.json`.
 - `SHARPNRI_TEST_SOFTWARE=1` prefers WARP / lavapipe, `=0` hardware; unset it follows
-  `GITHUB_ACTIONS=true` (from 1.0.0-beta.3; before, `0` could not override GitHub). `NriTestDevice`
+  `GITHUB_ACTIONS=true`. `NriTestDevice`
   enumerates adapters and probes availability per API on first use: asking about Vulkan creates no
   D3D12 device (`AdapterEnumerationTests`, child `adapters-testing-vk-probe`), and a Vulkan probe whose
   layer reports NRI's structures as "unknown VkStructureType" (a layer older than NRI's headers) answers
@@ -485,37 +489,59 @@ ref and patch count, the payload the tests loaded (by content) and the adapter e
 - "Call site run by the tests" joins the two. The ones not run need the Upscalers payload
   (`tools/upscalers.ps1`); the video encode feedback resolve runs since the Vulkan H.264 encode does.
 
+### Releases: before a release
+
+A release is not started until the docs describe it (owner, 2026-11-12: the guide and README had
+kept 191.0.0-beta.4 install lines, `v191`, and "patch 00NN on master" notes for fixes NRI had
+long taken). Done on the version-bump branch, before its pull request merges; nothing here is left
+for after the release.
+
+1. **The version-bump branch is complete.** `Directory.Build.props`: `NriVersion`,
+   `SharpNRIVersion`, `SharpNRIDescsVersion` (moved only when the descs changed;
+   `tools/ci/descs-version.ps1`), `AgilitySdkVersion` (NRI's `NRI_AGILITY_SDK_VERSION_*`). The notes
+   `docs/releases/v<SharpNRIVersion>.md` list everything since the previous tag (`git log
+   v<previous>..HEAD`, merged pull requests included; a fix merged but unreleased is listed here).
+2. **`pwsh tools/check-docs.ps1` is clean.** It fails on a release version in `README.md`,
+   `docs/nuget/README.md` or `docs/guide.md`, on a patch named in a user-facing page, `patches/README.md`
+   or code that is not in `patches/`, and on `THIRD-PARTY-NOTICES.md` versions other than the pinned
+   NRI's `CMakeLists.txt` and `AgilitySdkVersion`.
+3. **Read what the script cannot judge**, against the pinned NRI and the patch set:
+   - those three pages describe the latest release without naming it: install by `dotnet add package
+     ... --prerelease` and the NuGet badge, versions as "`N.x` is NRI vN", the Agility version as
+     "the release's Bound libraries"; no "currently vN", no "(from <release>)" markers (the release
+     notes hold when a feature arrived);
+   - a behaviour from a dropped patch is NRI's: no patch number, no "fixed in", no v-number history,
+     unless the caller still needs it (an older `NRI.dll`, a wrapped device);
+   - every changed NRI behaviour is reflected (`git -C nri log v<previous NRI>..v<NriVersion>`, the
+     header diff of `nri/Include`): the guide entry, the Traps row, the binding's XML docs;
+   - `AGENTS.md` State and Patches, `patches/README.md` and `docs/upstream.md` name the pinned tag and
+     the set; Measurements stay dated (a figure names the NRI version or commit measured, and that
+     is not a version claim);
+   - `THIRD-PARTY-NOTICES.md` licence texts match what the build fetched (`_build/<rid>-<variant>/_deps`).
+4. **Generated docs at the release's tree**: `tools/coverage.ps1` (then `-Check` is green) and, after
+   an NRI or upscaler change, `tools/upscalers.ps1`, each on the committed tree.
+5. **Both legs and the quick checks** (Windows both backends, WSL; `tools/check.ps1`) on the
+   committed head, then one CI run of it (Actions budget).
+
 ---
 
 ## Patches
 
-The set for NRI v191 (46c93d79) on master. `next` (main b90cfb57) carries five: 0007, 0013, 0015,
-0037 and 0044; upstream took the rest on 2026-11-06 (`docs/upstream.md`). Gaps in the numbering are patches dropped when
-upstream took the fix (git log, `docs/upstream.md`).
+The set for NRI v192 (cb3ab322): the four the owner holds back (a build option, two layer
+warnings, a message format; never filed), the lavapipe workaround 0044 (reported to the driver, not
+NRI) and 0050 (reported downstream, not filed). v192 carries every other patch the v191 set had:
+0001, 0012, 0017, 0018, 0019, 0024, 0038, 0039, 0041, 0042, 0043 (PRs #313-#316; #310, #311, #312,
+#317 via PR #318), 0045, 0046, 0047, 0048 (PRs #319, #320, #322, #323) and 0049 (PR #324, reworked
+by the maintainer into `Result::EXT_ERROR`; Upscalers and vendor runtimes). Gaps in the numbering
+are patches dropped when upstream took the fix (git log, `docs/upstream.md`).
 
 | Patch | What | Why |
 |---|---|---|
-| 0001 agility-sdk-device-factory | `DeviceCreationDesc::d3d12AgilitySdkPath`; `D3D12GetInterface(CLSID_D3D12SDKConfiguration)` -> `ID3D12SDKConfiguration1::CreateDeviceFactory(NRI_AGILITY_SDK_VERSION_MAJOR, path)` -> `ApplyToGlobalState()` before any other D3D12 call | a managed host cannot export `D3D12SDKVersion`, so the SDK never loads otherwise (D3D12 and the Agility SDK) |
 | 0007 cmake-vulkan-loader-link-option | `NRI_ENABLE_VULKAN_LOADER_LINKING` (default ON) wraps the Apple `find_package(Vulkan)` + link; the build passes OFF | the shipped dylib otherwise needs the build machine's loader path; NRI PR 134 added the link for an IDE case, upstream: "just not needed" (MoltenVK and the paravirtual Mac) |
-| 0012 streamer-dynamic-buffer-initial-size | `StreamerDesc::dynamicBufferDesc.size` is the initial per-frame size of the dynamic buffer, allocated in `Create` through `Grow` (rounded up to 64 KiB, times `queuedFrameNum`); 0 keeps on-demand growth | upstream ignores the field (`"size" is ignored`) and grows from empty, one committed buffer per new per-frame high-water mark, each destroyed `queuedFrameNum + 1` frames later inside `EndStreamerFrame`; measured: 222 stream calls at 477 ms and `EndStreamerFrame` at 189 ms per level load from that (Extensions) |
 | 0013 vulkan-exclusive-image-no-family-indices | `DeviceVK::FillCreateInfo` passes `queueFamilyIndexCount = 0` and null indices for `VK_SHARING_MODE_EXCLUSIVE` images | upstream passes every active family's index whatever the sharing mode; best practices report `BestPractices-vkCreateImage-sharing-mode-exclusive` per image (Memory and resources) |
 | 0015 vulkan-message-id-name | the debug-utils callback forwards `pMessageIdName` as `[id] name: text` when the layer provides one | upstream forwards number and text; current Khronos layers keep the VUID / check name only in `pMessageIdName` (Device creation and callbacks) |
-| 0017 swapchain-latest-ready-bit | `SwapChainBits::LATEST_READY` + `DeviceDesc::features.latestReadySwapChain` (VK: swap chain + `fifoLatestReady`); with `VSYNC` the capped list is FIFO_LATEST_READY, FIFO_RELAXED/FIFO, FIFO; the bit is cleared from `m_Flags` unless that mode was chosen; D3D11/D3D12 clear it | upstream reaches FIFO_LATEST_READY only without `VSYNC` and after MAILBOX, which NVIDIA always offers; NRI never reports the chosen mode (Extensions) |
-| 0018 d3d12-break-on-error-switch | `DeviceCreationDesc::disableD3D12BreakOnError` wraps the two `SetBreakOnSeverity` calls in `DeviceD3D12::Create`; the binding passes it unless `BreakOnError` and a debugger is attached | upstream sets the info-queue break on ERROR and CORRUPTION for every debug-layer device: without a debugger the first D3D12 error is an `SEHException` out of the NRI call or a dead headless process, though the message callback already reports it (D3D12 and the Agility SDK) |
-| 0019 d3d12-gpu-based-validation-switch | `DeviceCreationDesc::enableD3D12GpuBasedValidation` (beside `enableD3D12RayTracingValidation`): `ID3D12Debug1::SetEnableGPUBasedValidation(true)` after `EnableDebugLayer` | upstream never enables GPU-based validation, which must precede device creation; the alternative is D3D12 COM in the binding (D3D12 and the Agility SDK) |
-| 0024 enumerate-adapters-by-graphics-api | `nriCreateDevice` with a null `adapterDesc` calls `nriEnumerateAdapters` with `GraphicsAPI::VK` for a VK device and `ALL` otherwise (`Creation.cpp`, 2 lines) | `nriEnumerateAdapters` takes the backends to probe (962615b), but device creation still probed all: a Vulkan device created a DXGI factory and D3D12 devices and kept `D3D12Core.dll` loaded; a D3D-only probe would change a D3D12 device's queue counts, so D3D keeps the full one (Device creation and callbacks) |
 | 0037 vulkan-swapchain-present-modes-info | `SwapChainVK::Create` chains `VkSwapchainPresentModesCreateInfoKHR` listing the chosen `presentMode` only, with `swapchainMaintenance1` | upstream chains present scaling but not this, and best practices warn for every swap chain; one mode is what Vulkan assumes without the structure (Extensions) |
-| 0038 vulkan-instance-create-info-next | `DeviceCreationDesc::vkInstanceCreateInfoNext` (`NriOptional const void*`, next to `vkExtensions`): a caller's chain appended to `VkInstanceCreateInfo::pNext` after NRI's own structures | `VkLayerSettingsCreateInfoEXT` cannot otherwise reach the layer, and layer settings go through environment variables: process-wide, and unseen on Linux and macOS when set from .NET (Device creation and callbacks); a proposal |
-| 0039 vulkan-unsupported-shader-stages | `DeviceVK` records the shader stages it lacks (tessellation, geometry, task, mesh, ray tracing; from the features it enabled); barriers and fence waits drop their pipeline stages, and a pipeline layout drops them from its stages, which `ALL` / `ALL_SHADERS` resolve to | NRI turns a mask naming every shader stage into every Vulkan stage bit whatever the device has, which the validation layer refuses on a device without those stages (Barriers) |
-| 0041 validation-shader-group-range | the validation pipeline is created with its `RayTracingPipelineDesc` (the generic constructor was used), keeps its `shaderGroupNum`, and `WriteShaderGroupIdentifiers` refuses a range past it with `INVALID_ARGUMENT`; wrapped pipelines (count unknown) stay unchecked | validation checked only the stride, and a range past the groups crashed both backends (Ray tracing) |
-| 0042 vulkan-mesh-shader-pipeline-statistics | `QueryPoolVK` adds the task and mesh counters, and sizes queries for 13, on `features.meshShaderPipelineStats` instead of `features.meshShader` | the counters need `meshShaderQueries`; without it every pipeline-statistics pool drew VUID 07069 and a wrong query size (Multisampling, copies and queries) |
-| 0043 validation-draw-parameters-emulation-d3d12-metal | the indirect-draw stride checks apply the emulated `Draw(Indexed)BaseDesc` layout only on D3D12 and Metal | validation applied it on every backend and refused the plain records Vulkan reads (Draws, render state and attachments) |
 | 0044 vulkan-disabled-logic-op-valid-value | a pipeline without a logic op passes `logicOp = VK_LOGIC_OP_COPY` (with `logicOpEnable = VK_FALSE`) instead of `VK_LOGIC_OP_MAX_ENUM` | a driver workaround, not an NRI defect: lavapipe on Windows converts the disabled value and its MSVC build jumps to a garbage address (Lavapipe; the exception under Rules) |
-| 0045 vulkan-enumerate-physical-devices | `DeviceVK::Create` and `UpdateAdaptersVK` list physical devices with `vkEnumeratePhysicalDevices` instead of `vkEnumeratePhysicalDeviceGroups`; the subset-allocation warning goes | a leftover of the mGPU support dropped in v1.124 (7bb624d): NRI used only each group's first device, and group-only enumeration killed every presenting process under RivaTuner's layer (Device creation and callbacks) |
-| 0046 d3d12-micromap-prebuild-dummy-addresses | `GetMicromapPrebuildInfo` passes 256 for `InputBuffer` and `PerOmmDescs` (stride `sizeof(MicromapTriangle)`) | the prebuild query left them null; the DXR spec allows inspecting null-ness and names dummy non-zero values for this, and the debug layer refused every micromap creation ([1162]; Ray tracing) |
-| 0047 vulkan-av1-color-config-unspecified | without `COLOR_DESCRIPTION_PRESENT`, `FillVideoAV1ColorConfig` passes "unspecified" (2) for primaries, transfer and matrix | it copied the desc's values, reserved 0s included, and NVIDIA refused the session parameters (`VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR`; Extensions) |
-| 0048 validation-streamer-optional-constant-buffer-location | `CreateStreamer` validation checks `constantBufferMemoryLocation` only with a non-zero `constantBufferSize` | both are `NriOptional` and no constant buffer is created without a size, yet the defaults were refused (Extensions) |
-| 0049 upscaler-report-vendor-failures | every failed vendor call in upscaler creation (FSR loader missing or incomplete, `ffxCreateContext`, the XeSS calls, NGX initialization and feature creation) and dispatch (`ffxDispatch`, `xessSetExposureMultiplier`, `xessD3D12Execute`, NGX evaluation) reports an ERROR naming the call and its result | creation returned a bare `FAILURE` and a failed dispatch was an `NRI_CHECK`, compiled out of release builds, so an upscale silently did not happen; creation is red without the patch (`UpscalerFailureTests`), no NRI-accepted dispatch the vendors refuse was found (Upscalers and vendor runtimes) |
 | 0050 d3d12-pipeline-library-expected-messages | `DeviceD3D12` denies the debug-layer messages [963] `CREATEPIPELINELIBRARY_DRIVERVERSIONMISMATCH`, [964] `_ADAPTERVERSIONMISMATCH` and [971] `LOADPIPELINE_NAMENOTFOUND`, beside the [962] it already denied; `PipelineCacheD3D12::Create` reports why it refuses data as an INFO ("Pipeline cache data refused: made by another driver version (result = 0x887E0002)"), still `OUT_OF_DATE` | NRI answers a blob from another driver or adapter with `OUT_OF_DATE` and looks every pipeline up before creating it, yet each drew a WARNING: a stale cache after a driver update, and every first creation in a debug run; `OUT_OF_DATE` named no cause (reported downstream; Memory and resources) |
 
 - **Applying.** `build-native.ps1`, `generate-native.ps1` and `tools/ci/apply-patches.ps1` (a header
@@ -529,15 +555,12 @@ upstream took the fix (git log, `docs/upstream.md`).
 - **Re-cutting on a new base.** Apply in order onto the new tag or commit in a scratch clone,
   re-cut each with the earlier ones committed (usually only `@@` and `index` lines change), then
   check that all apply in order, each also alone, and each passes the `-C0` reverse check. At v191
-  all twenty-two do; at main b90cfb57 the five, and 0045-0049 apply there too.
+  all six do.
 - **A comment is knowledge, not a patch.** A wrong upstream header comment is recorded here and in
   the binding's docs (Streamer ring under Extensions). A wrong comment in one of our own patches is
   fixed in the patch (0001's order rule, under D3D12 and the Agility SDK).
 - Patch 0007 inserts three lines at `CMakeLists.txt:126`; upstream line numbers past that are three
   lower than the patched tree's.
-- 0001 stays though the wrapped-device route also loads Agility: it keeps `Robustness`,
-  `DeviceLostInfoLevel`, D3D12 RT validation and debug-layer filtering on NRI's own creation path,
-  20 lines against about 150 lines of COM in the binding.
 
 ---
 
@@ -627,13 +650,13 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   `GraphicsAPI` in `NriApi.cs` (the one candidate, `ALL` in a default value, resolves to `NriApi`'s
   own constant) are dropped, so the layer is clean under the lint rules (Lint). NRI's header comments
   become `/// <summary>` on the types and members they describe (`tools/generate-native-docs.ps1`,
-  step 7; from 1.0.0-beta.3; at v191 115 types and 926 of 927 member comments), matched by NRI's names:
+  step 7; at v192 115 types and 928 of 929 member comments), matched by NRI's names:
   the comment block above a declaration plus its trailing `//`, whitespace folded, the format table's
   glyph rows and column legend left out; anonymous unions' members get none. All in
   `tools/generate-native.ps1` only.
 - NRI's headers have no C++ default member initializers (`NriDefault` unused), so generator-dropped
   defaults cannot happen. C `bool` is `byte` with `[NativeTypeName("bool")]`.
-- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang) at v191: 275 structs, 1,880 offsets,
+- **ABI oracle** (`NativeAbiTests`, clang++ 22 / AppleClang) at v192: 275 structs, 1,880 offsets,
   56 fixed buffers, 95 enums, 4 bitfields (exact bytes written), 238 function-pointer fields, 19
   `DllImport`s; zero mismatches on win-x64 (arm64 macOS last compared before patch 0017). Blind to
   calling convention, `const`, reference vs pointer, `bool` vs `uint8_t`. The anonymous union in
@@ -649,7 +672,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
 
 ### Device creation and callbacks
 
-- **Layer settings for one instance (patch 0038).** NRI chains only its own
+- **Layer settings for one instance (patch 0038 until v192; upstream since PR #313, d296386a).** NRI chains only its own
   `VkDebugUtilsMessengerCreateInfoEXT` and (with `enableGraphicsAPIValidation`)
   `VkValidationFeaturesEXT` into the instance, so otherwise the Khronos layer is configurable only
   through environment variables (process-wide, read at instance creation, and not updated by .NET
@@ -660,7 +683,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   `LayerSettingsTests` (NVIDIA and lavapipe): `validate_best_practices` = `VK_TRUE` gives the
   committed 64 KiB buffer's `BestPractices-vkBindBufferMemory-small-dedicated-allocation` warning, a
   device without it does not; no `VK_EXT_layer_settings` needed; runs on Linux too.
-- **NRI version guard** (from 1.0.0-beta.3; `Interop/NriVersionCheck.cs`). NRI exports nothing that
+- **NRI version guard** (`Interop/NriVersionCheck.cs`). NRI exports nothing that
   states its version before a device exists, so every creation path (`NriDevice.Create`, the two
   wrapped forms) takes the new device through `Adopt`: a table `nriGetInterface` refuses by size, a
   `DeviceDesc::nriVersion` other than SharpNRI's `NriVersion` metadata, or a loaded `SharpNRI.Descs`
@@ -684,12 +707,13 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   `Resolve` is called directly, and the throw reaching the caller was checked by hand, 2026-11-07).
 - **Null `AbortExecution` kills the process.** NRI's default handler calls `DebugBreak()` for every
   report with a positive result, i.e. every ERROR except `DEVICE_LOST`, `OUT_OF_DATE`,
-  `INVALID_SDK`: without a debugger, exit `0x80000003` before the call returns (a vanished test
+  `INVALID_SDK`, `NOT_READY` and `EXT_ERROR` (v192: a failed third-party call, NRI PR #324;
+  Upscalers and vendor runtimes): without a debugger, exit `0x80000003` before the call returns (a vanished test
   host, exit 0 through a pipe). `MessageBridge` always supplies its own thunk, breaking only when
   `BreakOnError` and a debugger is attached.
 - **`GetQueue` out of range**: `INVALID_ARGUMENT` on VK and D3D12 with no message; NONE returns
   `SUCCESS` even for index 1000. Tests wanting a message must provoke the validation layer.
-- **Adapter enumeration (patch 0024).** `nriEnumerateAdapters` with `ALL` runs the Vulkan pass
+- **Adapter enumeration (patch 0024 until v192; upstream since PR #313, d296386a).** `nriEnumerateAdapters` with `ALL` runs the Vulkan pass
   (a throwaway VkInstance, API 1.2, so the loader loads and unloads every implicit layer), then the
   D3D pass (a DXGI factory, a null-device `D3D12CreateDevice` probe per adapter, and for an adapter
   Vulkan did not list, real devices for the architecture and video-queue queries, on the inbox
@@ -705,7 +729,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   path decides. A filtered desc carries only the asked APIs' bits (plus `NONE`): never hand it to
   another API's device creation.
 - **RivaTuner's implicit layer killed presenting Vulkan processes; NRI enumerates physical devices
-  (patch 0045).** `VK_LAYER_RTSS` (RivaTuner Statistics Server: MSI Afterburner's overlay, also
+  (patch 0045 until v192; upstream since PR #319, 331e3971).** `VK_LAYER_RTSS` (RivaTuner Statistics Server: MSI Afterburner's overlay, also
   CapFrameX's and HWiNFO's in-game display) maps physical devices to instances from
   `vkEnumeratePhysicalDevices` (not the `Groups` variant), and its overlay uses the map at the first
   `vkQueuePresentKHR`. v191 enumerates only groups (`DeviceVK.hpp:791`, `Creation.cpp:422`), a
@@ -723,7 +747,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   linked GPUs (a group of several physical devices): each is listed, merged by uid as before.
   `OverlayLayerTests.An_NRI_Vulkan_device_presents_under_the_RivaTuner_Statistics_Server_layer` (a
   child; skips unless the loader reports `VK_LAYER_RTSS` and `RTSS.exe` runs): red without the patch
-  (0xC0000409 before the first of 8 presents), green with it. A wrapped device's instance is the
+  (0xC0000409 before the first of 8 presents), green with it, and green on main a20efc8f with no patch. A wrapped device's instance is the
   caller's: it must have run `vkEnumeratePhysicalDevices` itself. An instance-count cause is refuted.
 - **NRI.dll loads no D3D module by itself; the Vulkan loader loads `dxgi.dll`.**
   `AdapterEnumerationTests.A_Vulkan_only_enumeration_and_device_load_no_D3D_module_of_NRI`: NRI.dll
@@ -762,11 +786,11 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   `OnReallocate`); D3D12 18 and 26; `Live` 0 always. `NriCountingAllocator.Reallocate(p, 0)` frees
   and returns null, like Vulkan's contract and NRI's Windows default; NRI's POSIX `AlignedRealloc`
   returns a new block for size 0 (never seen in practice).
-- **Queue priorities.** D3D12 makes a queue HIGH only above 0.5 (`NRIDeviceCreation.h` says "high >
-  0"): `QueueD3D12.hpp:5`, `priority > 0.5f ? HIGH : NORMAL`, with the maintainer's own "TODO:
-  values in between? check D3D12_FEATURE_COMMAND_QUEUE_PRIORITY support?" (v191 and main b90cfb57,
-  re-read 2026-11-07). The header and the code disagree and which is meant is the maintainer's
-  call, so it is an issue to file, not a patch. Vulkan clamps at 0, so low equals normal, and 2 draws
+- **Queue priorities** (fixed upstream, #321, a20efc8f). v191's D3D12 made a queue HIGH only above
+  0.5 while `NRIDeviceCreation.h` said "high > 0" (`QueueD3D12.hpp:5`, `priority > 0.5f`); v192
+  makes it HIGH above 0, and the header now says "D3D12: low == normal".
+  `DeviceTests.Queue_priorities_reach_the_D3D12_command_queues` holds 0.25 to HIGH. Vulkan clamps at
+  0, so low equals normal, and 2 draws
   VUID-VkDeviceQueueCreateInfo-pQueuePriorities-00383. A list of the wrong length throws
   `ArgumentException` before NRI is called.
 - **Exception texts.** An exception carries the error text reported on the calling thread since the
@@ -786,8 +810,8 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   DEVICE_LOST — D3D12::(adapter) - Submit(): failed, result = 0x887A0005 (-2005270523)!"); a fence
   then reads 0xFFFFFFFFFFFFFFFF. `ReportDeviceLostInfo` begins "[DeviceLost] GetDeviceRemovedReason:
   0x887A0005, result=-3"; DRED gives only "Device state: Unknown" and a zero page-fault VA. The
-  child fails on any creation warning (a DRED warning means no diagnostics) except the `[989]`
-  allowance (D3D12 and the Agility SDK). Vulkan has no call that removes a device: skipped.
+  child fails on any creation warning (a DRED warning means no diagnostics; the `[989]`
+  allowance went at v192, D3D12 and the Agility SDK). Vulkan has no call that removes a device: skipped.
 - **More device-creation facts** (`DeviceTests`): an Agility path without a trailing separator is
   normalised; a wrapped D3D12 device uses the queues it is given; a refused wrapped creation throws
   with the call named and releases its callbacks; `DisableVkRayTracing` gives `tiers.rayTracing` 0
@@ -982,7 +1006,7 @@ v191; they stay for the test that holds the fix and to recognise a regression.
   - `CrossQueueCopyTests.A_hand_off_between_two_queues_is_no_ownership_transfer_on_a_CONCURRENT_image`,
     `A_release_and_acquire_naming_different_transitions_is_an_error_only_on_an_EXCLUSIVE_image`;
     both skip on lavapipe (one queue family).
-- **Stage masks naming shader stages the device lacks (patch 0039).** `GetPipelineStageFlags` and
+- **Stage masks naming shader stages the device lacks (patch 0039 until v192; upstream since #310, 667d47de, which also masks explicitly named stages).** `GetPipelineStageFlags` and
   `GetShaderStageFlags` (`ConversionVK.h`) turn `ALL_SHADERS` (a barrier, a fence wait) and a
   layout whose stages are `ALL` into every Vulkan shader stage bit, whatever the device has. On
   MoltenVK (no geometry, mesh or ray tracing shaders) every barrier naming `ALL_SHADERS` drew
@@ -1044,7 +1068,7 @@ pixels of a 64x64 target exactly).
   D3D12_PIPELINE_STATE_FLAG_DYNAMIC_DEPTH_BIAS flag is undefined" on D3D12; NVIDIA Vulkan then
   ignores the bias, D3D12 and WARP apply it. After re-binding the pipeline, Vulkan and WARP restore
   its bias and NVIDIA's D3D12 driver keeps the dynamic one (a driver difference, untested).
-- **Draw-parameters emulation is D3D12 and Metal only (patch 0043).** The flag is "D3D12,
+- **Draw-parameters emulation is D3D12 and Metal only (patch 0043 until v192; upstream since #317, via PR #318, 12891278).** The flag is "D3D12,
   METAL"; on SPIR-V `NRI.hlsl` writes plain `DrawDesc` records and the Vulkan backend reads them.
   Validation applied the emulated layout on every backend: on Vulkan with the flag, stride 16 was
   refused ("'stride' is too small, expected >= 24", 28 indexed) and `DrawBaseDesc` records at 24
@@ -1083,7 +1107,7 @@ Measured by `MultisampleTests`, `TextureCopyTests` and `QueryTests`.
   measured counts are exact anyway: 256 for a full 16x16 quad, 0 behind a failing depth test.
 - **Pipeline statistics**: results `QuerySize` apart (VK 104 bytes, D3D12 112); fragment
   invocations for 256 pixels: 256 on hardware, 288 on WARP (helper lanes on diagonal quads).
-  **Mesh counters without mesh-shader queries (patch 0042; NRI #312).** The Vulkan pool added
+  **Mesh counters without mesh-shader queries (patch 0042 until v192; upstream since #312, b787bd77).** The Vulkan pool added
   the task and mesh counters and sized queries for 13 on `features.meshShader`; the counters need
   `meshShaderQueries` (`features.meshShaderPipelineStats`). Every device here has both, so
   `MeshShaderQueryTests` runs a child with the Khronos Profiles layer (Vulkan SDK) below the
@@ -1128,15 +1152,25 @@ Measured by `DebugAidTests`.
 - **Agility 1.620 reports every legacy `CheckFeatureSupport` as deprecated** (NRI #307, D3D12MA
   #102): WARNING 989 `D3D12_MESSAGE_ID_DEPRECATED_API` ("ID3D12Device::CheckFeatureSupport is
   superseded by ID3D12Device16::CheckFeatureSupport1 ..."), 33 per device creation on NVIDIA and
-  WARP since v191 pins Agility 1.620.1 (c33dd915); answers unchanged. 27 come from
-  `DeviceD3D12.hpp`, six from D3D12MA (its fix, #102, is not merged yet); NRI's own moved to
-  `CheckFeatureSupport1` on main (3dd4cbfa, `Using ID3D12Device16`), so `next` sees D3D12MA's six. The
-  device-lost child allows exactly these warnings by ID and text and fails when none remain (Tests
-  and skips).
-- **Main after v191: resources on the inbox runtime** (`next`, patch 0040; NRI #309). 3dd4cbfa made
-  `ID3D12ResourceBest` `ID3D12Resource3`, which the inbox runtime lacks, so every resource creation
-  fails there; v191 is not affected. Recorded in `next`'s AGENTS.md.
-- **Agility does not load in a managed process without patch 0001.** NRI's CMake writes
+  WARP since v191 pins Agility 1.620.1 (c33dd915); answers unchanged. NRI's own 27 moved to
+  `CheckFeatureSupport1` on main (3dd4cbfa, which also made `ID3D12DeviceBest` `ID3D12Device16`:
+  `Using ID3D12Device16` on Agility); six remained on main 7ea93bb5, D3D12MA's (#102). Fixed in v192:
+  its dependency update (adb5b118, #307) takes a D3D12MA that uses `CheckFeatureSupport1`, and a
+  D3D12 device is created without a warning; the device-lost child's allowance went with it and
+  any creation warning fails it again (measured 2026-11-12).
+- **Resources on the inbox runtime (upstream since #309, 3ac981f1: resources and video encoders query the latest interface the runtime has; 0040 dropped).** 3dd4cbfa made `ID3D12ResourceBest`
+  `ID3D12Resource3`. The device and command lists are queried down to what the runtime has
+  (`QueryLatestInterface`), resources are created for that IID directly, and the inbox runtime
+  (Windows 11 26200) has no `ID3D12Resource3`: every committed, bound and placed buffer and texture
+  failed with `E_NOINTERFACE` as `INVALID_SDK` ("D3D12MA::CreateResource3(): failed, result =
+  0x80004002", "ID3D12Device10::CreatePlacedResource2(): failed ..."), and with the D3D12 debug
+  layer on a failed bind ended the process (0xC0000409, no message). NRI calls none of
+  `Resource3`'s methods (`GetDesc2`, castable formats), so the patch goes back to `Resource2`.
+  `InboxRuntimeTests` (a child whose first D3D12 device is the inbox one) creates each kind;
+  `RenderDocTests` (inbox capture) failed the same way. v191 is not affected. The video encoder
+  has the same shape (`ID3D12VideoEncoderBest` = `ID3D12VideoEncoder1` by IID, NRI's own
+  `TODO-VIDEO: use "QueryLatestInterface"`), unmeasured on the inbox runtime.
+- **Agility does not load in a managed process without `d3d12AgilitySdkPath`** (patch 0001 until v192; upstream since PR #314, e52e46e2, with the maintainer's 2658d48d: `InitializeFromGlobalState` before the apply keeps the host's debug settings, `D3D12GetInterface` resolved at run time, a null path inherits the current selection). NRI's CMake writes
   `Include/NRIAgilitySDK.h` declaring `D3D12SDKVersion` / `D3D12SDKPath` exports for the host
   executable; `dotnet.exe`, `testhost.exe` and apphosts export nothing, so the inbox runtime runs.
   Symptom: `CheckFeatureSupport(options22) failed, result = 0x80070057!`. Success line: `Using
@@ -1150,11 +1184,11 @@ Measured by `DebugAidTests`.
   review of NRI PR #314 reasoned from it (P1: "Apply the factory before adapter probing"). With no
   adapter desc, `nriEnumerateAdapters` creates and releases D3D12 devices on the inbox runtime
   first (the inbox `D3D12Core.dll` is loaded), and the apply still works: "Using Agility SDK
-  v1.620", "Using ID3D12Device16", main 7ea93bb5, 2026-11-05 (the same code on v191). The comment
-  now says it must precede the first D3D12 device the process keeps, and that it is process-wide
-  (#314's second commit, 0753c63d).
+  v1.620", "Using ID3D12Device16", main 7ea93bb5, 2026-11-05. The comment now says it must precede
+  the first D3D12 device the process keeps, and that it is process-wide (#314's second commit,
+  0753c63d).
 - **Wrapped route works too**: a device from the host's own `ID3D12DeviceFactory`, passed to
-  `nriCreateDeviceFromD3D12Device`, reports `Using ID3D12Device15` (16 on main), no OPTIONS22 warning
+  `nriCreateDeviceFromD3D12Device`, reports `Using ID3D12Device16` (15 on v191), no OPTIONS22 warning
   (`AgilityFactoryRouteTests`); NRI routes such devices' root signatures through
   `ID3D12DeviceConfiguration` (upstream PR #177).
 - Developer Mode is not needed for the factory route (Microsoft's documentation; the Windows CI
@@ -1169,7 +1203,7 @@ Measured by `DebugAidTests`.
   COM identity. Caller's rule: capture with `D3D12AgilitySdkPath = ""` (the process's first D3D12
   device). The test asserts both halves, so a RenderDoc that captures Agility fails it; it skips
   without `renderdoccmd.exe`. NRI turns NVAPI off when `renderdoc.dll` is loaded.
-- **Info-queue break (patch 0018).** With `enableGraphicsAPIValidation` NRI sets the break on
+- **Info-queue break (patch 0018 until v192; upstream since PR #313, d296386a).** With `enableGraphicsAPIValidation` NRI sets the break on
   CORRUPTION and ERROR unconditionally (since d003e22), and with `NRI_ENABLE_AGILITY_SDK_SUPPORT`
   also registers `ID3D12InfoQueue1::RegisterMessageCallback`, which reports every message below
   WARNING as `Message::ERROR` (`[id] text`, then `AbortExecution`, handled by `MessageBridge`). The
@@ -1180,7 +1214,7 @@ Measured by `DebugAidTests`.
   ID3D12CommandList::CopyBufferRegion: The destination region extends past the end of the
   destination resource ..." as an ERROR and returns; `End` then throws `INVALID_ARGUMENT`. With the
   break on, the copy threw `SEHException`.
-- **GPU-based validation (patch 0019).** NRI never calls `ID3D12Debug1::SetEnableGPUBasedValidation`,
+- **GPU-based validation (patch 0019 until v192; upstream since PR #313, d296386a).** NRI never calls `ID3D12Debug1::SetEnableGPUBasedValidation`,
   which must precede device creation and stays on for the process.
   `NriDeviceOptions.EnableD3D12GpuBasedValidation` maps 1:1.
   `D3D12DebugLayerTests.GPU_based_validation_reports_a_never_written_descriptor_and_only_when_asked_for`
@@ -1331,7 +1365,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
 - **Micromaps, VK**: a transparent micro-triangle hides the non-opaque triangle, opaque shows it.
   Index-less OMM draws VUID-...-pInfos-10904 from VVL 1.4.341, likely a false positive; with an
   index buffer it is clean.
-- **Micromaps, D3D12: the prebuild query's null addresses (patch 0046).**
+- **Micromaps, D3D12: the prebuild query's null addresses (patch 0046 until v192; upstream since PR #320, be9e6f82).**
   `DeviceD3D12::GetMicromapPrebuildInfo` sizes a micromap from its usage histogram and left
   `InputBuffer` and `PerOmmDescs` null, while every build passes real ones. The DXR spec lets the
   prebuild query inspect whether an address is null ("even though the pointers are not
@@ -1340,8 +1374,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   pOmmHistogram indicate 2 OMMs in total, so InputBuffer and PerOmmDescs can't be null"), and the
   micromap tests had run D3D12 without the debug layer to avoid it (a workaround, until
   2026-11-07). The patch passes 256 for both with the build's stride; the micromap tests now run
-  D3D12 with the debug layer: red without the patch (4 failures, [1162]), green with it (v191; main
-  b90cfb57 has the same code). Fixed upstream (N6, #299, 1dc13b2): a
+  D3D12 with the debug layer: red without the patch (4 failures, [1162]), green with it (v191), and green on main a20efc8f with no patch. Fixed upstream (N6, #299, 1dc13b2): a
   `{MICROMAP_WRITE, MICROMAP}` before side got the postbuild-info sync beside the acceleration
   structure write access ("[1331] ... incompatible ... in buffer barrier") and the BLAS build's
   `Close` failed. `RayScene.MicromapWritten` names the `MICROMAP` stage.
@@ -1361,7 +1394,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
 - **AABB geometry** (`FromAabbs`, offset 32, stride 32): committing every procedural candidate gives
   the boxes' exact hit map on VK, D3D12 and WARP.
 - **`WriteShaderGroupIdentifiers`**: the binding's size check multiplies in 64 bits (2^28 x 16
-  wrapped to 0 in 32). **The group range (patch 0041; NRI #311):** validation checked only the
+  wrapped to 0 in 32). **The group range (patch 0041 until v192; upstream since #311, 022fda45, which also refuses `shaderGroupNum` 0 and a null `dst`):** validation checked only the
   stride, so groups past the pipeline's reached the backend: on a three-group pipeline, groups 2..3
   ended the process (0xC0000005) on D3D12 with no message (`m_ShaderGroupNames` indexed unbounded)
   and on Vulkan after VUID-vkGetRayTracingShaderGroupHandlesKHR-firstGroup-02419, in the NVIDIA
@@ -1371,7 +1404,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
 ### Upscalers and vendor runtimes
 
 - `IsUpscalerSupported` answers what is compiled in, not installed. Without runtimes, raw L0 calls:
-  D3D12 and VK FSR and DLSR `FAILURE` (with patch 0049 an ERROR naming the cause: "`'amd_fidelityfx_loader_dx12.dll'
+  D3D12 and VK FSR `EXT_ERROR` and DLSR a failure NRI maps from NGX's code, each with an ERROR naming the cause (NRI PR #324, v192; before it a bare `FAILURE`, patch 0049 until v192): "`'amd_fidelityfx_loader_dx12.dll'
   can't be loaded`", "`NGX feature creation failed, result = 0xBAD0000B`"); DLRR created here even
   without `nvngx_dlssd.dll` beside the application (NGX loads its feature DLLs from outside it too);
   XeSS an `SEHException` from the delay-load stub (0xC06D007E). FSR loads `amd_fidelityfx_loader_dx12.dll` / `amd_fidelityfx_loader_vk.dll` by name
@@ -1380,7 +1413,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   writes it beside each Upscalers payload (`runtimes-upscalers/<rid>/`, outside `native/` so it is not
   copied next to applications): each SDK at NRI's pin (FidelityFX and XeSS archive tags and `NGX_VERSION`
   in `nri/CMakeLists.txt`, NIS from `nri/Shaders/NIS.hlsl`) and each runtime NRI's build fetched, by file
-  version and SHA-256. At v191: NIS 1.0.3 (compiled in), FidelityFX SDK 2.4.0 (loaders 2.3.0.4555 and
+  version and SHA-256. At v192 (unchanged from v191): NIS 1.0.3 (compiled in), FidelityFX SDK 2.4.0 (loaders 2.3.0.4555 and
   1.0.2.4555, upscalers 4.1.2.4555), XeSS SDK 3.0.2 (`libxess.dll` 2.0.2.68), NGX 310.9.16 (not built).
   The package carries it; the release body's Bound libraries lists it with NRI, versions linked
   (`tools/ci/upscaler-runtimes.ps1`); `NativePayloadTests` holds it to the pins and to
@@ -1415,7 +1448,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   `UpscalerExtensionTests`, 0 failed on NVIDIA at 9265723) dispatches every type on every backend
   that offers it and reads every output back; on Base every case skips naming the missing build or
   file. A failed vendor dispatch was only an `NRI_CHECK` (`UpscalerInterface.hpp`), gone in release
-  builds; patch 0049 reports it as an ERROR. The pixels are the oracle: a constant image in every mode and at the
+  builds; since v192 (NRI PR #324) it reports an ERROR with `EXT_ERROR`, which never calls `AbortExecution`. The pixels are the oracle: a constant image in every mode and at the
   dynamic-resolution minimum (worst 0.0078, DLRR; the others at half precision), HDR with an exposure
   texture and pre-exposure, R8 and R16 reactive masks, a moving edge with motion vectors (within
   0.33 output pixels, XeSS 1.67), `RESET_HISTORY` (DLSR and XeSS keep 30 and 39 % of the old colour
@@ -1547,7 +1580,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   device answers `NOT_READY` while NRI's own device creates one. Binding: `TryCreateSwapChain`
   returns `NriSwapChainStatus.NotReady`; `CreateSwapChain` throws. Read the real size from the
   swap chain's textures.
-- **FIFO_LATEST_READY with `VSYNC` (patch 0017).** Upstream's capped list (`VSYNC`) is FIFO_RELAXED
+- **FIFO_LATEST_READY with `VSYNC` (patch 0017 until v192; upstream since PR #316, 425a8323).** Upstream's capped list (`VSYNC`) is FIFO_RELAXED
   (with `ALLOW_TEARING`) or FIFO; the uncapped one MAILBOX, IMMEDIATE, then FIFO_LATEST_READY
   ("Uncapped frame rate ... Similar to MAILBOX"), then FIFO. NVIDIA always offers MAILBOX, so the
   mode was never chosen. Reordering the uncapped list was rejected: FIFO_LATEST_READY queues like
@@ -1564,7 +1597,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   child with best practices on) fails only on that warning and errors; also seen there, not NRI's:
   `suboptimal-swapchain-image-count` (two images) and, with implicit layers, an overlay's
   `ImageBarrierAccessLayout` from `vkCmdPipelineBarrier` (NRI records only `...Barrier2`).
-- **A streamer without a constant buffer (patch 0048).** `constantBufferMemoryLocation` and
+- **A streamer without a constant buffer (patch 0048 until v192; upstream since PR #323, 8f89a03c).** `constantBufferMemoryLocation` and
   `constantBufferSize` are `NriOptional`, and `StreamerImpl::Create` creates the constant buffer
   only for a non-zero size, but validation (`ImplVal.cpp:2057`) demanded an UPLOAD location
   whatever the size: "CreateStreamer: 'constantBufferMemoryLocation' must be an UPLOAD heap" for
@@ -1580,7 +1613,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   NV12/P010/P016 stay on texel rows (unmeasured). Batches not recorded by `EndStreamerFrame` are
   discarded; the stale-batch check is an `NRI_CHECK` (gone in release builds), so only NRI
   validation refuses one.
-- **Streamer initial size (patch 0012).** Upstream grows from empty: `Grow` sizes exactly
+- **Streamer initial size (patch 0012 until v192; upstream since PR #315, efb158d1).** Upstream grows from empty: `Grow` sizes exactly
   `Align(offset, 64 KiB) * queuedFrameNum`, parks the old buffer, and `EndFrame` destroys it
   `queuedFrameNum + 1` frames later under the streamer's spin lock, which `StreamBufferData` /
   `StreamTextureData` also hold across `Grow`, map, memcpy and unmap (`MapBuffer` is a pointer add on
@@ -1607,7 +1640,7 @@ Homebrew loader 1.4.357; device "Apple Paravirtual device", Vulkan 1.4.357, 18 d
   test defect the skip had hidden): the encode was another queue's submit, waited for, so the side
   names no stages.
 - **AV1 encode on Vulkan.** Session parameters from a sequence without a colour description failed
-  with `VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR`, no validation message (patch 0047): NRI's
+  with `VK_ERROR_INVALID_VIDEO_STD_PARAMETERS_KHR`, no validation message (patch 0047 until v192; upstream since PR #322, 0db7e15a): NRI's
   `FillVideoAV1ColorConfig` copied the desc's colour values whatever the flags, while AV1 infers
   "unspecified" (2) without `COLOR_DESCRIPTION_PRESENT` and NRI's own OBU writer omits them; the
   desc's 0 is reserved for primaries and transfer. Measured: refused for 0/0/0 with or without the
@@ -1703,7 +1736,7 @@ here and in the guide (Traps).
 | Call | Backend | Condition | Message |
 |---|---|---|---|
 | shared `CreateCommittedBuffer` / `Texture`, shared `CreateFence` | VK; D3D12 binary fence | export refused by the driver (`BufferVK.hpp:44`, `TextureVK.hpp:53, 61`, `FenceVK.hpp:22`); D3D12 has no binary fence (`FenceD3D12.hpp:11`) | silent; `Try*` forms |
-| `CreateUpscaler` FSR / XeSS | VK, D3D12 | the runtime or driver refuses (`FFX_API_RETURN_NO_PROVIDER`, `XESS_RESULT_ERROR_UNSUPPORTED*`; `UpscalerInterface.hpp:216, 382`); `IsUpscalerSupported` answers what is compiled in | ERROR (patch 0049) |
+| `CreateUpscaler` FSR / XeSS | VK, D3D12 | the runtime or driver refuses (`FFX_API_RETURN_NO_PROVIDER`, `XESS_RESULT_ERROR_UNSUPPORTED*`; `UpscalerInterface.hpp:216, 382`); `IsUpscalerSupported` answers what is compiled in | ERROR (reported as `EXT_ERROR`, v192) |
 | `CreateUpscaler` NIS | all | without `shaderFeatures.storageWriteWithoutFormat`, an output format other than `RGBA8_UNORM`, `RGBA16_SFLOAT`, `RGBA32_SFLOAT` (`UpscalerInterface.hpp:59-72, 868`) | silent |
 | `GetVideoAV1EncodeDecodeInfo` | VK / D3D12 | VK needs the payload header, D3D12 refuses it (`VideoSessionVK.hpp:487`, `VideoSessionD3D12.hpp:148`; Extensions) | silent |
 | `WriteVideoAnnexBParameterSets` | all | H.264 outside the High profiles or with `TRANSFORM_8X8_MODE`; H.265 with reference sets, long-term references, VUI, scaling lists or tiles (`SharedVideo.h:205, 538`) | silent |
@@ -1738,9 +1771,8 @@ query pool returns `UNSUPPORTED`.
   - Lavapipe's memory budget (`TestDevice.IsLavapipeVK`): its heap usage is the machine's, not the
     process's, so the 64 MiB delta is skipped there after the budget checks (Debug aids). Not
     assertable as a wrong value: it moves with everything else on the machine.
-  - The same pattern for the D3D12 device-lost child's allowance of the `[989]`
-    `CheckFeatureSupport` warnings (D3D12 and the Agility SDK): any other warning fails it, and it
-    fails when none of these remain, naming the allowance to remove. Likewise the upscaler
+  - The same pattern (an allowance that fails when it is no longer needed; the D3D12 device-lost
+    child's `[989]` allowance did that at v192 and went: D3D12 and the Agility SDK) for the upscaler
     constant-image test's allowance of NGX's `[527]` barrier errors on `nv.ngx.dlssd.resource`
     (D3D12 DLRR below its creation size; Upscalers and vendor runtimes), and the skip of D3D12
     DLRR with an R8 reactive mask, which removes the device and poisons the process.

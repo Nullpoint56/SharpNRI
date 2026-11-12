@@ -198,7 +198,7 @@ if ($targetWindows) {
     $opt.NRI_ENABLE_D3D11_SUPPORT          = "OFF"  # "WIN32"
     $opt.NRI_ENABLE_D3D12_SUPPORT          = "ON"   # "WIN32"
     $opt.NRI_ENABLE_NVAPI                  = "ON"   # "D3D11 OR D3D12"
-    # "D3D12". Compiles NRI against the Agility headers; patch 0001 loads the SDK from a directory at
+    # "D3D12". Compiles NRI against the Agility headers; NRI loads the SDK from a directory (d3d12AgilitySdkPath) at
     # run time when one is present. The DLLs go to the separate Agility package, never to a variant.
     $opt.NRI_ENABLE_AGILITY_SDK_SUPPORT    = "ON"
     if (-not $targetArm64) {

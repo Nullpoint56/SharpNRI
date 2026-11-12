@@ -152,7 +152,7 @@ public sealed unsafe class NriStreamerExtension
 
     /// <summary>
     /// A streamer. <c>dynamicBufferDesc.size</c> is the initial per-frame size of the dynamic
-    /// buffer, allocated at creation (patch 0012; upstream ignores it and grows from empty): the
+    /// buffer, allocated at creation (0: none until a frame streams something): the
     /// buffer is <c>size</c> rounded up to 64 KiB times <c>queuedFrameNum</c>, and a frame that
     /// streams more than the per-frame size still grows it (a new committed buffer, the old one
     /// destroyed <c>queuedFrameNum</c> frames later by <see cref="EndStreamerFrame"/>). 0 grows on
@@ -275,8 +275,7 @@ public sealed unsafe class NriStreamerExtension
     /// <summary>
     /// (HOST) Streams texels into the dynamic buffer for a copy to <c>DstTexture</c> by
     /// <see cref="CopyStreamedData"/>. Returns where the texels landed. A block-compressed format
-    /// is staged in rows of blocks (NRI bc3ebe7; v190 staged texel rows, 16 times the space for
-    /// 4x4 blocks, and read past the end of <c>Data</c>).
+    /// is staged in rows of blocks.
     /// </summary>
     public NriBufferOffset StreamTextureData(NriStreamer streamer, in NriStreamTextureDataDesc streamTextureDataDesc)
     {

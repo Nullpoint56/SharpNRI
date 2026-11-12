@@ -4,7 +4,7 @@
 #
 # d3d12.dll and dxgi.dll: NRI links d3d12.lib and dxgi.lib, which makes both load-time imports of
 # NRI.dll, so every process that loads NRI.dll loads them, a Vulkan-only one included. Delay-loading
-# them defers the load to the first D3D12 or DXGI call (D3D12GetInterface in patch 0001, the D3D
+# them defers the load to the first D3D12 or DXGI call (D3D12GetInterface for the Agility SDK path, the D3D
 # pass of an adapter enumeration, a swap chain's display query). AGENTS.md: Device creation and
 # callbacks.
 #

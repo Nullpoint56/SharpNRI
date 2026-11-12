@@ -24,8 +24,7 @@ public sealed class NriDeviceOptions
 
     /// <summary>
     /// The adapter to create on; NRI picks when null: the first adapter of its own enumeration that
-    /// supports <see cref="GraphicsApi"/>. For Vulkan that enumeration runs the Vulkan pass only
-    /// (patch 0024), so creating a Vulkan device loads no D3D12 runtime; for D3D12 it is the full
+    /// supports <see cref="GraphicsApi"/>. For Vulkan that enumeration runs the Vulkan pass only, so creating a Vulkan device loads no D3D12 runtime; for D3D12 it is the full
     /// enumeration (<see cref="NriAdapter.Enumerate()"/>), as before, so the desc stays the one NRI gave.
     /// </summary>
     public NriAdapter? Adapter { get; init; }

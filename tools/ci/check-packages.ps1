@@ -9,7 +9,7 @@
     between the two (1.0.0-beta.4's first run: PackagePath "lib\net11.0\" packed as lib/net11.0//_._
     on the Linux runner, which only this check, not a Windows pack, showed).
 
-        pwsh tools/ci/check-packages.ps1 -Folder nupkg -Version 191.0.0-beta.4 -DescsVersion 191.0.0-beta.1 -AgilitySdk 1.620.1 -Commit <sha> [-DescsReused] [-Rids win-x64]
+        pwsh tools/ci/check-packages.ps1 -Folder nupkg -Version <SharpNRIVersion> -DescsVersion <SharpNRIDescsVersion> -AgilitySdk <AgilitySdkVersion> -Commit <sha> [-DescsReused] [-Rids win-x64]
 
     -Rids names the platforms the pack had native libraries for: both on the release runner,
     the host's alone on a local pack.

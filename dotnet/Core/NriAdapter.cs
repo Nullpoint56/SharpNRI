@@ -57,7 +57,7 @@ public sealed class NriAdapter
     /// pattern would pay that twice. To look at one backend's adapters only, use
     /// <see cref="Enumerate(GraphicsAPI)"/>. Hand the chosen adapter to
     /// <see cref="NriDeviceOptions.Adapter"/>; with none, <c>nriCreateDevice</c> enumerates on its
-    /// own (for Vulkan the Vulkan pass only, patch 0024).
+    /// own (for Vulkan the Vulkan pass only).
     /// </summary>
     public static IReadOnlyList<NriAdapter> Enumerate() => Enumerate(GraphicsAPI.ALL);
 

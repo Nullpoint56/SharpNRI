@@ -19,10 +19,10 @@ Measured on v191, Agility 1.620, NVIDIA (2026-11-08): a miss gave [971]; one byt
 with "OUT_OF_DATE". Main a20efc8f has the same code.
 
 diff --git a/Source/D3D12/DeviceD3D12.hpp b/Source/D3D12/DeviceD3D12.hpp
-index 11d6e542..0b95c1c2 100644
+index 7446e603..6dbb82e4 100644
 --- a/Source/D3D12/DeviceD3D12.hpp
 +++ b/Source/D3D12/DeviceD3D12.hpp
-@@ -633,6 +633,11 @@
+@@ -636,6 +636,11 @@ Result DeviceD3D12::Create(const DeviceCreationDesc& desc, const DeviceCreationD
                  D3D12_MESSAGE_ID_CLEARDEPTHSTENCILVIEW_MISMATCHINGCLEARVALUE,
                  D3D12_MESSAGE_ID_CLEARRENDERTARGETVIEW_MISMATCHINGCLEARVALUE,
                  D3D12_MESSAGE_ID_CREATEPIPELINELIBRARY_INVALIDLIBRARYBLOB,
@@ -38,7 +38,7 @@ diff --git a/Source/D3D12/PipelineCacheD3D12.hpp b/Source/D3D12/PipelineCacheD3D
 index 6a3b9dbf..f6dd53dc 100644
 --- a/Source/D3D12/PipelineCacheD3D12.hpp
 +++ b/Source/D3D12/PipelineCacheD3D12.hpp
-@@ -13,7 +13,20 @@
+@@ -13,7 +13,20 @@ Result PipelineCacheD3D12::Create(const PipelineCacheDesc& pipelineCacheDesc) {
      HRESULT hr = m_Device->CreatePipelineLibrary(m_Blob.data(), m_Blob.size(), IID_PPV_ARGS(&m_Library));
  
      // If pipeline cache is supported it may fail only on stale/incompatible data, map to "OUT_OF_DATE"

@@ -212,9 +212,10 @@ public sealed class DeviceTests
     // ---------------------------------------------------------------- queue priorities
 
     /// <summary>
-    /// Queue priorities reach the D3D12 command queues NRI creates: 1 makes a HIGH queue, 0 and -1
-    /// NORMAL ones (D3D12 has no low priority; QueueD3D12::Create picks HIGH above 0.5), read back
-    /// from each ID3D12CommandQueue's desc, in family and index order.
+    /// Queue priorities reach the D3D12 command queues NRI creates: 1 and 0.25 make HIGH queues, 0
+    /// and -1 NORMAL ones (D3D12 has no low priority; "high > 0" as NRIDeviceCreation.h says, which
+    /// v191 broke with HIGH only above 0.5, #321), read back from each ID3D12CommandQueue's desc, in
+    /// family and index order.
     /// </summary>
     [Fact]
     public void Queue_priorities_reach_the_D3D12_command_queues()
@@ -224,7 +225,7 @@ public sealed class DeviceTests
         using var device = TestDevice.Create(GraphicsAPI.D3D12, messages, b => b.QueueFamilies =
         [
             new NriQueueFamily(QueueType.GRAPHICS, 2, [1f, 0f]),
-            new NriQueueFamily(QueueType.COMPUTE, 1, [-1f]),
+            new NriQueueFamily(QueueType.COMPUTE, 2, [-1f, 0.25f]),
         ]);
 
         int Priority(QueueType type, uint index)
@@ -238,6 +239,7 @@ public sealed class DeviceTests
         Assert.Equal((int)V12.CommandQueuePriority.High, Priority(QueueType.GRAPHICS, 0));
         Assert.Equal((int)V12.CommandQueuePriority.Normal, Priority(QueueType.GRAPHICS, 1));
         Assert.Equal((int)V12.CommandQueuePriority.Normal, Priority(QueueType.COMPUTE, 0));
+        Assert.Equal((int)V12.CommandQueuePriority.High, Priority(QueueType.COMPUTE, 1));
         Assert.DoesNotContain(messages, m => m.IsError);
     }
 

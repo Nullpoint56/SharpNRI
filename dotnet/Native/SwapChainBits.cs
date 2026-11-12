@@ -5,7 +5,7 @@ namespace SharpNRI.Native;
 public enum SwapChainBits : byte
 {
     NONE = 0,
-    /// <summary>cap framerate to the monitor refresh rate</summary>
+    /// <summary>cap framerate to the monitor refresh rate (except with "LATEST_READY")</summary>
     VSYNC = (1 << 0),
     /// <summary>unlock "WaitForPresent" reducing latency (requires "features.waitableSwapChain")</summary>
     WAITABLE = (1 << 1),
@@ -13,6 +13,6 @@ public enum SwapChainBits : byte
     ALLOW_TEARING = (1 << 2),
     /// <summary>allow "NRILowLatency" functionality (requires "features.lowLatency")</summary>
     ALLOW_LOW_LATENCY = (1 << 3),
-    /// <summary>VK: with "VSYNC" prefer "FIFO_LATEST_READY" (the newest ready image at vblank, no tearing) over "FIFO" (requires "features.latestReadySwapChain", ignored otherwise)</summary>
+    /// <summary>Multiple ready frames may be consumed per vblank, discarding older frames; rendering can exceed the monitor refresh rate. Silently ignored if not supported VK: with "VSYNC" prefer "FIFO_LATEST_READY" (the newest ready image at VBLANK, no tearing) over "FIFO" (requires "features.latestReadySwapChain")</summary>
     LATEST_READY = (1 << 4),
 }

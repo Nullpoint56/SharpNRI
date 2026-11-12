@@ -6,7 +6,7 @@
 // skips naming what is missing.
 //
 // A failed vendor dispatch (ffxDispatch, xessD3D12Execute, NGX's EvaluateFeature) was only an
-// NRI_CHECK in NRI, compiled out of a release NRI.dll; patch 0049 reports it as an ERROR, which fails
+// NRI_CHECK in NRI, compiled out of a release NRI.dll; since v192 NRI reports it as an ERROR, which fails
 // these tests like any other message (UpscalerFailureTests). The pixels stay the oracle: every
 // dispatch here is read back and compared with what the scene must give.
 //
