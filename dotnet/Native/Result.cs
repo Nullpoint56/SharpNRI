@@ -3,7 +3,9 @@ namespace SharpNRI.Native;
 [NativeTypeName("int8_t")]
 public enum Result : sbyte
 {
-    /// <summary>All bad, but optionally require an action ("callbackInterface.AbortExecution" is not triggered) VK: zero surface extent during swap chain creation; WGPU: no swap chain texture available yet. Process window events and retry</summary>
+    /// <summary>All bad, but optionally require an action ("callbackInterface.AbortExecution" is not triggered) a potentially recoverable 3rd party SDK failure; details are reported</summary>
+    EXT_ERROR = -5,
+    /// <summary>VK: zero surface extent during swap chain creation; WGPU: no swap chain texture available yet. Process window events and retry</summary>
     NOT_READY = -4,
     /// <summary>may be returned by "QueueSubmit*", "*WaitIdle", "AcquireNextTexture", "QueuePresent", "WaitForPresent"</summary>
     DEVICE_LOST = -3,

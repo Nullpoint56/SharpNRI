@@ -17,8 +17,7 @@ namespace SharpNRI;
 /// <summary>
 /// A host allocator NRI can use for its own bookkeeping. Must be thread safe. Alignment is a
 /// power of two and must be honoured. Must not fail: a null (or an exception, which the binding
-/// turns into one) fails the creation of an NRI object with <see cref="Result.OUT_OF_MEMORY"/>
-/// (patch 0034), but NRI's containers allocate here too and cannot survive one.
+/// turns into one) fails the creation of an NRI object with <see cref="Result.OUT_OF_MEMORY"/>, but NRI's containers allocate here too and cannot survive one.
 /// </summary>
 public interface INriAllocator
 {

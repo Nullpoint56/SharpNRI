@@ -8,7 +8,7 @@
     downloaded into a folder and compared with the packages in -New by tools/apidiff (each package's
     public types and members, signatures and values). release.yml's pack job runs it; locally:
 
-        pwsh tools/ci/api-changes.ps1 -New <dir with the new .nupkg files> -Version 1.0.0-beta.3 -Out api-changes.md
+        pwsh tools/ci/api-changes.ps1 -New <dir with the new .nupkg files> -Version <SharpNRIVersion> -Out api-changes.md
 #>
 param(
     [Parameter(Mandatory)] [string]$New,

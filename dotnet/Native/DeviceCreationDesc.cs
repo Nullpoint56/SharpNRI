@@ -38,7 +38,7 @@ public unsafe partial struct DeviceCreationDesc
     [NativeTypeName("uint32_t")]
     public uint d3dZeroBufferSize;
 
-    /// <summary>directory holding "D3D12Core.dll" of the Agility SDK NRI was built against; if set, the SDK is loaded through "ID3D12SDKConfiguration1::CreateDeviceFactory" and applied to the process, so the host executable needs no "D3D12SDKVersion" / "D3D12SDKPath" exports (requires "NRI_ENABLE_AGILITY_SDK_SUPPORT")</summary>
+    /// <summary>Directory holding "D3D12Core.dll" of the Agility SDK NRI was built against: - useful for hosts that cannot export "D3D12SDKVersion" / "D3D12SDKPath" (managed runtimes, plugins) - process-global: NULL keeps the current SDK selection, including a previously supplied custom path - existing global configuration is preserved; switching to a different runtime fails while incompatible devices remain alive - may be silently ignored if not supported</summary>
     [NativeTypeName("const char *")]
     public sbyte* d3d12AgilitySdkPath;
 

@@ -22,7 +22,7 @@ public static unsafe class Nri
     /// </summary>
     public const int NriVersion = NriHeaders.Version;
 
-    /// <summary>The package version of the loaded SharpNRI (<c>191.0.0-beta.4</c>), read at run time.</summary>
+    /// <summary>The package version of the loaded SharpNRI (its major is the NRI version it was built for), read at run time.</summary>
     public static string BindingVersion => NriVersionCheck.Binding;
 
     /// <summary>The NRI version the loaded SharpNRI was built for, read at run time (<see cref="NriVersion"/> is compiled into the caller).</summary>
@@ -38,15 +38,14 @@ public static unsafe class Nri
 
     /// <summary>
     /// A <c>DXGI_FORMAT</c> as NRI's format; the best-matched typed format for a <c>TYPELESS</c> one,
-    /// <c>UNKNOWN</c> when NRI has none. NRI v190 answers <c>RGB32_SINT</c> for
+    /// <c>UNKNOWN</c> when NRI has none. NRI answers <c>RGB32_SINT</c> for
     /// <c>DXGI_FORMAT_R32G32_SINT</c> (18), a slip in its table (measured).
     /// </summary>
     public static Format ConvertDXGIFormatToNRI(uint dxgiFormat) => NriApi.nriConvertDXGIFormatToNRI(dxgiFormat);
 
     /// <summary>
     /// A <c>VkFormat</c> as NRI's format, <c>UNKNOWN</c> when NRI has none. The inverse of
-    /// <see cref="ConvertNRIFormatToVK"/> for every NRI format, block-compressed ones included
-    /// (NRI 5ed8bb6; NRI v190's table ended at <c>VK_FORMAT_D32_SFLOAT_S8_UINT</c>, 130). BC1's RGB
+    /// <see cref="ConvertNRIFormatToVK"/> for every NRI format, block-compressed ones included. BC1's RGB
     /// variants (131, 132) stay <c>UNKNOWN</c>: NRI has only BC1 RGBA.
     /// </summary>
     public static Format ConvertVKFormatToNRI(uint vkFormat) => NriApi.nriConvertVKFormatToNRI(vkFormat);

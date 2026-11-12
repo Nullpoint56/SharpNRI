@@ -540,6 +540,28 @@ public sealed unsafe class InteropTests
 
     private static void Check(VkResult result, string call) => Assert.True(result == VkResult.Success, $"{call}: {result}");
 
+    /// <summary>
+    /// A failed third-party call (NRI's <c>EXT_ERROR</c>) is an <see cref="NriExternalException"/>,
+    /// still an <see cref="NriException"/> with its result, carrying the text NRI reported on the thread
+    /// (the vendor call and its code); <c>DEVICE_LOST</c> and <c>UNSUPPORTED</c> keep their own types and
+    /// every other result stays a plain <see cref="NriException"/>. The NRI side, a missing vendor
+    /// runtime answered with <c>EXT_ERROR</c>, is <see cref="UpscalerFailureTests"/>.
+    /// </summary>
+    [Fact]
+    public void EXT_ERROR_is_an_NriExternalException_carrying_the_reported_text()
+    {
+        NriException.Reported("nri::UpscalerImpl::Create(): 'amd_fidelityfx_loader_vk.dll' can't be loaded");
+        var e = NriException.For(Result.EXT_ERROR, "CreateUpscaler");
+        var external = Assert.IsType<NriExternalException>(e);
+        Assert.Equal(Result.EXT_ERROR, external.Result);
+        Assert.Equal("CreateUpscaler", external.Call);
+        Assert.Equal("CreateUpscaler: EXT_ERROR — nri::UpscalerImpl::Create(): 'amd_fidelityfx_loader_vk.dll' can't be loaded", external.Message);
+
+        Assert.IsType<NriDeviceLostException>(NriException.For(Result.DEVICE_LOST, "QueueSubmit"));
+        Assert.IsType<NriUnsupportedException>(NriException.For(Result.UNSUPPORTED, "CreateUpscaler"));
+        foreach (var other in new[] { Result.FAILURE, Result.INVALID_ARGUMENT, Result.OUT_OF_MEMORY, Result.OUT_OF_DATE, Result.INVALID_SDK, Result.NOT_READY })
+            Assert.Equal(typeof(NriException), NriException.For(other, "Call").GetType());
+    }
 
     /// <summary>
     /// CreateQueryPoolVK maps the VkQueryType of a raw pool made on NRI's own VkDevice to the

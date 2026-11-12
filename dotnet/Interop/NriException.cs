@@ -63,6 +63,7 @@ public class NriException : Exception
         {
             Result.DEVICE_LOST => new NriDeviceLostException(call, detail),
             Result.UNSUPPORTED => new NriUnsupportedException(call, detail),
+            Result.EXT_ERROR => new NriExternalException(call, detail),
             _ => new NriException(result, call, detail),
         };
     }
@@ -83,3 +84,14 @@ public sealed class NriDeviceLostException(string call, string? detail = null)
 /// </summary>
 public sealed class NriUnsupportedException(string call, string? detail = null)
     : NriException(Result.UNSUPPORTED, call, detail);
+
+/// <summary>
+/// A third-party library NRI calls failed (<c>Result.EXT_ERROR</c>): an upscaler SDK (FSR, XeSS,
+/// DLSS, a missing or outdated runtime among the causes) or NVIDIA Reflex. The device is still
+/// usable, so this is the point to fall back, for example to another upscaler. The message names the
+/// vendor call and its code, as NRI reported it; the code itself is not available as a value. A vendor
+/// failure whose code means unsupported, an invalid argument or out of memory arrives as
+/// <see cref="NriUnsupportedException"/> or an <see cref="NriException"/> with that result instead.
+/// </summary>
+public sealed class NriExternalException(string call, string? detail = null)
+    : NriException(Result.EXT_ERROR, call, detail);

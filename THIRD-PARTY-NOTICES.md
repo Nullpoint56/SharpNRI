@@ -1,7 +1,7 @@
 # Third-party notices
 
 SharpNRI's own code is MIT (`LICENSE.md`). Its native payloads are built by `tools/build-native.ps1` from the NRI
-submodule at the tag pinned in `Directory.Build.props` (versions below are those pinned by NRI v191's
+submodule at the tag pinned in `Directory.Build.props` (versions below are those pinned by that NRI tag's
 `CMakeLists.txt`) and ship as two packages (`AGENTS.md`: Native packages). Each package stages the
 licence of every component inside it beside its binaries, in `licenses/<Component>/`, copied from the
 exact archive the build fetched. This file is staged with both packages as
@@ -18,13 +18,13 @@ NRI with no upscaler SDK compiled in. MIT throughout, plus Apache-2.0 alternativ
 
 | Component | Version | In the package as | Licence | Platforms |
 |---|---|---|---|---|
-| [NRI](https://github.com/NVIDIA-RTX/NRI) (NVIDIA Render Interface) | v191 + `patches/` | `NRI.dll` / `libNRI.so` / `libNRI.dylib` | MIT | all |
+| [NRI](https://github.com/NVIDIA-RTX/NRI) (NVIDIA Render Interface) | the pinned tag (`Nri.NriVersion`) + `patches/` | `NRI.dll` / `libNRI.so` / `libNRI.dylib` | MIT | all |
 | [Vulkan Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | commit 0f1a757 | compiled into NRI | MIT | all |
-| [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | v1.4.367 | compiled into NRI (headers only; no Vulkan runtime is shipped) | Apache-2.0 OR MIT | all |
-| [NVTX](https://github.com/NVIDIA/NVTX) | v3.6.0 | compiled into NRI (header-only) | Apache-2.0 with LLVM exceptions | all |
-| [D3D12 Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator) | commit 1753823 | compiled into NRI | MIT | Windows |
-| [DirectX 12 Agility SDK](https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/1.620.1) headers | 1.620.1 | compiled into NRI (headers only; the runtime is not shipped) | MIT (`LICENSE-CODE.txt`) | Windows |
-| [NVAPI](https://github.com/NVIDIA/nvapi) | commit 70d337d | static lib linked into NRI (no DLL; the driver provides `nvapi64.dll`) | MIT | Windows |
+| [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | v1.4.368 | compiled into NRI (headers only; no Vulkan runtime is shipped) | Apache-2.0 OR MIT | all |
+| [NVTX](https://github.com/NVIDIA/NVTX) | v3.7.0 | compiled into NRI (header-only) | Apache-2.0 with LLVM exceptions | all |
+| [D3D12 Memory Allocator](https://github.com/GPUOpen-LibrariesAndSDKs/D3D12MemoryAllocator) | commit 6009492 | compiled into NRI | MIT | Windows |
+| [DirectX 12 Agility SDK](https://www.nuget.org/packages/Microsoft.Direct3D.D3D12/1.620.2) headers | 1.620.2 | compiled into NRI (headers only; the runtime is not shipped) | MIT (`LICENSE-CODE.txt`) | Windows |
+| [NVAPI](https://github.com/NVIDIA/nvapi) | commit 51e5aae | static lib linked into NRI (no DLL; the driver provides `nvapi64.dll`) | MIT | Windows |
 | [AMD AGS](https://github.com/GPUOpen-LibrariesAndSDKs/AGS_SDK) | v6.3.1 | `amd_ags_x64.dll` (loaded at run time) | MIT | win-x64 |
 
 ## `SharpNRI.Native.Upscalers` — Upscalers (`runtimes-upscalers/<rid>/native/`)
@@ -35,7 +35,7 @@ plus:
 | Component | Version | In the package as | Licence | Platforms |
 |---|---|---|---|---|
 | [NVIDIA Image Scaling (NIS)](https://github.com/NVIDIAGameWorks/NVIDIAImageScaling) | v1.0.3 | shader source inside NRI, compiled into NRI | MIT | all |
-| [ShaderMake](https://github.com/NVIDIA-RTX/ShaderMake) (`ShaderMakeBlob`) | commit 3f01623 | compiled into NRI (blob lookup for the embedded NIS shaders) | MIT | all |
+| [ShaderMake](https://github.com/NVIDIA-RTX/ShaderMake) (`ShaderMakeBlob`) | commit 4f1ffd5 | compiled into NRI (blob lookup for the embedded NIS shaders) | MIT | all |
 | [AMD FSR SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK) ("Redstone") API headers | v2.4.0 | compiled into NRI (D3D12 and Vulkan); NRI loads the runtime by name | MIT for the files its `license.md` lists (the API headers are listed) | win-x64 |
 | [Intel XeSS SDK](https://github.com/intel/xess) headers and import library | v3.0.2 | compiled and linked into NRI; `libxess.dll` is delay-loaded | Intel Simplified Software License | win-x64 |
 
@@ -1563,7 +1563,7 @@ SOFTWARE.
 
 ### DirectX Agility SDK: Microsoft Software License Terms
 
-`LICENSE.txt` in Microsoft's `Microsoft.Direct3D.D3D12` 1.620.1 package (the runtime; not shipped by
+`LICENSE.txt` in Microsoft's `Microsoft.Direct3D.D3D12` 1.620.2 package (the runtime; not shipped by
 SharpNRI, kept here for applications that ship it)
 
 ```text

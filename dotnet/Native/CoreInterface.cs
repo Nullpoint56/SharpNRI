@@ -269,6 +269,7 @@ public unsafe partial struct CoreInterface
     [NativeTypeName("void (*)(CommandBuffer &, Buffer &, const TextureDataLayoutDesc &, const Texture &, const TextureRegionDesc &) __attribute__((stdcall))")]
     public delegate* unmanaged[Stdcall]<CommandBuffer*, Buffer*, TextureDataLayoutDesc*, Texture*, TextureRegionDesc*, void> CmdReadbackTextureToBuffer;
 
+    /// <summary>offset and size must be multiples of 4</summary>
     [NativeTypeName("void (*)(CommandBuffer &, Buffer &, uint64_t, uint64_t) __attribute__((stdcall))")]
     public delegate* unmanaged[Stdcall]<CommandBuffer*, Buffer*, ulong, ulong, void> CmdZeroBuffer;
 

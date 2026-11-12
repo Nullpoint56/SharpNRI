@@ -12,7 +12,7 @@ public partial struct AllocateMemoryDesc
     /// <summary>https://learn.microsoft.com/en-us/windows/win32/direct3d12/residency https://learn.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_residency_priority https://docs.vulkan.org/refpages/latest/refpages/source/VkMemoryPriorityAllocateInfoEXT.html [-1; 1]: low &lt; 0, normal = 0, high &gt; 0</summary>
     public float priority;
 
-    [NativeTypeName("__AnonymousRecord_NRIDescs_L840_C5")]
+    [NativeTypeName("__AnonymousRecord_NRIDescs_L841_C5")]
     public _vma_e__Struct vma;
 
     /// <summary>If "false", may reduce alignment requirements</summary>

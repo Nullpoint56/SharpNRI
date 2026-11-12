@@ -1,7 +1,8 @@
-// A vendor upscaler that fails must say why (patch 0049). NRI's FSR and DLSS creation returned a bare
-// FAILURE when the vendor runtime was missing, and a failed vendor dispatch was only an NRI_CHECK,
-// compiled out of a release NRI.dll; the patch reports each failed vendor call as an ERROR naming the
-// call and its result (AGENTS.md: Upscalers and vendor runtimes).
+// A vendor upscaler that fails must say why, and must not be NRI's generic FAILURE (NRI PR #324, the
+// binding's former patch 0049). NRI reports each failed vendor call as an ERROR naming the call and its
+// result, and returns EXT_ERROR (a third-party failure, which never calls AbortExecution) unless the
+// vendor's code maps to INVALID_ARGUMENT, UNSUPPORTED or OUT_OF_MEMORY. A missing FSR loader is
+// EXT_ERROR (AGENTS.md: Upscalers and vendor runtimes).
 //
 // The creation case runs in a child process started from a copy of the test directory without the
 // vendor runtimes, since NRI loads them by bare name and Windows searches the executable's directory
@@ -143,6 +144,16 @@ public sealed class UpscalerFailureTests(ITestOutputHelper output)
                 if (errors.Count == 0)
                 {
                     Console.WriteLine($"FAIL {api} {type}: {result} with no message saying why");
+                    failed = true;
+                }
+                if (result == Result.EXT_ERROR && NriException.For(result, "CreateUpscaler") is not NriExternalException)
+                {
+                    Console.WriteLine($"FAIL {api} {type}: EXT_ERROR is not mapped to NriExternalException");
+                    failed = true;
+                }
+                if (result == Result.FAILURE || (type == UpscalerType.FSR && result != Result.EXT_ERROR))
+                {
+                    Console.WriteLine($"FAIL {api} {type}: {result}, expected EXT_ERROR for a missing vendor library{(type == UpscalerType.FSR ? "" : " or the vendor's mapped result")}");
                     failed = true;
                 }
             }

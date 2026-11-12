@@ -3,7 +3,7 @@ namespace SharpNRI.Native;
 /// <summary>A collection of queues of the same type</summary>
 public unsafe partial struct QueueFamilyDesc
 {
-    /// <summary>[-1; 1]: low &lt; 0, normal = 0, high &gt; 0 ("queueNum" entries expected)</summary>
+    /// <summary>"queueNum" entries in range [-1; 1] (low &lt; 0, normal = 0, high &gt; 0, D3D12: low == normal)</summary>
     [NativeTypeName("const float *")]
     public float* queuePriorities;
 

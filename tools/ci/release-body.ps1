@@ -10,7 +10,7 @@
     of the release and the zip-only macOS library. release.yml runs it; run it locally to preview or
     to rewrite a published body (gh release edit <tag> --notes-file <out>).
 
-        pwsh tools/ci/release-body.ps1 -Tag v1.0.0-beta.3 -Manifest runtimes-upscalers/win-x64/upscaler-runtimes.json -DescsVersion 191.0.0-beta.1 -AgilitySdk 1.620.1 -Out body.md
+        pwsh tools/ci/release-body.ps1 -Tag v<SharpNRIVersion> -Manifest runtimes-upscalers/win-x64/upscaler-runtimes.json -DescsVersion <SharpNRIDescsVersion> -AgilitySdk <AgilitySdkVersion> -Out body.md
 
     SharpNRI.Descs has its own version since 1.0.0-beta.3 (AGENTS.md: Versions); without
     -DescsVersion it is the tag's, as for the earlier releases. -AgilitySdk also lists the

@@ -2,6 +2,7 @@
 
 [![NRI surface bound](docs/badges/bound-surface.svg)](docs/coverage.md#bound-surface)
 [![test coverage](docs/badges/test-coverage.svg)](docs/coverage.md#test-coverage)
+[![NuGet](https://img.shields.io/nuget/vpre/SharpNRI?label=NuGet)](https://www.nuget.org/packages/SharpNRI)
 
 C# bindings for [NRI](https://github.com/NVIDIA-RTX/NRI), the NVIDIA Render Interface: one
 low-level API over Vulkan and D3D12. NRI is explicit, with no hidden management and no automatic
@@ -38,17 +39,14 @@ From [NuGet.org](https://www.nuget.org/packages/SharpNRI) (a prerelease while in
 dotnet add package SharpNRI --prerelease
 ```
 
-```xml
-<PackageReference Include="SharpNRI" Version="191.0.0-beta.4" />
-```
-
-Each [release](https://github.com/Nullpoint56/SharpNRI/releases) also carries the same `.nupkg`
+The badge above shows the latest release; take every SharpNRI package at that same version. Each
+[release](https://github.com/Nullpoint56/SharpNRI/releases) also carries the same `.nupkg`
 files, for a local folder feed.
 
 | Package | What it is |
 |---|---|
 | `SharpNRI` | the binding and the native NRI library (Windows x64, Linux x64) |
-| `SharpNRI.Descs` | every NRI enum and desc struct, with no native code: for code that builds layouts and descs without a device. Versioned by NRI (`191.x` is NRI v191), new only when the descs change |
+| `SharpNRI.Descs` | every NRI enum and desc struct, with no native code: for code that builds layouts and descs without a device. Versioned by NRI (the major is the NRI version), new only when the descs change |
 | `SharpNRI.Testing` | a validated headless device per backend, for your own GPU tests |
 | `SharpNRI.Native.Upscalers` | NRI built with its upscalers (NIS, FSR, XeSS), replacing the library in `SharpNRI`: reference it, nothing else |
 | `SharpNRI.AgilitySDK` | build targets that copy Microsoft's D3D12 Agility SDK runtime at NRI's version into `AgilitySDK\` and fail the build on another version; your restore takes Microsoft's package |
@@ -76,8 +74,9 @@ upscaler tests measured on a local payload with the vendor runtimes (NIS, FSR, X
 resolution and ray reconstruction on Vulkan and D3D12): render resolutions, accuracy and GPU time
 per mode. CI cannot run those, since no package ships the vendor runtimes.
 
-Each release pins one NRI release (currently v191), built from source with a small set of
-[patches](patches/README.md): fixes not yet upstream and a few additions.
+Each release pins one NRI release, the major of its version number (`N.x.y` is NRI vN), built
+from source with a small set of [patches](patches/README.md): fixes not yet upstream and a few
+additions.
 
 ## Building from source
 

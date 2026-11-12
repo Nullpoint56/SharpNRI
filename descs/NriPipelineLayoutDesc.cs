@@ -32,7 +32,7 @@ public sealed class NriPipelineLayoutDesc
     public NriDescriptorSetDesc[] DescriptorSets { get; init; } = [];
 
     /// <summary>
-    /// The shader stages the layout serves (NRI v191, its validation and both backends):
+    /// The shader stages the layout serves (NRI's validation and both backends):
     /// <list type="bullet">
     /// <item><c>StageBits.ALL</c> (0, the barrier default) or <c>ALL_SHADERS</c> is every shader stage;
     /// any other value must be shader stages only (else "'shaderStages' must be 'ALL' or a shader stage
